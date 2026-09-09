@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
 	"github.com/spf13/cobra"
+	"os"
+	"strings"
 )
 
 // newAccountingCDCCmd implements `accounting cdc get`: v3 change-data
@@ -179,5 +179,47 @@ func newTaxCodeCreateCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "tax-code name (required)")
 	cmd.Flags().StringVar(&rates, "rates-json", "", "TaxRateDetails JSON array, @file allowed (needs a real tax agency)")
 	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+// newAdvancedBatchRunCmd implements `advanced batch run`: native v3 batch
+// (up to 25 mixed read/write ops per call, verified live TC2). Items pass
+// through verbatim: {"bId":"1","Query":"select ..."} or
+// {"bId":"2","operation":"create","Invoice":{...}}. R4: a batch can mutate.
+func newAdvancedBatchRunCmd(flags *rootFlags) *cobra.Command {
+	var file string
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "POST a native v3 batch (up to 25 ops)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			raw := file
+			if raw == "" {
+				return exitInput(fmt.Errorf("batch run requires --file (@path allowed)"))
+			}
+			if !strings.HasPrefix(strings.TrimSpace(raw), "@") && !strings.HasPrefix(strings.TrimSpace(raw), "[") {
+				raw = "@" + raw
+			}
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "advanced batch run", ID: "QBO.ADVANCED.BATCH_RUN",
+					Mode: modeWired, Method: "POST",
+					URL:   "https://qbo.intuit.com/api/v3/company/{realm}/batch",
+					Flags: localFlagMap(cmd), Note: "native batch POST; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			items, err := client.ReplayBatch(ctx, raw)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{"items": items})
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&file, "file", "", "BatchItemRequest JSON array, @path or inline (required)")
+	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }

@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/mvanhorn/cli-printing-press)](go.mod)
 [![License](https://img.shields.io/github/license/mvanhorn/cli-printing-press)](LICENSE)
 
-`qb` drives the whole of QuickBooks Online (AU) from the terminal: books, banking feeds, sales, expenses, payroll, tax, inventory, reports — 531 catalogued operations across 16 domains, with live reads, live writes, dry-runs, and an authenticated session that heals itself. Built agent-first (`--json` everywhere, `qb actions` as a machine-readable contract), equally usable by humans.
+`qb` drives the whole of QuickBooks Online (AU) from the terminal: books, banking feeds, sales, expenses, payroll, tax, inventory, reports — 543 catalogued operations across 16 domains, with live reads, live writes, dry-runs, and an authenticated session that heals itself. Built agent-first (`--json` everywhere, `qb actions` as a machine-readable contract), equally usable by humans.
 
 Printed by the [Printing Press](https://printingpress.dev) (`cli-printing-press`, same repo) from the official v3 API, the QBO webapp's own captured GraphQL, and the banking-feed surfaces Intuit never published.
 
@@ -25,27 +25,27 @@ go build -o qb ./cmd/qb
 - **Auto-renewal is the default.** Any 401 ladders relay → headless profile refresh → replays the failed call. A dead session costs one slow command, then just works. Nothing to configure; `QB_NO_MANAGED=1` opts out of the browser rung.
 - Secrets live only in `~/.config/qb/credentials.json` (0600). `--json` output never includes them.
 
-## Coverage (531 primitives)
+## Coverage (543 primitives)
 
 | Domain | Wired | Read | Command root |
 |---|---|---|---|
 | Accounting (COA, class, budget, journals, fixed assets, CDC) | 36 | 27 | `qb accounting` |
 | Expenses (bills, suppliers, cheques, time activities) | 24 | 19 | `qb expenses` |
 | Sales (invoices, estimates, payments, sends, PDFs) | 27 | 17 | `qb sales` |
-| Company (settings, users, lists, attachables, rates) | 15 | 21 | `qb company` |
+| Company (settings, users, lists, attachables, rates) | 15 | 22 | `qb company` |
 | Feed (banking classify/split/exclude/undo) | 7 | 11 | `qb feed` |
 | Payroll (pay runs, STP, super) | 5 | 11 | `qb payroll` |
 | Tax (GST, BAS, TPAR, agencies, codes) | 3 | 8 | `qb tax` |
 | Inventory (items, purchase orders) | 7 | 8 | `qb inventory` |
 | Customers | 3 | 15 | `qb customers` |
-| Reports + forecasts | 0 | 20 | `qb reports` |
+| Reports + forecasts | 0 | 30 | `qb reports` |
 | GraphQL (captured webapp ops) | 8 | 3 | `qb gql` |
 | Cost groups, custom objects, accountant | 3 | 1 | `qb costgroups`, `qb customobjects`, `qb accountant` |
 | Integrations, advanced (service maps) | 0 | 4 | `qb integrations`, `qb advanced` |
 
 `qb crm` and `qb salestx` exist as command trees outside the actions catalog (service-mapped verbs).
 
-Totals: **139 wired, 167 read-only, 223 blocked, 2 excluded of 531 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+Totals: **140 wired, 178 read-only, 223 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
 
 Examples:
 

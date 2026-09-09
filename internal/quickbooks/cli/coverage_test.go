@@ -32,7 +32,7 @@ func runCoverageRoot(t *testing.T, args ...string) (string, error) {
 // parses but never filters (all rows shown), an off-by-one filter, and a
 // filter that breaks the JSON contract.
 func TestActionsModeFlagFiltersRows(t *testing.T) {
-	want := map[string]int{"wired": 139, "read": 167, "blocked": 223, "excluded": 2}
+	want := map[string]int{"wired": 140, "read": 178, "blocked": 223, "excluded": 2}
 	for mode, n := range want {
 		out, err := runCoverageRoot(t, "actions", "--json", "--mode", mode)
 		if err != nil {
@@ -72,8 +72,8 @@ func TestActionsModeFlagFiltersRows(t *testing.T) {
 // change that breaks agents parsing "Coverage: N wired, M read-only, K blocked".
 func TestCoverageCountsMatchCatalog(t *testing.T) {
 	wired, read, blocked, excluded, total := catalogModeTotals()
-	if wired != 139 || read != 167 || blocked != 223 || excluded != 2 || total != 531 {
-		t.Fatalf("catalogModeTotals = (%d,%d,%d,%d,%d), want (139,167,223,2,531)", wired, read, blocked, excluded, total)
+	if wired != 140 || read != 178 || blocked != 223 || excluded != 2 || total != 543 {
+		t.Fatalf("catalogModeTotals = (%d,%d,%d,%d,%d), want (140,178,223,2,543)", wired, read, blocked, excluded, total)
 	}
 	if wired+read+blocked+excluded != total {
 		t.Errorf("modes sum %d != total %d", wired+read+blocked+excluded, total)
@@ -120,7 +120,7 @@ func TestDomainHelpShowsCoverageLine(t *testing.T) {
 	if err := root.Help(); err != nil {
 		t.Fatalf("root help: %v", err)
 	}
-	if !strings.Contains(out.String(), "Coverage: 139 wired, 167 read-only, 223 blocked, 2 excluded of 531 actions") {
+	if !strings.Contains(out.String(), "Coverage: 140 wired, 178 read-only, 223 blocked, 2 excluded of 543 actions") {
 		t.Errorf("root help missing catalog-wide coverage line; got:\n%s", out.String())
 	}
 
@@ -129,13 +129,13 @@ func TestDomainHelpShowsCoverageLine(t *testing.T) {
 		"sales":         "Coverage: 27 wired, 17 read-only, 23 blocked",
 		"accounting":    "Coverage: 36 wired, 29 read-only, 10 blocked",
 		"payroll":       "Coverage: 5 wired, 11 read-only, 22 blocked",
-		"reports":       "Coverage: 0 wired, 20 read-only, 9 blocked",
-		"company":       "Coverage: 15 wired, 21 read-only, 46 blocked",
+		"reports":       "Coverage: 0 wired, 30 read-only, 9 blocked",
+		"company":       "Coverage: 15 wired, 22 read-only, 46 blocked",
 		"customers":     "Coverage: 3 wired, 15 read-only, 13 blocked",
 		"inventory":     "Coverage: 7 wired, 8 read-only, 9 blocked",
 		"tax":           "Coverage: 2 wired, 8 read-only, 18 blocked",
 		"feed":          "Coverage: 7 wired, 11 read-only, 19 blocked",
-		"advanced":      "Coverage: 0 wired, 4 read-only, 16 blocked",
+		"advanced":      "Coverage: 1 wired, 4 read-only, 16 blocked",
 		"accountant":    "Coverage: 0 wired, 0 read-only, 1 blocked",
 		"integrations":  "Coverage: 0 wired, 0 read-only, 4 blocked",
 		"gql":           "Coverage: 8 wired, 3 read-only, 0 blocked",
@@ -190,7 +190,7 @@ func TestDoctorCoverageCheckIsInformational(t *testing.T) {
 	if last.Name != "coverage" || !last.OK {
 		t.Errorf("last check = %+v, want named \"coverage\" and ok", last)
 	}
-	for _, frag := range []string{"139 wired", "167 read", "223 blocked", "2 excluded", "531 actions"} {
+	for _, frag := range []string{"140 wired", "178 read", "223 blocked", "2 excluded", "543 actions"} {
 		if !strings.Contains(last.Detail, frag) {
 			t.Errorf("detail %q missing %q", last.Detail, frag)
 		}

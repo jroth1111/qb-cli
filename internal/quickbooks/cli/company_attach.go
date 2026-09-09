@@ -104,3 +104,40 @@ func newSalesInvoicePDFCmd(flags *rootFlags) *cobra.Command {
 	_ = cmd.MarkFlagRequired("out")
 	return cmd
 }
+
+// newCompanyAttachableDownloadCmd implements `company attachable download`.
+func newCompanyAttachableDownloadCmd(flags *rootFlags) *cobra.Command {
+	var id, out string
+	cmd := &cobra.Command{
+		Use:   "download",
+		Short: "Download an attachable's file bytes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "company attachable download", ID: "QBO.COMPANY.ATTACHABLE_DOWNLOAD",
+					Mode: modeRead, Method: "GET",
+					URL:   "https://qbo.intuit.com/api/v3/company/{realm}/download/{id}",
+					Flags: localFlagMap(cmd), Note: "pre-signed hop + file fetch; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.DownloadAttachable(ctx, id, out)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				fmt.Fprintf(cmd.OutOrStdout(), "{\"path\":%q,\"bytes\":%d,\"content_type\":%q}\n",
+					res.Path, res.Bytes, res.ContentType)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Attachable file %d bytes -> %s\n", res.Bytes, res.Path)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "attachable id (required)")
+	cmd.Flags().StringVar(&out, "out", "", "output file path (required)")
+	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("out")
+	return cmd
+}

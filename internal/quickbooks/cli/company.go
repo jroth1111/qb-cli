@@ -13,6 +13,7 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(accountantEnt)
 	attachableEnt := &cobra.Command{Use: "attachable", Short: "attachable"}
 	attachableEnt.AddCommand(newCompanyAttachableUploadCmd(flags))
+	attachableEnt.AddCommand(newCompanyAttachableDownloadCmd(flags))
 	attachableEnt.AddCommand(newStubCmd(flags, "company attachable", "get", "attachable read"))
 	attachableEnt.AddCommand(newStubCmd(flags, "company attachable", "search", "attachable search"))
 	attachableEnt.AddCommand(newStubCmd(flags, "company attachable", "update", "attachable edit"))

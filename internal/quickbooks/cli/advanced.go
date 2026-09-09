@@ -11,6 +11,9 @@ func newAdvancedCmd(flags *rootFlags) *cobra.Command {
 	backupEnt := &cobra.Command{Use: "backup", Short: "backup"}
 	backupEnt.AddCommand(newStubCmd(flags, "advanced backup", "create", "backup create (not wired)"))
 
+	batchEnt := &cobra.Command{Use: "batch", Short: "batch"}
+	batchEnt.AddCommand(newAdvancedBatchRunCmd(flags))
+	cmd.AddCommand(batchEnt)
 	cmd.AddCommand(backupEnt)
 	custom_rolesEnt := &cobra.Command{Use: "custom-roles", Short: "custom-roles"}
 	custom_rolesEnt.AddCommand(newStubCmd(flags, "advanced custom-roles", "create", "custom-roles create (not wired)"))

@@ -208,3 +208,69 @@ func impersonatedDo(req *http.Request) (*http.Response, error) {
 	std.Timeout = httpTimeout
 	return std.Do(req)
 }
+
+// DownloadAttachable fetches an attachable's bytes to outPath. The v3
+// download endpoint answers with a pre-signed financialdocument URL (it
+// embeds a live apikey, so it is followed transiently and never logged or
+// persisted); the second GET returns the file bytes. Verified live TC2.
+func DownloadAttachable(ctx context.Context, id, outPath string) (*InvoicePDFResult, error) {
+	id = sanitizeToken(id)
+	if id == "" {
+		return nil, fmt.Errorf("attachable download requires --id")
+	}
+	if strings.TrimSpace(outPath) == "" {
+		return nil, fmt.Errorf("attachable download requires --out path")
+	}
+	ac, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	u := "https://qbo.intuit.com/api/v3/company/" + ac.realm + "/download/" + id
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("attachable download request: %w", err)
+	}
+	ac.applyHeaders(req, "")
+	req.Header.Set("Accept", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("attachable download pointer: %w", err)
+	}
+	defer drainAndClose(resp)
+	raw, err := readBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
+	}
+	fileURL := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(fileURL, "https://") {
+		return nil, fmt.Errorf("attachable download: unexpected pointer shape")
+	}
+	freq, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("attachable file request: %w", err)
+	}
+	fresp, err := http.DefaultClient.Do(freq)
+	if err != nil {
+		return nil, fmt.Errorf("attachable file fetch: %w", err)
+	}
+	defer drainAndClose(fresp)
+	if fresp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("attachable file fetch: status %d", fresp.StatusCode)
+	}
+	content, err := io.ReadAll(io.LimitReader(fresp.Body, 100<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading attachable: %w", err)
+	}
+	if err := os.WriteFile(outPath, content, 0o644); err != nil {
+		return nil, fmt.Errorf("writing attachable: %w", err)
+	}
+	return &InvoicePDFResult{
+		Status:      fresp.StatusCode,
+		Path:        outPath,
+		Bytes:       len(content),
+		ContentType: fresp.Header.Get("Content-Type"),
+	}, nil
+}

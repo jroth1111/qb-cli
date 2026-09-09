@@ -247,3 +247,65 @@ func CreateTaxCode(ctx context.Context, name, ratesJSON string) (map[string]any,
 	}
 	return out, nil
 }
+
+// ReplayBatch posts native v3 BatchItemRequest entries (read and write ops,
+// up to 25 per call) and returns the raw BatchItemResponse list. Items pass
+// through verbatim: {"bId":"1","Query":"select ..."} for reads,
+// {"bId":"2","operation":"create","Invoice":{...}} for writes. Verified
+// live TC2. A 200 with per-item Fault entries is still success at the HTTP
+// layer; callers inspect items.
+func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
+	trimmed := strings.TrimSpace(itemsJSON)
+	if strings.HasPrefix(trimmed, "@") {
+		raw, err := os.ReadFile(strings.TrimPrefix(trimmed, "@"))
+		if err != nil {
+			return nil, fmt.Errorf("reading batch file: %w", err)
+		}
+		trimmed = string(raw)
+	}
+	var items []any
+	if err := json.Unmarshal([]byte(trimmed), &items); err != nil {
+		return nil, fmt.Errorf("batch items must decode to a JSON array: %w", err)
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("batch requires at least one item")
+	}
+	if len(items) > 25 {
+		return nil, fmt.Errorf("batch caps at 25 items (got %d)", len(items))
+	}
+	ac, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(map[string]any{"BatchItemRequest": items})
+	if err != nil {
+		return nil, fmt.Errorf("batch body: %w", err)
+	}
+	u := "https://qbo.intuit.com/api/v3/company/" + ac.realm + "/batch?minorversion=73"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("batch request: %w", err)
+	}
+	ac.applyHeaders(req, "")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("batch: %w", err)
+	}
+	defer drainAndClose(resp)
+	raw, err := readBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
+	}
+	var out struct {
+		Items []any `json:"BatchItemResponse"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("batch: %w", err)
+	}
+	return out.Items, nil
+}
