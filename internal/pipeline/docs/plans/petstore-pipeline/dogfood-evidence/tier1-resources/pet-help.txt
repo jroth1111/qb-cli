@@ -1,0 +1,31 @@
+Everything about your Pets
+
+Usage:
+  petstore-cli pet [command]
+
+Available Commands:
+  add              Add a new pet to the store.
+  delete           Deletes a pet.
+  find-by-status   Finds Pets by status.
+  find-by-tags     Finds Pets by tags.
+  get-by-id        Find pet by ID.
+  update           Update an existing pet.
+  update-with-form Updates a pet in the store with form data.
+  upload-image     Manage upload image
+
+Flags:
+  -h, --help   help for pet
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "petstore-cli pet [command] --help" for more information about a command.

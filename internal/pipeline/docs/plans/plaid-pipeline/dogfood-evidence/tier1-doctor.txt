@@ -1,0 +1,6 @@
+  OK Config: ok
+  FAIL Auth: not configured
+  OK API: reachable (HTTP 200 at )
+  config_path: <home>/.config/plaid-cli/config.toml
+  base_url: https://production.plaid.com
+  version: 2020-09-14_1.682.2

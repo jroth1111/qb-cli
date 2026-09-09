@@ -1,0 +1,263 @@
+{
+  "api_name": "notion",
+  "novelty_score": 2,
+  "alternatives": [
+    {
+      "name": "webclipper/web-clipper",
+      "url": "https://github.com/webclipper/web-clipper",
+      "language": "typescript",
+      "install_method": "npm",
+      "stars": 6728,
+      "last_updated": "2025-10-21",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "echo724/notion2md",
+      "url": "https://github.com/echo724/notion2md",
+      "language": "python",
+      "install_method": "pip",
+      "stars": 757,
+      "last_updated": "2024-01-10",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "yannbolliger/notion-exporter",
+      "url": "https://github.com/yannbolliger/notion-exporter",
+      "language": "typescript",
+      "install_method": "npm",
+      "stars": 181,
+      "last_updated": "2026-01-12",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "kris-hansen/notion-cli",
+      "url": "https://github.com/kris-hansen/notion-cli",
+      "language": "python",
+      "install_method": "pip",
+      "stars": 123,
+      "last_updated": "2026-03-11",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "Myastr0/mk-notes",
+      "url": "https://github.com/Myastr0/mk-notes",
+      "language": "typescript",
+      "install_method": "npm",
+      "stars": 115,
+      "last_updated": "2025-12-23",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    }
+  ],
+  "gaps": [
+    "most alternatives lack --json output mode",
+    "no alternative offers --dry-run mode",
+    "1/5 alternatives are stale (\u003e1 year since last update)"
+  ],
+  "patterns": [
+    "no Go-based alternative exists - our binary has zero runtime deps"
+  ],
+  "recommendation": "skip",
+  "researched_at": "2026-03-25T09:13:36.65827-07:00",
+  "competitor_insights": {
+    "analyses": [
+      {
+        "repo_url": "https://github.com/webclipper/web-clipper",
+        "commands_found": [
+          "clone",
+          "web-clipper",
+          "i",
+          "run"
+        ],
+        "feature_requests": [
+          "考虑对设置和配置过的模板提供导入导出或云同步配置之类的备份或同步功能吗",
+          "请求支持 Screvi",
+          "请求支持 Docmost 自部署文档项目",
+          "考虑新增对telegram的支持",
+          "support feishu",
+          "有考虑新增支持Confluence 9.2.1吗？  当前Confluence支持版本已经很落后了",
+          "剪藏长网页到obsidian中会自动截断",
+          "Notion不支持使用 请求修复notion bug！！",
+          "请求支持一下microsoft edge iOS",
+          "希望增加支援 Affine"
+        ],
+        "abandoned_prs": [
+          "fix(deps): update axios and form-data to resolve security vulnerabilities",
+          "support feishu"
+        ],
+        "pain_points": [
+          "考虑对设置和配置过的模板提供导入导出或云同步配置之类的备份或同步功能吗",
+          "剪藏长网页到obsidian中会自动截断",
+          "Notion不支持使用 请求修复notion bug！！"
+        ],
+        "command_count": 4
+      },
+      {
+        "repo_url": "https://github.com/echo724/notion2md",
+        "commands_found": [
+          "install",
+          "--download",
+          "read"
+        ],
+        "feature_requests": [
+          "Formatting Issues in Markdown Export – Bold Text and List Sequence Problems",
+          "fix: used textwrap indent for indentation of child block",
+          "Markdown exportation ignores indentations of code snippet block",
+          "Add notion.site support",
+          "refactor Exporter",
+          "[Feature] Add in page anchor link support"
+        ],
+        "abandoned_prs": [
+          "fix: fix numbered list"
+        ],
+        "pain_points": [
+          "Formatting Issues in Markdown Export – Bold Text and List Sequence Problems"
+        ],
+        "command_count": 3
+      },
+      {
+        "repo_url": "https://github.com/yannbolliger/notion-exporter",
+        "commands_found": [
+          "any",
+          "of",
+          "CLI",
+          "Markdown",
+          "install",
+          "3af0a1e347dd40c5ba0a2c91e234b2a5",
+          "NotionExporter",
+          "tokenV2",
+          "fileToken",
+          "blockId",
+          "new",
+          "accurate",
+          "exporter",
+          "an",
+          "method",
+          "get",
+          "export",
+          "somewhere",
+          "download",
+          "part",
+          "ID",
+          "by",
+          "example",
+          "doing",
+          "tool",
+          "be",
+          "to",
+          "submit"
+        ],
+        "feature_requests": [
+          "Use actual API credentials"
+        ],
+        "abandoned_prs": [
+          "New flags",
+          "Nothing here"
+        ],
+        "pain_points": null,
+        "command_count": 28
+      },
+      {
+        "repo_url": "https://github.com/kris-hansen/notion-cli",
+        "commands_found": [
+          "a",
+          "uses",
+          "install",
+          "should",
+          "set",
+          "source",
+          "bin",
+          "build",
+          "run",
+          "order",
+          "get",
+          "--help",
+          "notion",
+          "ToDo",
+          "Show",
+          "Add",
+          "List",
+          "Mark",
+          "Remove"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": [
+          "Bump pyinstaller from 5.13.1 to 6.0.0"
+        ],
+        "pain_points": null,
+        "command_count": 19
+      },
+      {
+        "repo_url": "https://github.com/Myastr0/mk-notes",
+        "commands_found": null,
+        "feature_requests": [
+          "Vague concepts of hierarchy in synchronization",
+          "notion pages with more than 100 blocks don't seem to be update properly",
+          "Sync of single file leads to duplicated files",
+          "Nested bullet lists with 4+ levels failed",
+          "Database sync property field updates don't seem to work",
+          "--flat requires index.md to be existing in folder",
+          "Select \u0026 multi property field values for databases fail",
+          "Fix link between pages",
+          "🤔 Curious about your way of using mk-notes !"
+        ],
+        "abandoned_prs": null,
+        "pain_points": [
+          "Nested bullet lists with 4+ levels failed",
+          "--flat requires index.md to be existing in folder",
+          "Select \u0026 multi property field values for databases fail",
+          "🤔 Curious about your way of using mk-notes !"
+        ],
+        "command_count": 0
+      }
+    ],
+    "command_target": 34,
+    "unmet_features": [
+      "考虑对设置和配置过的模板提供导入导出或云同步配置之类的备份或同步功能吗",
+      "请求支持 Screvi",
+      "请求支持 Docmost 自部署文档项目",
+      "考虑新增对telegram的支持",
+      "support feishu",
+      "有考虑新增支持Confluence 9.2.1吗？  当前Confluence支持版本已经很落后了",
+      "剪藏长网页到obsidian中会自动截断",
+      "Notion不支持使用 请求修复notion bug！！",
+      "请求支持一下microsoft edge iOS",
+      "希望增加支援 Affine",
+      "Formatting Issues in Markdown Export – Bold Text and List Sequence Problems",
+      "fix: used textwrap indent for indentation of child block",
+      "Markdown exportation ignores indentations of code snippet block",
+      "Add notion.site support",
+      "refactor Exporter",
+      "[Feature] Add in page anchor link support",
+      "Use actual API credentials",
+      "Vague concepts of hierarchy in synchronization",
+      "notion pages with more than 100 blocks don't seem to be update properly",
+      "Sync of single file leads to duplicated files",
+      "Nested bullet lists with 4+ levels failed",
+      "Database sync property field updates don't seem to work",
+      "--flat requires index.md to be existing in folder",
+      "Select \u0026 multi property field values for databases fail",
+      "Fix link between pages",
+      "🤔 Curious about your way of using mk-notes !"
+    ],
+    "pain_points_to_avoid": [
+      "考虑对设置和配置过的模板提供导入导出或云同步配置之类的备份或同步功能吗",
+      "剪藏长网页到obsidian中会自动截断",
+      "Notion不支持使用 请求修复notion bug！！",
+      "Formatting Issues in Markdown Export – Bold Text and List Sequence Problems",
+      "Nested bullet lists with 4+ levels failed",
+      "--flat requires index.md to be existing in folder",
+      "Select \u0026 multi property field values for databases fail",
+      "🤔 Curious about your way of using mk-notes !"
+    ]
+  }
+}

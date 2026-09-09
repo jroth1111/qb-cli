@@ -1,0 +1,254 @@
+{
+  "api_name": "plaid",
+  "novelty_score": 6,
+  "alternatives": [
+    {
+      "name": "lightonai/next-plaid",
+      "url": "https://github.com/lightonai/next-plaid",
+      "language": "rust",
+      "install_method": "cargo",
+      "stars": 251,
+      "last_updated": "2026-03-25",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "landakram/plaid-cli",
+      "url": "https://github.com/landakram/plaid-cli",
+      "language": "go",
+      "install_method": "binary",
+      "stars": 57,
+      "last_updated": "2021-01-29",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "jms-guy/greed",
+      "url": "https://github.com/jms-guy/greed",
+      "language": "go",
+      "install_method": "binary",
+      "stars": 17,
+      "last_updated": "2025-12-01",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "dthigpen/plaid-cli-python",
+      "url": "https://github.com/dthigpen/plaid-cli-python",
+      "language": "python",
+      "install_method": "pip",
+      "stars": 6,
+      "last_updated": "2024-02-03",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "CliqueOfficial/clique-sibyl-plaid-data-connector",
+      "url": "https://github.com/CliqueOfficial/clique-sibyl-plaid-data-connector",
+      "language": "rust",
+      "install_method": "cargo",
+      "stars": 4,
+      "last_updated": "2024-06-05",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    }
+  ],
+  "gaps": [
+    "most alternatives lack --json output mode",
+    "no alternative offers --dry-run mode",
+    "3/5 alternatives are stale (\u003e1 year since last update)"
+  ],
+  "patterns": [
+    "standard CLI patterns (list, get, create, update, delete)"
+  ],
+  "recommendation": "proceed-with-gaps",
+  "researched_at": "2026-03-25T09:13:12.02209-07:00",
+  "competitor_insights": {
+    "analyses": [
+      {
+        "repo_url": "https://github.com/lightonai/next-plaid",
+        "commands_found": [
+          "code",
+          "install",
+          "--proto",
+          "init",
+          "meets",
+          "-e",
+          "TD",
+          "A",
+          "B",
+          "C",
+          "D",
+          "E",
+          "F",
+          "B1",
+          "C1",
+          "D1",
+          "E1",
+          "F1",
+          "i",
+          "RequestError",
+          "e",
+          "structured",
+          "vector",
+          "keeps",
+          "pull",
+          "run",
+          "next_plaid_client",
+          "benchmarks",
+          "HuggingFace"
+        ],
+        "feature_requests": [
+          "Windows CUDA support step 2",
+          "Add FTS5 full-text search over document metadata",
+          "[Feature] use the fancy-regex crate in colgrep",
+          "Claude plugin prompts to use `--include` parameter",
+          "[Feature] Multi-model index support — separate indexes per model",
+          "Compatibility between fast-plaid and next-plaid indices",
+          "Bring up CUDA-enabled colgrep on Windows",
+          "Windows CUDA bring-up for colgrep: strict GPU execution, env/linker fixes, and VRAM usage",
+          "perf: cache-friendly approximate scoring via transposed centroid layout",
+          "[Feature] colgrep integration with github copilot"
+        ],
+        "abandoned_prs": null,
+        "pain_points": [
+          "Add FTS5 full-text search over document metadata",
+          "[Feature] Multi-model index support — separate indexes per model",
+          "Windows CUDA bring-up for colgrep: strict GPU execution, env/linker fixes, and VRAM usage"
+        ],
+        "command_count": 29
+      },
+      {
+        "repo_url": "https://github.com/landakram/plaid-cli",
+        "commands_found": [
+          "is",
+          "formats",
+          "get",
+          "grab",
+          "credentials",
+          "setting",
+          "List",
+          "Give",
+          "Help",
+          "Link",
+          "link",
+          "see",
+          "tokens",
+          "alias",
+          "transactions",
+          "output",
+          "commands",
+          "manually",
+          "sync"
+        ],
+        "feature_requests": [
+          "Still maintained?",
+          "Capital One connections not available",
+          "Error loading tokens / aliases / parsing config",
+          "Transactions Get request Count"
+        ],
+        "abandoned_prs": null,
+        "pain_points": [
+          "Error loading tokens / aliases / parsing config",
+          "Transactions Get request Count"
+        ],
+        "command_count": 19
+      },
+      {
+        "repo_url": "https://github.com/jms-guy/greed",
+        "commands_found": [
+          "is",
+          "server",
+          "greed-cli-linux-amd64",
+          "Defender",
+          "source",
+          "pull",
+          "-p",
+          "greed",
+          "register",
+          "login",
+          "install",
+          "--help",
+          "clone",
+          "build",
+          "fetch",
+          "get",
+          "export"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 17
+      },
+      {
+        "repo_url": "https://github.com/dthigpen/plaid-cli-python",
+        "commands_found": [
+          "install",
+          "a",
+          "link",
+          "accounts",
+          "subtype",
+          "checking",
+          "an",
+          "alias",
+          "transactions",
+          "amount",
+          "-500",
+          "12",
+          "-o"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 13
+      },
+      {
+        "repo_url": "https://github.com/CliqueOfficial/clique-sibyl-plaid-data-connector",
+        "commands_found": [
+          "establish",
+          "ecparam",
+          "pkcs8",
+          "req",
+          "x509",
+          "build",
+          "compose",
+          "Sibyl",
+          "-k"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 9
+      }
+    ],
+    "command_target": 35,
+    "unmet_features": [
+      "Windows CUDA support step 2",
+      "Add FTS5 full-text search over document metadata",
+      "[Feature] use the fancy-regex crate in colgrep",
+      "Claude plugin prompts to use `--include` parameter",
+      "[Feature] Multi-model index support — separate indexes per model",
+      "Compatibility between fast-plaid and next-plaid indices",
+      "Bring up CUDA-enabled colgrep on Windows",
+      "Windows CUDA bring-up for colgrep: strict GPU execution, env/linker fixes, and VRAM usage",
+      "perf: cache-friendly approximate scoring via transposed centroid layout",
+      "[Feature] colgrep integration with github copilot",
+      "Still maintained?",
+      "Capital One connections not available",
+      "Error loading tokens / aliases / parsing config",
+      "Transactions Get request Count"
+    ],
+    "pain_points_to_avoid": [
+      "Add FTS5 full-text search over document metadata",
+      "[Feature] Multi-model index support — separate indexes per model",
+      "Windows CUDA bring-up for colgrep: strict GPU execution, env/linker fixes, and VRAM usage",
+      "Error loading tokens / aliases / parsing config",
+      "Transactions Get request Count"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+Manage transfer
+
+Usage:
+  plaid-cli transfer [command]
+
+Available Commands:
+  authorization-cancel              Cancel a transfer authorization
+  authorization-create              Create a transfer authorization
+  balance-get                       (Deprecated) Retrieve a balance held with Plaid
+  cancel                            Cancel a transfer
+  capabilities-get                  Get RTP eligibility information of a transfer
+  configuration-get                 Get transfer product configuration
+  create                            Create a transfer
+  diligence-document-upload         Upload transfer diligence document on behalf of the originator
+  diligence-submit                  Submit transfer diligence on behalf of the originator
+  event-list                        List transfer events
+  event-sync                        Sync transfer events
+  get                               Retrieve a transfer
+  intent-create                     Create a transfer intent object to invoke the Transfer UI
+  intent-get                        Retrieve more information about a transfer intent
+  ledger-deposit                    Deposit funds into a Plaid Ledger balance
+  ledger-distribute                 Move available balance between ledgers
+  ledger-event-list                 List transfer ledger events
+  ledger-get                        Retrieve Plaid Ledger balance
+  ledger-withdraw                   Withdraw funds from a Plaid Ledger balance
+  list                              List transfers
+  metrics-get                       Get transfer product usage metrics
+  migrate-account                   Migrate account into Transfers
+  originator-create                 Create a new originator
+  originator-funding-account-create Create a new funding account for an originator
+  originator-funding-account-update Update the funding account associated with the originator
+  originator-get                    Get status of an originator's onboarding
+  originator-list                   Get status of all originators' onboarding
+  platform-originator-create        Create an originator for Transfer for Platforms customers
+  platform-person-create            Create a person associated with an originator
+  platform-requirement-submit       Submit additional onboarding information on behalf of an originator
+  questionnaire-create              Generate a Plaid-hosted onboarding UI URL.
+  recurring-cancel                  Cancel a recurring transfer.
+  recurring-create                  Create a recurring transfer
+  recurring-get                     Retrieve a recurring transfer
+  recurring-list                    List recurring transfers
+  refund-cancel                     Cancel a refund
+  refund-create                     Create a refund
+  refund-get                        Retrieve a refund
+  repayment-list                    Lists historical repayments
+  repayment-return-list             List the returns included in a repayment
+  sweep-get                         Retrieve a sweep
+  sweep-list                        List sweeps
+
+Flags:
+  -h, --help   help for transfer
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli transfer [command] --help" for more information about a command.

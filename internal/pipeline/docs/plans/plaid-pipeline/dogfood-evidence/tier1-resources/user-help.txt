@@ -1,0 +1,36 @@
+Manage user
+
+Usage:
+  plaid-cli user [command]
+
+Available Commands:
+  create                   Create user
+  financial-data-refresh   Refresh user items for Financial-Insights bundle
+  get                      Retrieve user identity and information
+  identity-remove          Remove user identity data
+  items-associate          Associate Items to a User
+  items-get                Get Items associated with a User
+  items-remove             Remove Items from a User
+  products-terminate       Terminate user-based products
+  remove                   Remove user
+  third-party-token-create Create a third-party user token
+  third-party-token-remove Remove a third-party user token
+  transactions-refresh     Refresh user items for Transactions bundle
+  update                   Update user information
+
+Flags:
+  -h, --help   help for user
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli user [command] --help" for more information about a command.

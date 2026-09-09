@@ -1,0 +1,28 @@
+Manage signal
+
+Usage:
+  plaid-cli signal [command]
+
+Available Commands:
+  decision-report Report whether you initiated an ACH transaction
+  evaluate        Evaluate a planned ACH transaction
+  prepare         Opt-in an Item to Signal Transaction Scores
+  return-report   Report a return for an ACH transaction
+  schedule        Schedule a planned ACH transaction
+
+Flags:
+  -h, --help   help for signal
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli signal [command] --help" for more information about a command.

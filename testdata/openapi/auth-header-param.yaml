@@ -1,0 +1,69 @@
+openapi: "3.0.0"
+info:
+  title: Auth Header Param API
+  version: "1.0.0"
+  description: "Scheduling infrastructure API"
+servers:
+  - url: https://api.example.com
+paths:
+  /v2/bookings:
+    get:
+      operationId: getBookings
+      summary: List bookings
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: "Bearer token credential"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /v2/bookings/{id}:
+    get:
+      operationId: getBooking
+      summary: Get a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          description: "Bearer token credential"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /v2/event-types:
+    get:
+      operationId: getEventTypes
+      summary: List event types
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: "Bearer token credential"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /v2/health:
+    get:
+      operationId: healthCheck
+      summary: Health check
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: "Bearer token credential"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK

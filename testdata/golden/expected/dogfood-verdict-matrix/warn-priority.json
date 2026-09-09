@@ -1,0 +1,106 @@
+{
+  "auth_check": {
+    "detail": "spec not provided; auth protocol check skipped",
+    "generated_format": "",
+    "match": true,
+    "spec_scheme": ""
+  },
+  "browser_session_check": {
+    "detail": "spec not provided; browser-session auth check skipped",
+    "pass": true,
+    "required": false
+  },
+  "dead_flags": {
+    "dead": 0,
+    "total": 0
+  },
+  "dead_functions": {
+    "dead": 1,
+    "items": [
+      "deadHelper"
+    ],
+    "total": 1
+  },
+  "dir": "<ARTIFACT_DIR>/dogfood-verdict-matrix/fixtures/warn-priority",
+  "example_check": {
+    "detail": "1/1 commands have examples",
+    "tested": 1,
+    "valid_examples": 1,
+    "with_examples": 1
+  },
+  "issues": [
+    "1 dead helper functions found",
+    "1 unregistered commands: orphan"
+  ],
+  "mcp_surface_parity": {
+    "detail": "no internal/mcp/tools.go; CLI does not ship an MCP surface",
+    "pass": true,
+    "skipped": true,
+    "state": "missing"
+  },
+  "naming_check": {
+    "checked": 3
+  },
+  "novel_features_check": {
+    "found": 0,
+    "planned": 0,
+    "skipped": true
+  },
+  "oauth_scope_coverage_check": {
+    "checked": 0,
+    "covered": 0,
+    "detail": "spec not provided; OAuth scope coverage check skipped",
+    "skipped": true
+  },
+  "path_check": {
+    "tested": 0,
+    "valid": 0,
+    "valid_pct": 0
+  },
+  "pipeline_check": {
+    "detail": "sync uses domain-specific Upsert methods; search methods not found",
+    "domain_tables": 0,
+    "search_calls_domain": false,
+    "sync_calls_domain": true,
+    "sync_file_emitted": true,
+    "sync_resources_present": true
+  },
+  "print_json_filtered_check": {
+    "checked": 3
+  },
+  "reimplementation_check": {
+    "checked": 0,
+    "exempted_via_store": 0,
+    "skipped": true
+  },
+  "source_client_check": {
+    "checked": 0,
+    "skipped": true
+  },
+  "sync_param_drop_check": {
+    "checked": 0,
+    "skipped": true
+  },
+  "test_presence": {
+    "checked": 0
+  },
+  "verdict": "WARN",
+  "wiring_check": {
+    "command_tree": {
+      "defined": 2,
+      "registered": 1,
+      "unregistered": [
+        "orphan"
+      ]
+    },
+    "config_consistency": {
+      "consistent": true
+    },
+    "workflow_completeness": {
+      "detail": "no workflow_verify.yaml found",
+      "mapped_steps": 0,
+      "skipped": true,
+      "total_steps": 0
+    }
+  }
+}

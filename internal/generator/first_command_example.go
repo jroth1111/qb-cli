@@ -1,0 +1,293 @@
+package generator
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/canonicalargs"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+)
+
+type commandExampleCandidate struct {
+	resourceName string
+	resource     spec.Resource
+	endpointName string
+	endpoint     spec.Endpoint
+}
+
+func firstCommandExampleCandidate(resources map[string]spec.Resource) (commandExampleCandidate, bool) {
+	var empty commandExampleCandidate
+	var resNames []string
+	for name := range resources {
+		resNames = append(resNames, name)
+	}
+	sort.Strings(resNames)
+	preferredVerbs := []string{"list", "get", "search", "query"}
+
+	for _, rName := range resNames {
+		r := resources[rName]
+		for _, verb := range preferredVerbs {
+			if ep, ok := r.Endpoints[verb]; ok && endpointIsReadCommand(ep, verb) {
+				return commandExampleCandidate{resourceName: rName, resource: r, endpointName: verb, endpoint: ep}, true
+			}
+		}
+	}
+	for _, rName := range resNames {
+		r := resources[rName]
+		for _, eName := range sortedEndpointNames(r.Endpoints) {
+			if ep := r.Endpoints[eName]; endpointIsReadCommand(ep, eName) {
+				return commandExampleCandidate{resourceName: rName, resource: r, endpointName: eName, endpoint: ep}, true
+			}
+		}
+	}
+	for _, rName := range resNames {
+		r := resources[rName]
+		eNames := sortedEndpointNames(r.Endpoints)
+		if len(eNames) > 0 {
+			eName := eNames[0]
+			return commandExampleCandidate{resourceName: rName, resource: r, endpointName: eName, endpoint: r.Endpoints[eName]}, true
+		}
+	}
+	return empty, false
+}
+
+// firstCommandExample returns a runnable "resource [endpoint] <pos1> <pos2>..."
+// invocation for docs that need a concrete example. Required public flags are
+// included so generated docs do not advertise commands that fail immediately.
+// Read-only commands are preferred to keep examples non-destructive.
+// Returns empty when the spec has no endpoints, so callers can skip the
+// block rather than render nonsense.
+//
+// For single-endpoint resources that the generator promotes to top-level
+// commands, the returned path starts with just the resource name (the
+// actual cobra command path), not "resource endpoint" (the pre-promotion
+// path). The SKILL.md verifier in printing-press-library walks command
+// references and rejects pre-promotion paths because they don't exist in
+// the shipped internal/cli/*.go.
+//
+// Positional values use the same lookup chain as verify mock-mode in
+// runtime_commands.go: spec.Param.Default → canonicalargs.Lookup →
+// "mock-value". Spec authors who set realistic defaults on positional
+// params get them surfaced in the SKILL example automatically; specs
+// without defaults fall through to the cross-domain registry, then to
+// the mock-value catch-all. This keeps SKILL examples honest enough that
+// verify-skill exits 0 on first generation.
+func firstCommandExample(resources map[string]spec.Resource) string {
+	candidate, ok := firstCommandExampleCandidate(resources)
+	if !ok {
+		return ""
+	}
+	pathFor := func(rName string, r spec.Resource, ep spec.Endpoint) string {
+		// Kebab the resource segment to match the actual cobra command name
+		// (mirrors toKebab(resourceName) in buildPromotedCommands). PascalCase
+		// or snake_case spec keys would otherwise advertise an unrunnable path.
+		parts := []string{toKebab(rName)}
+		if !isPromotableSingleEndpoint(rName, r) {
+			parts = append(parts, toKebab(candidate.endpointName))
+		}
+		parts = append(parts, readmeExampleArgs(ep)...)
+		return strings.Join(parts, " ")
+	}
+
+	return pathFor(candidate.resourceName, candidate.resource, candidate.endpoint)
+}
+func commandExampleArgs(ep spec.Endpoint) string {
+	return strings.Join(commandExampleArgParts(ep), " ")
+}
+
+func commandExampleArgParts(ep spec.Endpoint) []string {
+	var parts []string
+	for _, p := range orderedPositionalParams(ep) {
+		val := exampleValue(p)
+		if val == "" {
+			val = "<" + p.Name + ">"
+		}
+		parts = append(parts, val)
+	}
+	return append(parts, requiredFlagExampleParts(ep)...)
+}
+
+func readmeExampleArgs(ep spec.Endpoint) []string {
+	var parts []string
+	for _, p := range orderedPositionalParams(ep) {
+		parts = append(parts, skillExamplePositionalValue(p))
+	}
+	return append(parts, requiredFlagExampleParts(ep)...)
+}
+
+func requiredFlagExampleParts(ep spec.Endpoint) []string {
+	var parts []string
+	for _, p := range ep.Params {
+		if p.Positional || !p.Required {
+			continue
+		}
+		val := requiredFlagExampleValue(ep, p)
+		if val == "" {
+			val = "value"
+		}
+		parts = append(parts, "--"+publicFlagName(p), val)
+	}
+
+	switch strings.ToUpper(ep.Method) {
+	case "POST", "PUT", "PATCH":
+		for _, p := range ep.Body {
+			if p.Required && p.Type == "string" {
+				val := exampleValue(p)
+				// A string body flag whose value must be valid JSON (the command
+				// emits a json.Valid guard — see isJSONStringParam) cannot use the
+				// scalar "example-value" placeholder: it fails that guard
+				// immediately, so the emitted Example would advertise a command
+				// that errors on first run and the live-dogfood happy-path /
+				// json-fidelity probes (which run the Example verbatim) reject it.
+				// Emit a minimal valid-JSON placeholder instead.
+				if isJSONStringParam(p) {
+					val = jsonStringBodyExamplePlaceholder(p)
+				} else if val == "" {
+					val = "value"
+				}
+				parts = append(parts, "--"+publicFlagName(p), val)
+				break
+			}
+		}
+	}
+	return parts
+}
+
+// jsonStringBodyExamplePlaceholder returns a minimal, valid-JSON value for a
+// JSON-typed string body flag (isJSONStringParam). The value is single-quoted
+// so the rendered example survives a copy-paste into a shell and is parsed back
+// to valid JSON by the quote-aware live-dogfood example tokenizer
+// (shellargs.ArgsAfterBinary strips the quotes). An empty array/object keeps the
+// example runnable without inventing field names the upstream API might reject;
+// the array-vs-object shape follows the param's described body type.
+func jsonStringBodyExamplePlaceholder(p spec.Param) string {
+	desc := strings.TrimSpace(p.Description)
+	lower := strings.ToLower(desc)
+	if strings.HasPrefix(desc, "[") || strings.Contains(lower, "array") {
+		return "'[]'"
+	}
+	return "'{}'"
+}
+
+func requiredFlagExampleValue(ep spec.Endpoint, p spec.Param) string {
+	if val, ok := dispatchParamDefaultValue(ep, p); ok {
+		return val
+	}
+	return exampleValue(p)
+}
+
+func dispatchParamDefaultValue(ep spec.Endpoint, p spec.Param) (string, bool) {
+	defaultValue, ok := p.Default.(string)
+	if !ok {
+		return "", false
+	}
+	defaultValue = strings.TrimSpace(defaultValue)
+	if defaultValue == "" {
+		return "", false
+	}
+	if p.DispatchParam {
+		return defaultValue, true
+	}
+	if p.DispatchParamSet {
+		return "", false
+	}
+	if pathUsesDispatchDefault(ep.Path, p, defaultValue) || isDispatchStyleParam(p) {
+		return defaultValue, true
+	}
+	return "", false
+}
+
+func pathUsesDispatchDefault(path string, p spec.Param, defaultValue string) bool {
+	names := []string{p.Name, p.WireName()}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if queryParamDefaultInPath(path, name, defaultValue) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryParamDefaultInPath(path, name, defaultValue string) bool {
+	idx := strings.Index(path, "?")
+	if idx < 0 || idx == len(path)-1 {
+		return false
+	}
+	for part := range strings.SplitSeq(path[idx+1:], "&") {
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) == name && strings.TrimSpace(val) == defaultValue {
+			return true
+		}
+	}
+	return false
+}
+
+func isDispatchStyleParam(p spec.Param) bool {
+	switch strings.ToLower(strings.TrimSpace(p.WireName())) {
+	case "type", "action":
+		return true
+	default:
+		return false
+	}
+}
+
+// skillExamplePositionalValue resolves one positional param to the value
+// the SKILL/README example should display. Mirrors the verify mock-mode
+// lookup chain in internal/pipeline/runtime_commands.go so a spec's
+// Param.Default flows through to both verify dispatch and the docs the
+// generator emits.
+func skillExamplePositionalValue(p spec.Param) string {
+	if p.Default != nil {
+		if s := stringifyDefault(p.Default); s != "" {
+			return s
+		}
+	}
+	name := strings.ToLower(strings.TrimSpace(p.Name))
+	if v, ok := canonicalargs.Lookup(name); ok {
+		return v
+	}
+	return "mock-value"
+}
+
+func stringifyDefault(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []string:
+		if len(t) == 0 {
+			return ""
+		}
+		return stringifyDefault(t[0])
+	case []any:
+		if len(t) == 0 {
+			return ""
+		}
+		return stringifyDefault(t[0])
+	default:
+		return fmt.Sprintf("%v", t)
+	}
+}
+
+// isPromotableSingleEndpoint mirrors buildPromotedCommands's promotion
+// criterion: a resource with exactly one endpoint whose derived command
+// name does not collide with a CLI builtin (version, help, doctor, ...)
+// gets promoted to a top-level command. The dedup-against-already-promoted
+// step in buildPromotedCommands is multi-resource bookkeeping, not a
+// per-resource property, so it is intentionally omitted here; this helper
+// answers "would this resource standalone-promote?" not "does this
+// resource end up promoted in this exact spec?".
+func isPromotableSingleEndpoint(resName string, r spec.Resource) bool {
+	if len(r.Endpoints) != 1 {
+		return false
+	}
+	return !builtinCommands[toKebab(resName)]
+}

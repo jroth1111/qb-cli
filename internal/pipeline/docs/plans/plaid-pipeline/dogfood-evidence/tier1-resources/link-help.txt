@@ -1,0 +1,26 @@
+Manage link
+
+Usage:
+  plaid-cli link [command]
+
+Available Commands:
+  oauth-correlation-id-exchange Exchange the Link Correlation Id for a Link Token
+  token-create                  Create Link Token
+  token-get                     Get Link Token
+
+Flags:
+  -h, --help   help for link
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli link [command] --help" for more information about a command.

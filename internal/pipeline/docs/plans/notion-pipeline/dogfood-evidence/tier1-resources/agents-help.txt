@@ -1,0 +1,27 @@
+Operations on agents
+
+Usage:
+  notion-cli agents [command]
+
+Available Commands:
+  create_chat       POST /v1/agents/{agent_id}/chat
+  create_chatStream POST /v1/agents/{agent_id}/chatStream
+  get_agents        GET /v1/agents
+  get_threads       GET /v1/agents/{agent_id}/threads
+
+Flags:
+  -h, --help   help for agents
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "notion-cli agents [command] --help" for more information about a command.

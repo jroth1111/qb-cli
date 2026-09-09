@@ -1,0 +1,1 @@
+unknown command "pet_upload-image" for "petstore-cli"

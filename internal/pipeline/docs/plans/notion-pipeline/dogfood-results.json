@@ -1,0 +1,54 @@
+{
+  "tier": 1,
+  "total_commands": 5,
+  "passed_commands": 5,
+  "failed_commands": 0,
+  "commands": [
+    {
+      "tier": 1,
+      "command": "--help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/notion-pipeline/dogfood-evidence/tier1-help.txt",
+      "stderr": "",
+      "duration_ms": 430,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "version",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/notion-pipeline/dogfood-evidence/tier1-version.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "doctor",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/notion-pipeline/dogfood-evidence/tier1-doctor.txt",
+      "stderr": "",
+      "duration_ms": 2386,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "agents --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/notion-pipeline/dogfood-evidence/tier1-resources/agents-help.txt",
+      "stderr": "",
+      "duration_ms": 11,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "threads --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/notion-pipeline/dogfood-evidence/tier1-resources/threads-help.txt",
+      "stderr": "",
+      "duration_ms": 8,
+      "pass": true
+    }
+  ],
+  "score": 40
+}

@@ -1,0 +1,74 @@
+name: Golden
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event.pull_request.base.ref != 'main'
+        with:
+          fetch-depth: 0
+
+      - name: Golden verification delegated to Main CI
+        if: github.event.pull_request.base.ref == 'main'
+        run: |
+          echo "Golden verification for pull requests targeting main runs in Main CI's full-golden job."
+
+      - name: Check whether golden verification is needed
+        if: github.event.pull_request.base.ref != 'main'
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags --prune origin "${{ github.base_ref }}"
+          mapfile -t changed < <(git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}...HEAD")
+
+          echo "Changed files:"
+          printf '  %s\n' "${changed[@]}"
+
+          needs_golden=false
+          for file in "${changed[@]}"; do
+            case "$file" in
+              cmd/*|internal/*|testdata/golden/*|scripts/golden.sh|go.mod|go.sum|.github/workflows/golden.yml)
+                needs_golden=true
+                break
+                ;;
+            esac
+          done
+
+          echo "needs_golden=$needs_golden" >> "$GITHUB_OUTPUT"
+
+      - name: Skip golden verification
+        if: github.event.pull_request.base.ref != 'main' && steps.changes.outputs.needs_golden != 'true'
+        run: |
+          echo "Skipping golden verification: no generator, CLI, golden fixture, module, or golden workflow files changed."
+
+      - uses: actions/setup-go@v6
+        if: github.event.pull_request.base.ref != 'main' && steps.changes.outputs.needs_golden == 'true'
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Verify golden outputs
+        if: github.event.pull_request.base.ref != 'main' && steps.changes.outputs.needs_golden == 'true'
+        run: scripts/golden.sh verify
+
+      - name: Dump golden diffs on failure
+        if: failure() && github.event.pull_request.base.ref != 'main' && steps.changes.outputs.needs_golden == 'true'
+        run: |
+          echo "::group::Golden diff content"
+          find .gotmp/golden/actual -name '*.diff' -print -exec cat {} \;
+          echo "::endgroup::"

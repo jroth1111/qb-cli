@@ -1,0 +1,6 @@
+  OK Config: ok
+  FAIL Auth: not configured
+  OK API: degraded (HTTP 404)
+  config_path: <home>/.config/petstore-cli/config.toml
+  base_url: https://petstore3.swagger.io/api/v3
+  version: 1.0.27

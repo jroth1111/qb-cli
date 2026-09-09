@@ -1,0 +1,46 @@
+Manage processor
+
+Usage:
+  plaid-cli processor [command]
+
+Available Commands:
+  account-get                      Retrieve the account associated with a processor token
+  apex-token-create                Create Apex bank account token
+  auth-get                         Retrieve Auth data
+  balance-get                      Retrieve Balance data
+  bank-transfer-create             Create a bank transfer as a processor
+  identity-get                     Retrieve Identity data
+  identity-match                   Retrieve identity match score
+  investments-holdings-get         Retrieve Investment Holdings
+  investments-transactions-get     Get investment transactions data
+  liabilities-get                  Retrieve Liabilities data
+  signal-decision-report           Report whether you initiated an ACH transaction
+  signal-evaluate                  Evaluate a planned ACH transaction
+  signal-prepare                   Opt-in a processor token to Signal
+  signal-return-report             Report a return for an ACH transaction
+  stripe-bank-account-token-create Create Stripe bank account token
+  token-create                     Create processor token
+  token-permissions-get            Get a processor token's product permissions
+  token-permissions-set            Control a processor's access to products
+  token-webhook-update             Update a processor token's webhook URL
+  transactions-get                 Get transaction data
+  transactions-recurring-get       Fetch recurring transaction streams
+  transactions-refresh             Refresh transaction data
+  transactions-sync                Get incremental transaction updates on a processor token
+
+Flags:
+  -h, --help   help for processor
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli processor [command] --help" for more information about a command.

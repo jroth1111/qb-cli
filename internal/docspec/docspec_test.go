@@ -1,0 +1,382 @@
+package docspec
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const sampleDocs = `<html><body>
+<h1>My API</h1>
+<p>Base URL: https://api.myservice.com/v1</p>
+<p>Authentication: Pass your API key in the X-API-Key header.</p>
+
+<h2>Users</h2>
+<pre>GET /v1/users</pre>
+<pre>POST /v1/users</pre>
+<pre>GET /v1/users/{id}</pre>
+<pre>PUT /v1/users/{id}</pre>
+<pre>DELETE /v1/users/{id}</pre>
+
+<h2>Projects</h2>
+<pre>GET /v1/projects</pre>
+<pre>POST /v1/projects</pre>
+
+<h3>Parameters</h3>
+<table>
+<tr><td>name</td><td>string</td></tr>
+<tr><td>email</td><td>string</td></tr>
+<tr><td>age</td><td>integer</td></tr>
+<tr><td>active</td><td>boolean</td></tr>
+</table>
+
+<h3>Example</h3>
+<pre>{"title": "My Project", "description": "A project"}</pre>
+</body></html>`
+
+func TestGenerateFromDocs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(sampleDocs))
+	}))
+	defer srv.Close()
+
+	apiSpec, err := GenerateFromDocs(srv.URL, "myapi")
+	require.NoError(t, err)
+
+	assert.Equal(t, "myapi", apiSpec.Name)
+	assert.Equal(t, "https://api.myservice.com", apiSpec.BaseURL)
+	assert.Equal(t, "api_key", apiSpec.Auth.Type)
+	assert.Contains(t, apiSpec.Resources, "users")
+	assert.Contains(t, apiSpec.Resources, "projects")
+
+	users := apiSpec.Resources["users"]
+	assert.GreaterOrEqual(t, len(users.Endpoints), 3)
+
+	projects := apiSpec.Resources["projects"]
+	assert.GreaterOrEqual(t, len(projects.Endpoints), 2)
+}
+
+func TestExtractEndpoints(t *testing.T) {
+	body := `GET /users POST /users GET /users/{id} DELETE /items/{id}`
+	eps := extractEndpoints(body)
+	assert.Len(t, eps, 4)
+	assert.Equal(t, "GET", eps[0].Method)
+	assert.Equal(t, "/users", eps[0].Path)
+}
+
+func TestDetectAuth(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"bearer", "Use Authorization: Bearer token", "bearer_token"},
+		{"api_key", "Pass your API key in the header", "api_key"},
+		{"oauth", "We support OAuth 2.0 flows", "oauth2"},
+		{"default", "No auth mentioned here", "bearer_token"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := detectAuth(tt.body)
+			assert.Equal(t, tt.want, auth.Type)
+		})
+	}
+}
+
+func TestDetectBaseURL(t *testing.T) {
+	url, isPlaceholder := detectBaseURL("Base URL: https://api.stripe.com/v1")
+	assert.Equal(t, "https://api.stripe.com", url)
+	assert.False(t, isPlaceholder)
+
+	url, isPlaceholder = detectBaseURL("No URL here")
+	assert.Equal(t, spec.PlaceholderBaseURL, url)
+	assert.True(t, isPlaceholder, "missing URL must signal placeholder fallback")
+}
+
+func TestFirstSegment(t *testing.T) {
+	assert.Equal(t, "users", firstSegment("/users"))
+	assert.Equal(t, "users", firstSegment("/v1/users"))
+	assert.Equal(t, "users", firstSegment("/v2/users/{id}"))
+	assert.Equal(t, "items", firstSegment("/items/search"))
+}
+
+func TestEndpointName(t *testing.T) {
+	assert.Equal(t, "get_users", endpointName("GET", "/v1/users"))
+	assert.Equal(t, "create_users", endpointName("POST", "/v1/users"))
+	assert.Equal(t, "get_users", endpointName("GET", "/v1/users/{id}"))
+	assert.Equal(t, "delete_items", endpointName("DELETE", "/items/{id}"))
+}
+
+func TestPreserveDocumentedEndpointPathsRestoresLLMNormalizedSegments(t *testing.T) {
+	apiSpec := &spec.APISpec{
+		Resources: map[string]spec.Resource{
+			"tp-sl": {
+				Endpoints: map[string]spec.Endpoint{
+					"get_pending_tp_sl_order": {
+						Method: "GET",
+						Path:   "/api/v1/futures/tpsl/get_pending_order",
+					},
+				},
+			},
+			"market": {
+				Endpoints: map[string]spec.Endpoint{
+					"get_funding_rate_batch": {
+						Method: "GET",
+						Path:   "/api/v1/futures/market/funding_rate_batch",
+					},
+				},
+			},
+		},
+	}
+
+	preserveDocumentedEndpointPaths(apiSpec, []rawEndpoint{
+		{Method: "GET", Path: "/api/v1/futures/tpsl/get_pending_orders"},
+		{Method: "GET", Path: "/api/v1/futures/market/funding_rate/batch"},
+	})
+
+	assert.Equal(t, "/api/v1/futures/tpsl/get_pending_orders", apiSpec.Resources["tp-sl"].Endpoints["get_pending_tp_sl_order"].Path)
+	assert.Equal(t, "/api/v1/futures/market/funding_rate/batch", apiSpec.Resources["market"].Endpoints["get_funding_rate_batch"].Path)
+}
+
+func TestGenerateFromDocsLLMPreservesDocumentedEndpointPaths(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><body>
+<p>Base URL: https://api.bitunix.com</p>
+<pre>GET /api/v1/futures/tpsl/get_pending_orders</pre>
+<pre>GET /api/v1/futures/market/funding_rate/batch</pre>
+<pre>GET /api/v1/users/{id}</pre>
+</body></html>`))
+	}))
+	defer srv.Close()
+
+	fakeBinDir := t.TempDir()
+	fakeClaude := filepath.Join(fakeBinDir, "claude")
+	require.NoError(t, os.WriteFile(fakeClaude, []byte(`#!/bin/sh
+cat <<'YAML'
+name: bitunix
+description: "CLI for bitunix"
+version: "1.0.0"
+base_url: "https://api.bitunix.com"
+auth:
+  type: "none"
+config:
+  format: "toml"
+  path: "~/.config/bitunix-pp-cli/config.toml"
+resources:
+  tp_sl:
+    description: "Operations on tp_sl"
+    endpoints:
+      get_pending_tp_sl_order:
+        method: GET
+        path: "/api/v1/futures/tpsl/get_pending_order"
+        description: "Get pending TP SL order"
+        params: []
+        response:
+          type: object
+  market:
+    description: "Operations on market"
+    endpoints:
+      get_funding_rate_batch:
+        method: GET
+        path: "/api/v1/futures/market/funding_rate_batch"
+        description: "Get funding rate batch"
+        params: []
+        response:
+          type: object
+  users:
+    description: "Operations on users"
+    endpoints:
+      get_user:
+        method: GET
+        path: "/api/v1/users/{user}"
+        description: "Get user"
+        params:
+          - name: user
+            type: string
+            required: true
+            positional: true
+            description: "stale placeholder"
+        response:
+          type: object
+YAML
+`), 0o755))
+	t.Setenv("PATH", fakeBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	apiSpec, err := GenerateFromDocsLLM(srv.URL, "bitunix")
+	require.NoError(t, err)
+
+	assert.Equal(t, "/api/v1/futures/tpsl/get_pending_orders", apiSpec.Resources["tp_sl"].Endpoints["get_pending_tp_sl_order"].Path)
+	assert.Equal(t, "/api/v1/futures/market/funding_rate/batch", apiSpec.Resources["market"].Endpoints["get_funding_rate_batch"].Path)
+	users := apiSpec.Resources["users"].Endpoints["get_user"]
+	assert.Equal(t, "/api/v1/users/{id}", users.Path)
+	require.Len(t, users.Params, 1)
+	assert.Equal(t, "id", users.Params[0].Name)
+	assert.True(t, users.Params[0].Positional)
+}
+
+func TestPreserveDocumentedEndpointPathsLeavesExactAndAmbiguousPaths(t *testing.T) {
+	apiSpec := &spec.APISpec{
+		Resources: map[string]spec.Resource{
+			"users": {
+				Endpoints: map[string]spec.Endpoint{
+					"list": {
+						Method: "GET",
+						Path:   "/api/v1/users",
+					},
+					"ambiguous": {
+						Method: "GET",
+						Path:   "/api/v1/orderitems",
+					},
+					"wrong_method": {
+						Method: "POST",
+						Path:   "/api/v1/funding_rate_batch",
+					},
+				},
+			},
+		},
+	}
+
+	preserveDocumentedEndpointPaths(apiSpec, []rawEndpoint{
+		{Method: "GET", Path: "/api/v1/users"},
+		{Method: "GET", Path: "/api/v1/order/item"},
+		{Method: "GET", Path: "/api/v1/order_item"},
+		{Method: "GET", Path: "/api/v1/funding_rate/batch"},
+	})
+
+	assert.Equal(t, "/api/v1/users", apiSpec.Resources["users"].Endpoints["list"].Path)
+	assert.Equal(t, "/api/v1/orderitems", apiSpec.Resources["users"].Endpoints["ambiguous"].Path)
+	assert.Equal(t, "/api/v1/funding_rate_batch", apiSpec.Resources["users"].Endpoints["wrong_method"].Path)
+}
+
+func TestExtractParams(t *testing.T) {
+	body := `<table><tr><td>name</td><td>string</td></tr><tr><td>count</td><td>integer</td></tr></table>
+<pre>{"title": "hello", "active": true}</pre>`
+	params := extractParams(body)
+	assert.GreaterOrEqual(t, len(params), 2)
+
+	names := map[string]bool{}
+	for _, p := range params {
+		names[p.Name] = true
+	}
+	assert.True(t, names["name"])
+	assert.True(t, names["count"])
+}
+
+func TestExtractPathParams(t *testing.T) {
+	params := extractPathParams("/users/{user_id}/posts/{post_id}")
+	assert.Len(t, params, 2)
+	assert.Equal(t, "user_id", params[0].Name)
+	assert.True(t, params[0].Required)
+	assert.True(t, params[0].Positional)
+	assert.Equal(t, "post_id", params[1].Name)
+}
+
+func TestNoEndpointsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html><body>Nothing here</body></html>"))
+	}))
+	defer srv.Close()
+
+	_, err := GenerateFromDocs(srv.URL, "empty")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no endpoints found")
+}
+
+func TestBuildDocSpecLLMPrompt(t *testing.T) {
+	prompt := BuildDocSpecLLMPrompt("stripe", "<html>GET /v1/charges</html>")
+	assert.Contains(t, prompt, "stripe")
+	assert.Contains(t, prompt, "GET /v1/charges")
+	assert.Contains(t, prompt, "base_url")
+	assert.Contains(t, prompt, "resources")
+	assert.Contains(t, prompt, "~/.config/stripe-pp-cli/config.toml")
+}
+
+func TestExtractYAML(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "plain yaml",
+			input: "name: myapi\nversion: 1.0.0",
+			want:  "name: myapi\nversion: 1.0.0",
+		},
+		{
+			name:  "yaml fenced",
+			input: "```yaml\nname: myapi\nversion: 1.0.0\n```",
+			want:  "name: myapi\nversion: 1.0.0",
+		},
+		{
+			name:  "generic fenced",
+			input: "```\nname: myapi\nversion: 1.0.0\n```",
+			want:  "name: myapi\nversion: 1.0.0",
+		},
+		{
+			name:  "with surrounding whitespace",
+			input: "\n\n```yaml\nname: myapi\n```\n\n",
+			want:  "name: myapi",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractYAML(tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGroupByResourceNoNameCollisionDrop(t *testing.T) {
+	// A generated disambiguation suffix must not overwrite another route whose
+	// natural name already equals that suffix. All documented routes must
+	// survive with distinct endpoint names.
+	endpoints := []rawEndpoint{
+		{Method: "GET", Path: "/users"},         // -> get_users
+		{Method: "GET", Path: "/users/{id}"},    // -> get_users (disambiguated)
+		{Method: "GET", Path: "/users/users_2"}, // natural name -> get_users_2
+	}
+
+	resources := groupByResource(endpoints)
+
+	res, ok := resources["users"]
+	require.True(t, ok, "expected a users resource")
+	assert.Len(t, res.Endpoints, 3, "all three routes must be preserved, none overwritten")
+
+	// Every documented path must appear exactly once across the generated names.
+	gotPaths := map[string]int{}
+	for _, ep := range res.Endpoints {
+		gotPaths[ep.Path]++
+	}
+	assert.Equal(t, 1, gotPaths["/users"])
+	assert.Equal(t, 1, gotPaths["/users/{id}"])
+	assert.Equal(t, 1, gotPaths["/users/users_2"])
+
+	// Names are unique by construction (map keys), and deterministic in doc order.
+	assert.Contains(t, res.Endpoints, "get_users")
+	assert.Contains(t, res.Endpoints, "get_users_2")
+	assert.Contains(t, res.Endpoints, "get_users_2_2")
+}
+
+func TestGroupByResourceDeterministicSuffixing(t *testing.T) {
+	// Plain repeated collisions keep the existing _2, _3 ... sequence so the
+	// fix does not perturb ordinary disambiguation.
+	endpoints := []rawEndpoint{
+		{Method: "GET", Path: "/items"},
+		{Method: "GET", Path: "/items/{id}"},   // last param -> derives get_items
+		{Method: "GET", Path: "/items/{name}"}, // last param -> derives get_items too
+	}
+	resources := groupByResource(endpoints)
+	res := resources["items"]
+	require.Len(t, res.Endpoints, 3)
+	assert.Contains(t, res.Endpoints, "get_items")
+	assert.Contains(t, res.Endpoints, "get_items_2")
+	assert.Contains(t, res.Endpoints, "get_items_3")
+}

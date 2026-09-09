@@ -1,0 +1,653 @@
+package mcpdesc
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestCompose_CreatePOST(t *testing.T) {
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/projects",
+			Description: "Create project",
+			Body: []spec.Param{
+				{Name: "name", Required: true},
+				{Name: "visibility", Required: true},
+				{Name: "owner_email", Required: false},
+			},
+			Response: spec.ResponseDef{Type: "object", Item: "Project"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Create project. Required: name, visibility. Optional: owner_email. Returns the new Project.", got)
+}
+
+func TestCompose_ListGETArrayResponse(t *testing.T) {
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/projects",
+			Description: "List projects",
+			Params: []spec.Param{
+				{Name: "status", Required: false},
+				{Name: "limit", Required: false},
+				{Name: "cursor", Required: false},
+			},
+			Response: spec.ResponseDef{Type: "array", Item: "Project"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "List projects. Optional: status, limit, cursor. Returns array of Project.", got)
+}
+
+func TestCompose_UsesPublicParamNames(t *testing.T) {
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/power/store-locator",
+			Description: "Find nearby stores by address",
+			Params: []spec.Param{
+				{Name: "s", FlagName: "address", Required: true},
+				{Name: "c", FlagName: "city", Required: true},
+			},
+			Response: spec.ResponseDef{Type: "array", Item: "Store"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Find nearby stores by address. Required: address, city. Returns array of Store.", got)
+}
+
+func TestCompose_PatchUPDATEWithPathParams(t *testing.T) {
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "PATCH",
+			Path:        "/projects/{projectId}/tasks/{taskId}",
+			Description: "Update project task",
+			Params: []spec.Param{
+				{Name: "projectId", Required: true, Positional: true},
+				{Name: "taskId", Required: true, Positional: true},
+			},
+			Body: []spec.Param{
+				{Name: "title", Required: false},
+				{Name: "priority", Required: false},
+				{Name: "completed", Required: false},
+			},
+			// No response shape declared
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Update project task. Required: projectId, taskId. Optional: title, priority, completed. Partial update.", got)
+}
+
+func TestCompose_DeleteAddsDestructive(t *testing.T) {
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "DELETE",
+			Path:        "/items/{itemId}",
+			Description: "Delete item",
+			Params: []spec.Param{
+				{Name: "itemId", Required: true, Positional: true},
+			},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Delete item. Required: itemId. Destructive.", got)
+}
+
+func TestCompose_PathParamWithDefaultStaysRequired(t *testing.T) {
+	// API-contract view: enum-typed path param with default still
+	// shows as Required (it's structurally in the URL). Default
+	// annotation tells the agent "you may skip it; runtime fills in".
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/calendars/{calendar}/disconnect",
+			Description: "Disconnect a calendar",
+			Params: []spec.Param{
+				{
+					Name:       "calendar",
+					Default:    "apple",
+					Positional: false,
+					PathParam:  true, // reclassified by parser
+					Required:   false,
+				},
+			},
+			Body: []spec.Param{
+				{Name: "id", Required: true},
+			},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Contains(t, got, "Required: calendar (default: apple), id.", "path param must be Required regardless of default; default value annotated")
+	assert.NotContains(t, got, "Optional: calendar", "path param must not appear as Optional")
+}
+
+func TestCompose_OptionalTruncationHonored(t *testing.T) {
+	body := []spec.Param{
+		{Name: "a", Required: false},
+		{Name: "b", Required: false},
+		{Name: "c", Required: false},
+		{Name: "d", Required: false},
+		{Name: "e", Required: false},
+	}
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/things",
+			Description: "Create thing",
+			Body:        body,
+			Response:    spec.ResponseDef{Type: "object", Item: "Thing"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Contains(t, got, "Optional: a, b, c (plus 2 more).")
+}
+
+func TestCompose_PassesThroughHandTunedOverride(t *testing.T) {
+	// mcpoverrides.Apply writes the override into endpoint.Description
+	// before Compose runs. If Compose blindly added Required/Optional/
+	// Returns on top, the override "Required: name" + composer
+	// "Required: name, X" would double-stamp. Pre-composed descriptions
+	// (any of "Required:" / "Optional:" / "Returns ") get passed
+	// through with only auth-suffix and period normalization applied.
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/tags",
+			Description: "Create a new tag in the workspace. Required: name. Returns the tag's id and slug. Tags must exist before they can be assigned to links.",
+			Body: []spec.Param{
+				{Name: "name", Required: true},
+				{Name: "color", Required: false},
+			},
+			Response: spec.ResponseDef{Type: "object", Item: "Tag"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	expected := "Create a new tag in the workspace. Required: name. Returns the tag's id and slug. Tags must exist before they can be assigned to links."
+	assert.Equal(t, expected, got)
+}
+
+func TestCompose_PreComposedSpecDescriptionPassesThrough(t *testing.T) {
+	// Auto-generated specs sometimes describe what an endpoint
+	// returns in the description itself. Treat that as authoritative
+	// to avoid "Returns pet inventories by status. Returns array of
+	// integers." — keep what the spec author chose.
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/store/inventory",
+			Description: "Returns pet inventories by status",
+			Response:    spec.ResponseDef{Type: "object", Item: "Inventory"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Returns pet inventories by status.", got)
+	assert.Equal(t, 1, strings.Count(strings.ToLower(got), "returns"), "must not double-up Returns clause")
+}
+
+func TestCompose_DeleteAlwaysGetsDestructiveEvenWithReturnsInAction(t *testing.T) {
+	// appendMethodMarker fires after composition so the Destructive
+	// marker is added to pre-composed (override) descriptions too,
+	// not just fresh-composed ones. Agents need to know the call
+	// removes data regardless of whether the override mentioned it.
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "DELETE",
+			Path:        "/things/{id}",
+			Description: "Returns the deleted resource",
+			Params:      []spec.Param{{Name: "id", Required: true, Positional: true}},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Contains(t, got, "Destructive", "DELETE method must always carry the destructive marker")
+}
+
+func TestCompose_DeleteSkipsDestructiveWhenAlreadyPresent(t *testing.T) {
+	// If the override or spec description already mentions destructive,
+	// don't double up. Case-insensitive match.
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "DELETE",
+			Path:        "/things/{id}",
+			Description: "Delete the resource. This is destructive.",
+			Params:      []spec.Param{{Name: "id", Required: true, Positional: true}},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, 1, strings.Count(strings.ToLower(got), "destructive"), "destructive marker must not double up")
+}
+
+func TestCompose_SpecDescriptionWithReturnsStillGetsRequiredOptional(t *testing.T) {
+	// A spec description that mentions "returns" in narrative prose
+	// (e.g., "Permanently deletes a card. Returns the deleted card.")
+	// is NOT a structural override. Required/Optional composition must
+	// still run; only the explicit Returns clause is suppressed to
+	// avoid doubling. Without this, every endpoint whose description
+	// happens to use the word "returns" loses parameter context — a
+	// large fraction of real-world specs.
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "DELETE",
+			Path:        "/cards/{cardId}",
+			Description: "Permanently deletes a card. Returns the deleted card.",
+			Params: []spec.Param{
+				{Name: "cardId", Required: true, Positional: true, Description: "Card ID"},
+				{Name: "force", Required: false, Description: "Skip confirmation"},
+			},
+			Response: spec.ResponseDef{Type: "object", Item: "Card"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Contains(t, got, "Required: cardId", "Required clause must be added even when description mentions returns")
+	assert.Contains(t, got, "Optional: force", "Optional clause must be added")
+	assert.Equal(t, 1, strings.Count(strings.ToLower(got), "returns"), "explicit Returns clause must be suppressed when description already mentions returns")
+	assert.Contains(t, got, "Destructive", "DELETE method must carry the destructive marker")
+}
+
+func TestCompose_NoParamsNoResponse(t *testing.T) {
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/health",
+			Description: "Health check",
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Health check.", got)
+}
+
+func TestCompose_AppendsAuthAnnotationViaMCPDescription(t *testing.T) {
+	// Compose delegates the (public)/(requires auth) suffix to
+	// naming.MCPDescription so the auth-annotation logic stays
+	// single-sourced. Mixed-auth: 1 public out of 5 → public side
+	// is the minority, gets "(public)" suffix.
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/public/status",
+			Description: "Get status",
+			Response:    spec.ResponseDef{Type: "object", Item: "Status"},
+		},
+		NoAuth:      true,
+		AuthType:    "bearer_token",
+		PublicCount: 1,
+		TotalCount:  5,
+	}
+	got := Compose(in)
+	assert.Contains(t, got, "(public)", "mixed-auth APIs annotate the minority side")
+}
+
+func TestCompose_DefaultAnnotationBoundedToScalars(t *testing.T) {
+	// Defaults that exceed defaultValueMaxLen or contain newlines
+	// should be silently dropped from the inline annotation; the
+	// param still appears, just without the (default: ...) suffix.
+	tests := []struct {
+		name      string
+		dflt      any
+		wantHas   string
+		wantNoHas string
+	}{
+		{"scalar string", "apple", "(default: apple)", ""},
+		{"int default", 25, "(default: 25)", ""},
+		{"bool default", true, "(default: true)", ""},
+		{"oversize default skipped", strings.Repeat("x", 50), "name", "(default:"},
+		{"newline default skipped", "a\nb", "name", "(default:"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ep := spec.Endpoint{
+				Method:      "GET",
+				Path:        "/x",
+				Description: "Get",
+				Params: []spec.Param{
+					{Name: "name", Required: false, Default: tc.dflt},
+				},
+			}
+			got := Compose(Input{Endpoint: ep, AuthType: "none"})
+			assert.Contains(t, got, tc.wantHas)
+			if tc.wantNoHas != "" {
+				assert.NotContains(t, got, tc.wantNoHas)
+			}
+		})
+	}
+}
+
+func TestCompose_EmptyDescriptionStillBuildsParts(t *testing.T) {
+	// Defensive: if Endpoint.Description is somehow empty, the
+	// composed string still contains Required/Optional/Returns so
+	// downstream consumers get something useful instead of "".
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/x",
+			Description: "",
+			Body:        []spec.Param{{Name: "name", Required: true}},
+			Response:    spec.ResponseDef{Type: "object", Item: "X"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, "Create a new x. Required: name. Returns the new X.", got)
+}
+
+func TestCompose_SynthesizesResourceAwareActionForParserFallbackDescriptions(t *testing.T) {
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		description string
+		wantPrefix  string
+	}{
+		{
+			name:        "create uses singular resource",
+			method:      "POST",
+			path:        "/widgets",
+			description: "Create",
+			wantPrefix:  "Create a new widget.",
+		},
+		{
+			name:        "list uses plural resource",
+			method:      "GET",
+			path:        "/widgets",
+			description: "List",
+			wantPrefix:  "List widgets.",
+		},
+		{
+			name:        "get uses singular resource",
+			method:      "GET",
+			path:        "/widgets/{id}",
+			description: "Get",
+			wantPrefix:  "Get a widget.",
+		},
+		{
+			name:        "update uses singular resource",
+			method:      "PATCH",
+			path:        "/widgets/{id}",
+			description: "Update",
+			wantPrefix:  "Update a widget.",
+		},
+		{
+			name:        "delete uses singular resource",
+			method:      "DELETE",
+			path:        "/widgets/{id}",
+			description: "Delete",
+			wantPrefix:  "Delete a widget.",
+		},
+		{
+			name:        "sibilant plural singularizes correctly",
+			method:      "GET",
+			path:        "/boxes/{id}",
+			description: "Get",
+			wantPrefix:  "Get a box.",
+		},
+		{
+			name:        "se-plural is not over-stripped",
+			method:      "GET",
+			path:        "/releases/{id}",
+			description: "Get",
+			wantPrefix:  "Get a release.",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Compose(Input{
+				Endpoint: spec.Endpoint{
+					Method:                 tc.method,
+					Path:                   tc.path,
+					Description:            tc.description,
+					DescriptionSynthesized: true,
+				},
+				AuthType: "none",
+			})
+			assert.Contains(t, got, tc.wantPrefix)
+		})
+	}
+}
+
+// A synthesized description with a verb outside the recognized set must fall
+// through to the plain humanized verb, not produce a malformed resource action.
+func TestCompose_SynthesizedUnrecognizedVerbFallsThrough(t *testing.T) {
+	got := Compose(Input{
+		Endpoint: spec.Endpoint{
+			Method:                 "GET",
+			Path:                   "/widgets",
+			Description:            "Search",
+			DescriptionSynthesized: true,
+		},
+		AuthType: "none",
+	})
+	assert.Contains(t, got, "Search.")
+	assert.NotContains(t, got, "a widget")
+}
+
+func TestCompose_DoesNotOverrideAuthoredDescriptions(t *testing.T) {
+	got := Compose(Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/widgets",
+			Description: "Add a widget to inventory",
+		},
+		AuthType: "none",
+	})
+	assert.Equal(t, "Add a widget to inventory.", got)
+}
+
+func TestCompose_SynthesizesVendorBoilerplateDescriptions(t *testing.T) {
+	t.Parallel()
+
+	result := ComposeWithSource(Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/Actions",
+			Description: "Use this to return multiple Actions.<br>Requires authentication.",
+			Params: []spec.Param{
+				{Name: "page_size", Required: false},
+			},
+			Response: spec.ResponseDef{Type: "array", Item: "Action"},
+		},
+		AuthType: "none",
+	})
+
+	assert.Equal(t, "List actions. Optional: page_size. Returns array of Action.", result.Description)
+	assert.Equal(t, SourceGenerated, result.Source)
+}
+
+func TestCompose_PreservesRichDescriptionWithBoilerplatePrefix(t *testing.T) {
+	t.Parallel()
+
+	result := ComposeWithSource(Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/Users",
+			Description: "Use this to return multiple Users. Supports filtering by role, status, and department.",
+			Params: []spec.Param{
+				{Name: "role", Required: false},
+			},
+			Response: spec.ResponseDef{Type: "array", Item: "User"},
+		},
+		AuthType: "none",
+	})
+
+	assert.Contains(t, result.Description, "Supports filtering by role, status, and department.")
+	assert.Contains(t, result.Description, "Optional: role.")
+	assert.NotContains(t, result.Description, "List users.")
+	assert.Equal(t, SourceSpec, result.Source)
+}
+
+func TestCompose_SynthesizesSingleInstanceBoilerplateWithArticle(t *testing.T) {
+	t.Parallel()
+
+	result := ComposeWithSource(Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/Actions/{id}",
+			Description: "Use this to return a single instance of Actions.<br>Requires authentication.",
+			Params: []spec.Param{
+				{Name: "id", Required: true, Positional: true},
+			},
+			Response: spec.ResponseDef{Type: "object", Item: "Action"},
+		},
+		AuthType: "none",
+	})
+
+	assert.Equal(t, "Get an action. Required: id. Returns the Action.", result.Description)
+	assert.Equal(t, SourceGenerated, result.Source)
+}
+
+func TestComposeWithSourceKeepsStructuralBoilerplateOverrideAsSpec(t *testing.T) {
+	t.Parallel()
+
+	result := ComposeWithSource(Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/Actions",
+			Description: "Use this to return multiple Actions. Required: authorization.",
+			Response:    spec.ResponseDef{Type: "array", Item: "Action"},
+		},
+		AuthType: "none",
+	})
+
+	assert.Equal(t, "Use this to return multiple Actions. Required: authorization.", result.Description)
+	assert.Equal(t, SourceSpec, result.Source)
+}
+
+func TestComposeWithSourceMarksAuthoredDescriptionsAsSpec(t *testing.T) {
+	t.Parallel()
+
+	result := ComposeWithSource(Input{
+		Endpoint: spec.Endpoint{
+			Method:      "POST",
+			Path:        "/widgets",
+			Description: "Add a widget to inventory",
+		},
+		AuthType: "none",
+	})
+
+	assert.Equal(t, "Add a widget to inventory.", result.Description)
+	assert.Equal(t, SourceSpec, result.Source)
+}
+
+// --- deepObject shape hints (aos-build#165 plan, Task 6) ---
+//
+// style=deepObject params take structured JSON input that the generated
+// emitters expand into indexed bracket keys (sort[0][field]=Name). Without a
+// shape example in the tool description, agents guess flat scalars and get
+// 4xxs — the hint makes each description self-teaching.
+//
+// Expectations pin the RENDERED description: the hint is authored as real
+// JSON, but every Compose result passes through naming.MCPDescription →
+// OneLineNormalize, whose pre-existing policy rewrites double quotes to
+// single quotes so descriptions embed cleanly. Agents therefore see
+// [{'field':'...'}] — the shape survives, the quoting is normalized.
+
+// (i) An array-of-objects deepObject param's hint is built from its Fields,
+// capped at two field names.
+func TestCompose_DeepObjectArrayParamGainsFieldsShapeHint(t *testing.T) {
+	t.Parallel()
+
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/records",
+			Description: "List records",
+			Params: []spec.Param{{
+				Name: "sort", Type: "array", ItemType: "object", QueryStyle: "deepObject",
+				Fields: []spec.Param{
+					{Name: "field", Type: "string"},
+					{Name: "direction", Type: "string"},
+					{Name: "third_field_beyond_cap", Type: "string"},
+				},
+			}},
+			Response: spec.ResponseDef{Type: "array", Item: "Record"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, `List records. Optional: sort (array of objects, e.g. [{'field':'...','direction':'...'}]). Returns array of Record.`, got)
+}
+
+// (ii) A Fields-less deepObject param falls back to the generic example
+// rather than emitting an empty object (Designer round-2).
+func TestCompose_DeepObjectParamWithoutFieldsGetsGenericHint(t *testing.T) {
+	t.Parallel()
+
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/records",
+			Description: "List records",
+			Params: []spec.Param{{
+				Name: "sort", Type: "array", ItemType: "object", QueryStyle: "deepObject",
+			}},
+			Response: spec.ResponseDef{Type: "array", Item: "Record"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, `List records. Optional: sort (array of objects, e.g. [{'key':'value'}]). Returns array of Record.`, got)
+}
+
+// (iii) An OBJECT-typed deepObject param gets the object-form hint (no array
+// wrapper).
+func TestCompose_DeepObjectObjectParamGetsObjectFormHint(t *testing.T) {
+	t.Parallel()
+
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/records",
+			Description: "List records",
+			Params: []spec.Param{{
+				Name: "filter", Type: "object", QueryStyle: "deepObject",
+			}},
+			Response: spec.ResponseDef{Type: "array", Item: "Record"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, `List records. Optional: filter (e.g. {'key':'value'}). Returns array of Record.`, got)
+}
+
+// (iv) Negative pin: the shape hint is gated on style=deepObject, NOT on
+// array-ness. A plain array query param (form/explode — the repeated-key
+// wire form, e.g. recorded_by[]) keeps its unadorned public name; appending
+// a JSON-shape hint here would teach agents to send JSON where the emitter
+// expects a scalar list. Guards deepObjectHint's early return.
+func TestCompose_ArrayParamWithoutDeepObjectStyleGetsNoShapeHint(t *testing.T) {
+	t.Parallel()
+
+	explode := true
+	in := Input{
+		Endpoint: spec.Endpoint{
+			Method:      "GET",
+			Path:        "/records",
+			Description: "List records",
+			Params: []spec.Param{{
+				Name: "recorded_by[]", Type: "array", ItemType: "string",
+				QueryStyle: "form", QueryExplode: &explode,
+			}},
+			Response: spec.ResponseDef{Type: "array", Item: "Record"},
+		},
+		AuthType: "none",
+	}
+	got := Compose(in)
+	assert.Equal(t, `List records. Optional: recorded_by. Returns array of Record.`, got)
+}

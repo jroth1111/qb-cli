@@ -1,0 +1,459 @@
+{
+  "tier": 1,
+  "total_commands": 50,
+  "passed_commands": 50,
+  "failed_commands": 0,
+  "commands": [
+    {
+      "tier": 1,
+      "command": "--help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-help.txt",
+      "stderr": "",
+      "duration_ms": 354,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "version",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-version.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "doctor",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-doctor.txt",
+      "stderr": "",
+      "duration_ms": 2384,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "accounts --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/accounts-help.txt",
+      "stderr": "",
+      "duration_ms": 11,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "application --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/application-help.txt",
+      "stderr": "",
+      "duration_ms": 11,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "asset-report --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/asset-report-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "bank-transfer --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/bank-transfer-help.txt",
+      "stderr": "",
+      "duration_ms": 15,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "beacon --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/beacon-help.txt",
+      "stderr": "",
+      "duration_ms": 15,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "beta --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/beta-help.txt",
+      "stderr": "",
+      "duration_ms": 18,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "business-verification --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/business-verification-help.txt",
+      "stderr": "",
+      "duration_ms": 14,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "cashflow-report --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/cashflow-report-help.txt",
+      "stderr": "",
+      "duration_ms": 13,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "categories --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/categories-help.txt",
+      "stderr": "",
+      "duration_ms": 12,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "consent --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/consent-help.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "consumer-report --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/consumer-report-help.txt",
+      "stderr": "",
+      "duration_ms": 12,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "cra --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/cra-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "credit --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/credit-help.txt",
+      "stderr": "",
+      "duration_ms": 10,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "dashboard-user --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/dashboard-user-help.txt",
+      "stderr": "",
+      "duration_ms": 6,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "employers --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/employers-help.txt",
+      "stderr": "",
+      "duration_ms": 10,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "employment --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/employment-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "fdx --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/fdx-help.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "identity-verification --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/identity-verification-help.txt",
+      "stderr": "",
+      "duration_ms": 14,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "identity --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/identity-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "income --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/income-help.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "institutions --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/institutions-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "investments --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/investments-help.txt",
+      "stderr": "",
+      "duration_ms": 8,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "issues --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/issues-help.txt",
+      "stderr": "",
+      "duration_ms": 11,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "item --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/item-help.txt",
+      "stderr": "",
+      "duration_ms": 24,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "liabilities --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/liabilities-help.txt",
+      "stderr": "",
+      "duration_ms": 12,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "link-delivery --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/link-delivery-help.txt",
+      "stderr": "",
+      "duration_ms": 10,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "link --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/link-help.txt",
+      "stderr": "",
+      "duration_ms": 10,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "network-insights --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/network-insights-help.txt",
+      "stderr": "",
+      "duration_ms": 12,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "network --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/network-help.txt",
+      "stderr": "",
+      "duration_ms": 10,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "oauth --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/oauth-help.txt",
+      "stderr": "",
+      "duration_ms": 8,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "partner --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/partner-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "payment-initiation --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/payment-initiation-help.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "payment-profile --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/payment-profile-help.txt",
+      "stderr": "",
+      "duration_ms": 8,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "processor --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/processor-help.txt",
+      "stderr": "",
+      "duration_ms": 8,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "profile --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/profile-help.txt",
+      "stderr": "",
+      "duration_ms": 16,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "protect --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/protect-help.txt",
+      "stderr": "",
+      "duration_ms": 15,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "sandbox --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/sandbox-help.txt",
+      "stderr": "",
+      "duration_ms": 13,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "session --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/session-help.txt",
+      "stderr": "",
+      "duration_ms": 12,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "signal --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/signal-help.txt",
+      "stderr": "",
+      "duration_ms": 18,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "statements --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/statements-help.txt",
+      "stderr": "",
+      "duration_ms": 25,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "transactions --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/transactions-help.txt",
+      "stderr": "",
+      "duration_ms": 18,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "transfer --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/transfer-help.txt",
+      "stderr": "",
+      "duration_ms": 19,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "user-account --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/user-account-help.txt",
+      "stderr": "",
+      "duration_ms": 12,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "user --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/user-help.txt",
+      "stderr": "",
+      "duration_ms": 8,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "wallet --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/wallet-help.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "watchlist-screening --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/watchlist-screening-help.txt",
+      "stderr": "",
+      "duration_ms": 7,
+      "pass": true
+    },
+    {
+      "tier": 1,
+      "command": "webhook-verification-key --help",
+      "exit_code": 0,
+      "stdout_file": "docs/plans/plaid-pipeline/dogfood-evidence/tier1-resources/webhook-verification-key-help.txt",
+      "stderr": "",
+      "duration_ms": 9,
+      "pass": true
+    }
+  ],
+  "score": 40
+}

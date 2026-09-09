@@ -1,0 +1,35 @@
+Manage payment initiation
+
+Usage:
+  plaid-cli payment-initiation [command]
+
+Available Commands:
+  consent-create          Create payment consent
+  consent-get             Get payment consent
+  consent-payment-execute Execute a single payment using consent
+  consent-revoke          Revoke payment consent
+  create-payment-token    Create payment token
+  payment-create          Create a payment
+  payment-get             Get payment details
+  payment-list            List payments
+  payment-reverse         Reverse an existing payment
+  recipient-create        Create payment recipient
+  recipient-get           Get payment recipient
+  recipient-list          List payment recipients
+
+Flags:
+  -h, --help   help for payment-initiation
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli payment-initiation [command] --help" for more information about a command.

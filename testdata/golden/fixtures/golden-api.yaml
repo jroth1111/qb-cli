@@ -1,0 +1,361 @@
+openapi: "3.0.3"
+info:
+  title: Printing Press Golden API
+  # Distinctively non-slug-derived ("Printing Press Studio" vs HumanName
+  # of slug "printing-press-golden" -> "Printing Press Golden"). Locks
+  # in that x-display-name overrides the slug-derived fallback all the
+  # way through to .printing-press.json, manifest.json, and the MCP
+  # server identity in cmd/.../main.go.
+  x-display-name: "Printing Press Studio"
+  version: "2026.04"
+  description: Purpose-built fixture for golden generation coverage.
+x-cache:
+  enabled: true
+  stale_after: 6h
+  refresh_timeout: 30s
+servers:
+  - url: https://api.golden.example/v1
+security:
+  - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    ApiVersion:
+      name: X-Api-Version
+      in: header
+      required: true
+      schema:
+        type: string
+        default: "2026-04-01"
+      description: Required API version header.
+    RequestID:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Optional per-request correlation ID.
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, archived]
+        visibility:
+          type: string
+          enum: [private, team, public]
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        title:
+          type: string
+        priority:
+          type: string
+          enum: [low, normal, high]
+        due_at:
+          type: string
+          format: date-time
+    CreateProjectRequest:
+      type: object
+      required: [name, visibility]
+      properties:
+        name:
+          type: string
+        visibility:
+          type: string
+          enum: [private, team, public]
+        owner_email:
+          type: string
+          format: email
+    UpdateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        priority:
+          type: string
+          enum: [low, normal, high]
+        completed:
+          type: boolean
+    Currency:
+      # Currency lacks `id` and `name` so the IDField fallback chain in
+      # the OpenAPI parser cannot pick a tier-2 (id) or tier-3 (name) PK.
+      # The runtime generic fallback list at UpsertBatch time picks up
+      # `code` instead. This locks the safety-net path in. WU-2 U3.
+      type: object
+      properties:
+        code:
+          type: string
+        symbol:
+          type: string
+        decimals:
+          type: integer
+paths:
+  /public/status:
+    get:
+      tags: [status]
+      operationId: getPublicStatus
+      summary: Get public service status
+      security: []
+      responses:
+        "200":
+          description: OK
+  /projects:
+    x-critical: true
+    # x-resource-id locks in U3's templated PK extraction path: the profiler
+    # emits SyncableResource.IDField="id", the generator templates that into
+    # resourceIDFieldOverrides, and UpsertBatch consults the override before
+    # falling back to the generic list. The chosen field happens to also be
+    # in the fallback list — that's intentional for the golden harness so
+    # the BEHAVIOR is identical, but the CODE PATH differs (override map vs
+    # fallback loop). The diff this introduces in the generated store.go
+    # locks the override-emission contract in.
+    x-resource-id: id
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: List projects
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, active, archived]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 25
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      tags: [projects]
+      operationId: createProject
+      summary: Create project
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - $ref: "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{projectId}:
+    get:
+      tags: [projects]
+      operationId: getProject
+      summary: Get project
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /projects/{projectId}/tasks:
+    get:
+      tags: [tasks]
+      operationId: listProjectTasks
+      summary: List project tasks
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: priority
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [low, normal, high]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+  /projects/{projectId}/tasks/{taskId}:
+    patch:
+      tags: [tasks]
+      operationId: updateProjectTask
+      summary: Update project task
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+        # Query param on a non-GET endpoint — regression guard: the
+        # PUT/DELETE/POST/PATCH templates used to drop in:query params on
+        # the floor instead of routing them through the URL query string.
+        - name: notify
+          in: query
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: OK
+  # /projects/{projectId}/avatar exercises the multipart-body + in:query
+  # combo. Regression guard: the PUT/PATCH/POST multipart branches used to
+  # route only the body fields and silently dropped any query flag.
+  /projects/{projectId}/avatar:
+    put:
+      tags: [projects]
+      operationId: uploadProjectAvatar
+      summary: Upload project avatar
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: overwrite
+          in: query
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+      responses:
+        "200":
+          description: OK
+  # /currencies has no x-resource-id and the response schema has neither `id`
+  # nor `name` — exercises U3's runtime safety-net path: the generic fallback
+  # list at UpsertBatch resolves the PK via `code`.
+  /currencies:
+    get:
+      tags: [currencies]
+      operationId: listCurrencies
+      summary: List supported currencies
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Currency"
+  # Exercises the path-param reclassification path: `year` is in:path, but the
+  # OpenAPI parser reclassifies date/year/month-named params to PathParam=true,
+  # Positional=false (rendered as a flag, but still substituted in the URL).
+  # This regression-tests that the MCP template emits such params into
+  # positionalParams via the .Positional || .PathParam check.
+  /reports/{year}/summary:
+    get:
+      tags: [reports]
+      operationId: getReportYearSummary
+      summary: Get a report summary for a year
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+      responses:
+        "200":
+          description: OK
+  /reports/{year}/export:
+    get:
+      tags: [reports]
+      operationId: exportReportYear
+      summary: Download the annual report as a binary file
+      parameters:
+        - $ref: "#/components/parameters/ApiVersion"
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: byte

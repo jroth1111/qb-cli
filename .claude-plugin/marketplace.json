@@ -1,0 +1,31 @@
+{
+  "name": "cli-printing-press",
+  "owner": {
+    "name": "mvanhorn"
+  },
+  "metadata": {
+    "description": "Generate production Go CLIs from API descriptions or OpenAPI specs",
+    "version": "2.0.0"
+  },
+  "plugins": [
+    {
+      "name": "cli-printing-press",
+      "description": "Describe your API. Get a production CLI. Generates Go CLI tools from OpenAPI specs or natural language descriptions.",
+      "author": {
+        "name": "mvanhorn"
+      },
+      "repository": "mvanhorn/cli-printing-press",
+      "tags": [
+        "cli",
+        "codegen",
+        "openapi",
+        "go",
+        "api"
+      ],
+      "source": {
+        "source": "github",
+        "repo": "mvanhorn/cli-printing-press"
+      }
+    }
+  ]
+}

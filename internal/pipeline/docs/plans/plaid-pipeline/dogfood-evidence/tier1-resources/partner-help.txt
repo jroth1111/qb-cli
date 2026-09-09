@@ -1,0 +1,28 @@
+Manage partner
+
+Usage:
+  plaid-cli partner [command]
+
+Available Commands:
+  customer-create                 Creates a new end customer for a Plaid reseller.
+  customer-enable                 Enables a Plaid reseller's end customer in the Production environment.
+  customer-get                    Returns a Plaid reseller's end customer.
+  customer-oauth-institutions-get Returns OAuth-institution registration information for a given end customer.
+  customer-remove                 Removes a Plaid reseller's end customer.
+
+Flags:
+  -h, --help   help for partner
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli partner [command] --help" for more information about a command.

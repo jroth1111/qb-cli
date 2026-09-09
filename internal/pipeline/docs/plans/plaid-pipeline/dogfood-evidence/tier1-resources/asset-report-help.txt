@@ -1,0 +1,33 @@
+Manage asset report
+
+Usage:
+  plaid-cli asset-report [command]
+
+Available Commands:
+  audit-copy-create  Create Asset Report Audit Copy
+  audit-copy-get     Retrieve an Asset Report Audit Copy
+  audit-copy-pdf-get Retrieve a PDF Asset Report Audit Copy
+  audit-copy-remove  Remove Asset Report Audit Copy
+  create             Create an Asset Report
+  filter             Filter Asset Report
+  get                Retrieve an Asset Report
+  pdf-get            Retrieve a PDF Asset Report
+  refresh            Refresh an Asset Report
+  remove             Delete an Asset Report
+
+Flags:
+  -h, --help   help for asset-report
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli asset-report [command] --help" for more information about a command.

@@ -1,0 +1,27 @@
+Manage cashflow report
+
+Usage:
+  plaid-cli cashflow-report [command]
+
+Available Commands:
+  get              Gets transaction data in `cashflow_report`
+  insights-get     Gets insights data in Cashflow Report
+  refresh          Refresh transaction data in `cashflow_report`
+  transactions-get Gets transaction data in cashflow_report
+
+Flags:
+  -h, --help   help for cashflow-report
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli cashflow-report [command] --help" for more information about a command.

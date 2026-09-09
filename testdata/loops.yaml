@@ -1,0 +1,144 @@
+name: loops
+description: "Loops email API CLI"
+version: "0.1.0"
+base_url: "https://app.loops.so/api/v1"
+
+auth:
+  type: bearer_token
+  header: "Authorization"
+  env_vars:
+    - LOOPS_API_KEY
+
+config:
+  format: toml
+  path: "~/.config/loops-cli/config.toml"
+
+resources:
+  contacts:
+    description: "Manage Loops contacts"
+    endpoints:
+      list:
+        method: GET
+        path: "/contacts"
+        description: "List contacts"
+        params:
+          - name: limit
+            type: int
+            description: "Max contacts to return"
+        response:
+          type: array
+          item: Contact
+
+      get:
+        method: GET
+        path: "/contacts/{contact_id}"
+        description: "Get a contact"
+        params:
+          - name: contact_id
+            type: string
+            required: true
+            positional: true
+            description: "Contact ID"
+        response:
+          type: object
+          item: Contact
+
+      create:
+        method: POST
+        path: "/contacts"
+        description: "Create a contact"
+        body:
+          - name: email
+            type: string
+            required: true
+            description: "Email address"
+          - name: first_name
+            type: string
+            description: "First name"
+          - name: last_name
+            type: string
+            description: "Last name"
+        response:
+          type: object
+          item: Contact
+
+      delete:
+        method: DELETE
+        path: "/contacts/{contact_id}"
+        description: "Delete a contact"
+        params:
+          - name: contact_id
+            type: string
+            required: true
+            positional: true
+            description: "Contact ID"
+
+  events:
+    description: "Send Loops events"
+    endpoints:
+      send:
+        method: POST
+        path: "/events"
+        description: "Send an event"
+        body:
+          - name: email
+            type: string
+            required: true
+            description: "Recipient email"
+          - name: event_name
+            type: string
+            required: true
+            description: "Event name"
+          - name: event_properties
+            type: string
+            description: "Serialized event properties"
+        response:
+          type: object
+          item: Event
+
+  emails:
+    description: "Send Loops transactional emails"
+    endpoints:
+      send_transactional:
+        method: POST
+        path: "/transactional"
+        description: "Send a transactional email"
+        body:
+          - name: email
+            type: string
+            required: true
+            description: "Recipient email"
+          - name: transactional_id
+            type: string
+            required: true
+            description: "Transactional template ID"
+          - name: data_variables
+            type: string
+            description: "Serialized template data"
+        response:
+          type: object
+          item: TransactionalEmail
+
+types:
+  Contact:
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+      - name: first_name
+        type: string
+      - name: last_name
+        type: string
+      - name: source
+        type: string
+
+  Event:
+    fields:
+      - name: success
+        type: bool
+
+  TransactionalEmail:
+    fields:
+      - name: success
+        type: bool

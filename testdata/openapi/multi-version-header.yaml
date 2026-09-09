@@ -1,0 +1,113 @@
+openapi: "3.0.0"
+info:
+  title: Multi Version Header API
+  version: "1.0.0"
+  description: "API with per-endpoint version headers"
+servers:
+  - url: https://api.example.com
+security:
+  - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+paths:
+  /v2/bookings:
+    get:
+      operationId: listBookings
+      summary: List bookings
+      parameters:
+        - name: cal-api-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2024-08-13"
+      responses:
+        "200":
+          description: OK
+  /v2/bookings/{id}:
+    get:
+      operationId: getBooking
+      summary: Get a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: cal-api-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2024-08-13"
+      responses:
+        "200":
+          description: OK
+  /v2/event-types:
+    get:
+      operationId: listEventTypes
+      summary: List event types
+      parameters:
+        - name: cal-api-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2024-06-14"
+      responses:
+        "200":
+          description: OK
+  /v2/event-types/{id}:
+    get:
+      operationId: getEventType
+      summary: Get an event type
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: cal-api-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2024-06-14"
+      responses:
+        "200":
+          description: OK
+    patch:
+      operationId: updateEventType
+      summary: Update event type
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: cal-api-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2024-06-14"
+      responses:
+        "200":
+          description: OK
+  /v2/schedules:
+    get:
+      operationId: listSchedules
+      summary: List schedules
+      parameters:
+        - name: cal-api-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2024-08-13"
+      responses:
+        "200":
+          description: OK

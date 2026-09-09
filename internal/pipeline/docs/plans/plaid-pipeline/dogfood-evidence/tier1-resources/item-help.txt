@@ -1,0 +1,34 @@
+Manage item
+
+Usage:
+  plaid-cli item [command]
+
+Available Commands:
+  access-token-invalidate   Invalidate access_token
+  activity-list             List a historical log of user consent events
+  application-list          List a user’s connected applications
+  application-scopes-update Update the scopes of access for a particular application
+  application-unlink        Unlink a user’s connected application
+  create-public-token       Create public token
+  get                       Retrieve an Item
+  import                    Import Item
+  public-token-exchange     Exchange public token for an access token
+  remove                    Remove an Item
+  webhook-update            Update Webhook URL
+
+Flags:
+  -h, --help   help for item
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli item [command] --help" for more information about a command.

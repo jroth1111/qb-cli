@@ -1,0 +1,453 @@
+package graphql
+
+import (
+	"testing"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const testSDL = `
+type Query {
+  issues(first: Int, after: String, filter: IssueFilter): IssueConnection!
+  issue(id: String!): Issue!
+  teams: TeamConnection!
+  viewer: User!
+}
+
+type Mutation {
+  issueCreate(input: IssueCreateInput!): IssuePayload!
+  issueUpdate(id: String!, input: IssueUpdateInput!): IssuePayload!
+  issueArchive(id: String!): IssueArchivePayload!
+}
+
+type Issue {
+  id: ID!
+  identifier: String!
+  title: String!
+  description: String
+  priority: Int!
+  state: WorkflowState!
+  assignee: User
+  team: Team!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type IssueConnection {
+  nodes: [Issue!]!
+  pageInfo: PageInfo!
+}
+
+type Team {
+  id: ID!
+  name: String!
+  key: String!
+}
+
+type TeamConnection {
+  nodes: [Team!]!
+  pageInfo: PageInfo!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String
+}
+
+type WorkflowState {
+  id: ID!
+  name: String!
+  type: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+input IssueCreateInput {
+  title: String!
+  description: String
+  teamId: String!
+  priority: Int
+  assigneeId: String
+}
+
+input IssueUpdateInput {
+  title: String
+  description: String
+  priority: Int
+  assigneeId: String
+  stateId: String
+}
+
+type IssuePayload {
+  issue: Issue
+}
+
+type IssueArchivePayload {
+  entity: Issue
+}
+
+scalar DateTime
+`
+
+const customRootSDL = `
+schema {
+  query: RootQuery
+  mutation: RootMutation
+}
+
+type RootQuery {
+  widgets(first: Int, after: String): WidgetConnection!
+  widget(id: String!): Widget!
+}
+
+type RootMutation {
+  widgetCreate(input: WidgetCreateInput!): WidgetPayload!
+}
+
+type Widget {
+  id: ID!
+  name: String!
+}
+
+type WidgetConnection {
+  nodes: [Widget!]!
+  pageInfo: PageInfo!
+}
+
+type WidgetCreateInput {
+  name: String!
+}
+
+type WidgetPayload {
+  widget: Widget
+}
+
+scalar DateTime
+`
+
+func TestParseSDLCustomRootOperations(t *testing.T) {
+	parsed, err := ParseSDLBytes("widgets-schema.graphql", []byte(customRootSDL))
+	require.NoError(t, err)
+
+	// Roots aliased via `schema { query: RootQuery ... }` must still yield
+	// resources rather than parsing as an empty API.
+	require.NotEmpty(t, parsed.Resources)
+
+	widgets := parsed.Resources["widgets"]
+	require.NotNil(t, widgets.Endpoints)
+
+	list := widgets.Endpoints["list"]
+	assert.Equal(t, "GET", list.Method)
+	require.NotNil(t, list.Pagination)
+
+	get := widgets.Endpoints["get"]
+	assert.Equal(t, "GET", get.Method)
+	require.Len(t, get.Params, 1)
+	assert.Equal(t, "id", get.Params[0].Name)
+
+	// Custom root operation types are not entity types and must not leak into
+	// the generated type catalogue, just as conventional Query/Mutation don't.
+	assert.NotContains(t, parsed.Types, "RootQuery")
+	assert.NotContains(t, parsed.Types, "RootMutation")
+	assert.Contains(t, parsed.Types, "Widget")
+}
+
+func TestIsGraphQLSDLDetectsCustomRootSchema(t *testing.T) {
+	// A custom-root schema with no scalars and no `type Query`/`type Mutation`
+	// is still GraphQL SDL by virtue of its schema-operation mapping.
+	customRoot := []byte("schema {\n  query: RootQuery\n}\n\ntype RootQuery {\n  viewer: User!\n}\n")
+	assert.True(t, IsGraphQLSDL(customRoot), "custom-root schema block should be detected")
+
+	// Conventional and clearly-non-GraphQL inputs are unchanged.
+	assert.True(t, IsGraphQLSDL([]byte("type Query {\n  me: User\n}\n")))
+	assert.False(t, IsGraphQLSDL([]byte(`{"openapi":"3.0.0","paths":{"/x":{"get":{"responses":{}}}}}`)))
+}
+
+func TestParseSDLMissingRootOperations(t *testing.T) {
+	// A schema block that aliases the query root to a type that is never
+	// defined has no discoverable operations; the parser must say so clearly
+	// instead of emitting an empty spec.
+	const sdl = `
+schema {
+  query: RootQuery
+}
+
+type Widget {
+  id: ID!
+}
+`
+	_, err := ParseSDLBytes("broken-schema.graphql", []byte(sdl))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no GraphQL root operation types found")
+}
+
+func TestParseSDLContent(t *testing.T) {
+	parsed, err := ParseSDLBytes("linear-schema.graphql", []byte(testSDL))
+	require.NoError(t, err)
+
+	assert.Equal(t, "linear", parsed.Name)
+	assert.Equal(t, "https://api.linear.app", parsed.BaseURL)
+	assert.Equal(t, "/graphql", parsed.GraphQLEndpointPath)
+	assert.Empty(t, parsed.EndpointTemplateVars)
+	assert.Equal(t, "api_key", parsed.Auth.Type)
+	assert.Equal(t, []string{"LINEAR_API_KEY"}, parsed.Auth.EnvVars)
+
+	issues := parsed.Resources["issues"]
+	require.NotNil(t, issues.Endpoints)
+
+	list := issues.Endpoints["list"]
+	assert.Equal(t, "GET", list.Method)
+	assert.Equal(t, "/graphql", list.Path)
+	require.NotNil(t, list.Pagination)
+	assert.Equal(t, "cursor", list.Pagination.Type)
+	assert.Equal(t, "first", list.Pagination.LimitParam)
+	assert.Equal(t, "after", list.Pagination.CursorParam)
+	assert.Equal(t, "data.issues.nodes", list.ResponsePath)
+	assert.Equal(t, "Issue", list.Response.Item)
+
+	get := issues.Endpoints["get"]
+	assert.Equal(t, "GET", get.Method)
+	require.Len(t, get.Params, 1)
+	assert.Equal(t, "id", get.Params[0].Name)
+	assert.True(t, get.Params[0].Required)
+	assert.True(t, get.Params[0].Positional)
+
+	create := issues.Endpoints["create"]
+	assert.Equal(t, "POST", create.Method)
+	assert.ElementsMatch(t, []string{"title", "description", "teamId", "priority", "assigneeId"}, paramNames(create.Body))
+	assert.True(t, bodyParam(create.Body, "title").Required)
+	assert.True(t, bodyParam(create.Body, "teamId").Required)
+
+	update := issues.Endpoints["update"]
+	assert.Equal(t, "PATCH", update.Method)
+	require.Len(t, update.Params, 1)
+	assert.Equal(t, "id", update.Params[0].Name)
+	assert.True(t, update.Params[0].Positional)
+	assert.ElementsMatch(t, []string{"title", "description", "priority", "assigneeId", "stateId"}, paramNames(update.Body))
+
+	del := issues.Endpoints["delete"]
+	assert.Equal(t, "DELETE", del.Method)
+	require.Len(t, del.Params, 1)
+	assert.Equal(t, "id", del.Params[0].Name)
+	assert.True(t, del.Params[0].Positional)
+
+	_, hasIssues := parsed.Resources["issues"]
+	_, hasTeams := parsed.Resources["teams"]
+	_, hasUsers := parsed.Resources["users"]
+	_, hasIssueConnection := parsed.Resources["issue-connections"]
+	_, hasPageInfo := parsed.Resources["page-infos"]
+	assert.True(t, hasIssues)
+	assert.True(t, hasTeams)
+	assert.True(t, hasUsers)
+	assert.False(t, hasIssueConnection)
+	assert.False(t, hasPageInfo)
+
+	assert.Contains(t, parsed.Types, "Issue")
+	assert.Contains(t, parsed.Types, "Team")
+	assert.Contains(t, parsed.Types, "User")
+	assert.Contains(t, parsed.Types, "WorkflowState")
+	assert.NotContains(t, parsed.Types, "IssueConnection")
+	assert.NotContains(t, parsed.Types, "PageInfo")
+	assert.NotContains(t, parsed.Types, "IssueCreateInput")
+	assert.NotContains(t, parsed.Types, "IssuePayload")
+}
+
+func TestParseSDLContentHandlesMultilineQueryArguments(t *testing.T) {
+	t.Parallel()
+
+	const sdl = `
+type Query {
+  """
+  One specific cycle, looked up by ID or slug.
+  """
+  cycle(
+    """
+    The identifier of the cycle to retrieve.
+    """
+    id: String!
+  ): Cycle!
+  """
+  All cycles accessible to the user.
+  """
+  cycles(
+    after: String
+    before: String
+    filter: CycleFilter
+    first: Int
+  ): CycleConnection!
+  customerStatus(
+    id: String!
+  ): CustomerStatus!
+  customerStatuses(
+    after: String
+    first: Int
+  ): CustomerStatusConnection!
+}
+
+type Cycle {
+  id: ID!
+  name: String!
+}
+
+type CustomerStatus {
+  id: ID!
+  name: String!
+}
+
+type CycleConnection {
+  nodes: [Cycle!]!
+  pageInfo: PageInfo!
+}
+
+type CustomerStatusConnection {
+  nodes: [CustomerStatus!]!
+  pageInfo: PageInfo!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+input CycleFilter {
+  teamId: String
+}
+`
+
+	parsed, err := ParseSDLBytes("linear-schema.graphql", []byte(sdl))
+	require.NoError(t, err)
+
+	cycles := parsed.Resources["cycles"]
+	require.NotNil(t, cycles.Endpoints)
+	assert.Contains(t, cycles.Endpoints, "get")
+	assert.Contains(t, cycles.Endpoints, "list")
+	require.Len(t, cycles.Endpoints["get"].Params, 1)
+	assert.True(t, cycles.Endpoints["get"].Params[0].Positional)
+	assert.ElementsMatch(t, []string{"after", "before", "filter", "first"}, paramNames(cycles.Endpoints["list"].Params))
+
+	customerStatuses := parsed.Resources["customer-statuses"]
+	require.NotNil(t, customerStatuses.Endpoints)
+	assert.Contains(t, customerStatuses.Endpoints, "get")
+	assert.Contains(t, customerStatuses.Endpoints, "list")
+}
+
+func TestParseSDLContentClampsNegativeFieldDepth(t *testing.T) {
+	t.Parallel()
+
+	const sdl = `
+type Query {
+  ): Bogus!
+  cycle(
+    id: String!
+  ): Cycle!
+}
+
+type Cycle {
+  id: ID!
+}
+`
+
+	parsed, err := ParseSDLBytes("linear-schema.graphql", []byte(sdl))
+	require.NoError(t, err)
+
+	cycles := parsed.Resources["cycles"]
+	require.NotNil(t, cycles.Endpoints)
+	get := cycles.Endpoints["get"]
+	require.Len(t, get.Params, 1)
+	assert.Equal(t, "id", get.Params[0].Name)
+}
+
+func TestBuildTypeDefDeduplicatesFields(t *testing.T) {
+	// Schema where a type has duplicate field names (e.g., pagination args
+	// mixed in with entity fields, as happens in large GraphQL schemas like Linear's).
+	sdl := `
+type Query {
+  things(first: Int, after: String): ThingConnection!
+}
+
+type ThingConnection {
+  nodes: [Thing!]!
+  pageInfo: PageInfo!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type Thing {
+  id: ID!
+  name: String!
+  after: String
+  before: String
+  first: Int
+  after: String
+  before: String
+}
+`
+	parsed, err := ParseSDLBytes("test-dedup.graphql", []byte(sdl))
+	require.NoError(t, err)
+
+	thingType, ok := parsed.Types["Thing"]
+	require.True(t, ok, "Thing type should be present")
+
+	// Verify no duplicate field names
+	seen := map[string]int{}
+	for _, field := range thingType.Fields {
+		seen[field.Name]++
+	}
+	for name, count := range seen {
+		assert.Equal(t, 1, count, "field %q appears %d times, expected 1", name, count)
+	}
+
+	// Verify all unique fields are present
+	fieldNames := make([]string, 0, len(thingType.Fields))
+	for _, f := range thingType.Fields {
+		fieldNames = append(fieldNames, f.Name)
+	}
+	assert.Contains(t, fieldNames, "id")
+	assert.Contains(t, fieldNames, "name")
+	assert.Contains(t, fieldNames, "after")
+	assert.Contains(t, fieldNames, "before")
+	assert.Contains(t, fieldNames, "first")
+}
+
+func paramNames(params []spec.Param) []string {
+	names := make([]string, 0, len(params))
+	for _, param := range params {
+		names = append(names, param.Name)
+	}
+	return names
+}
+
+func bodyParam(params []spec.Param, name string) spec.Param {
+	for _, param := range params {
+		if param.Name == name {
+			return param
+		}
+	}
+	return spec.Param{}
+}
+
+// TestParseSDLMarksFallbackBaseURLAsPlaceholder pins that an unknown
+// GraphQL source (no entry in knownGraphQLDefaults) sets
+// BaseURLIsPlaceholder so the generate command can refuse a shipping CLI
+// whose `doctor` would DNS-fail on every call.
+func TestParseSDLMarksFallbackBaseURLAsPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := ParseSDLBytes("unknown-graphql-service.graphql", []byte(testSDL))
+	require.NoError(t, err)
+	assert.True(t, parsed.BaseURLIsPlaceholder, "unknown GraphQL source must mark BaseURL as placeholder")
+	assert.Equal(t, spec.PlaceholderBaseURL, parsed.BaseURL)
+
+	parsed, err = ParseSDLBytes("linear-schema.graphql", []byte(testSDL))
+	require.NoError(t, err)
+	assert.False(t, parsed.BaseURLIsPlaceholder, "known GraphQL source (linear) must not be marked placeholder")
+}

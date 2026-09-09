@@ -1,0 +1,44 @@
+name: testapi
+description: "Test API for operations shorthand"
+version: "1.0.0"
+base_url: "https://api.example.com"
+
+auth:
+  type: bearer_token
+  env_vars:
+    - TESTAPI_TOKEN
+
+resources:
+  items:
+    description: "Manage items"
+    path: /api/items
+    operations:
+      - list
+      - get
+      - create
+      - update
+      - delete
+
+  categories:
+    description: "Manage categories"
+    path: /api/categories
+    operations:
+      - list
+      - get
+      - search
+
+  mixed:
+    description: "Resource with both operations and explicit endpoints"
+    path: /api/mixed
+    operations:
+      - list
+      - get
+    endpoints:
+      list:
+        method: GET
+        path: /api/mixed/custom-list
+        description: "Custom list endpoint overrides operations-generated one"
+      special:
+        method: POST
+        path: /api/mixed/special
+        description: "An explicit-only endpoint"

@@ -1,0 +1,29 @@
+This is a sample Pet Store Server based on the OpenAPI 3.0 specification. You can find out more about Swagger at...
+
+Usage:
+  petstore-cli [command]
+
+Available Commands:
+  completion  Generate the autocompletion script for the specified shell
+  doctor      Check CLI health
+  help        Help about any command
+  pet         Everything about your Pets
+  store       Access to Petstore orders
+  user        Operations about user
+  version     Print version
+
+Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+  -h, --help               help for petstore-cli
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+  -v, --version            version for petstore-cli
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "petstore-cli [command] --help" for more information about a command.

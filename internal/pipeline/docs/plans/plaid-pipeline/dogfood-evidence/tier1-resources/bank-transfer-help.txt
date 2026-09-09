@@ -1,0 +1,33 @@
+Manage bank transfer
+
+Usage:
+  plaid-cli bank-transfer [command]
+
+Available Commands:
+  balance-get     Get balance of your Bank Transfer account
+  cancel          Cancel a bank transfer
+  create          Create a bank transfer
+  event-list      List bank transfer events
+  event-sync      Sync bank transfer events
+  get             Retrieve a bank transfer
+  list            List bank transfers
+  migrate-account Migrate account into Bank Transfers
+  sweep-get       Retrieve a sweep
+  sweep-list      List sweeps
+
+Flags:
+  -h, --help   help for bank-transfer
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli bank-transfer [command] --help" for more information about a command.

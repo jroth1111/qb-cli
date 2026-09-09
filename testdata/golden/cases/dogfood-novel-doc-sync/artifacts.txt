@@ -1,0 +1,4 @@
+fixture/cli/.printing-press.json
+fixture/cli/README.md
+fixture/cli/SKILL.md
+fixture/research/research.json

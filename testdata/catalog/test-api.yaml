@@ -1,0 +1,11 @@
+name: test-api
+display_name: Test API
+description: Test API fixture for catalog directory parsing
+category: developer-tools
+spec_url: https://example.com/openapi.yaml
+spec_format: yaml
+openapi_version: "3.0"
+tier: community
+verified_date: "2026-03-23"
+homepage: https://example.com
+notes: Example fixture.

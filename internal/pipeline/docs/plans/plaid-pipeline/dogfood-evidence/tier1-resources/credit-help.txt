@@ -1,0 +1,45 @@
+Manage credit
+
+Usage:
+  plaid-cli credit [command]
+
+Available Commands:
+  asset-report-freddie-mac-get         Retrieve an Asset Report with Freddie Mac format. Only Freddie Mac can use this endpoint.
+  audit-copy-token-create              Create Asset or Income Report Audit Copy Token
+  audit-copy-token-update              Update an Audit Copy Token
+  bank-income-get                      Retrieve information from the bank accounts used for income verification
+  bank-income-pdf-get                  Retrieve information from the bank accounts used for income verification in PDF format
+  bank-income-refresh                  Refresh a user's bank income information
+  bank-income-webhook-update           Subscribe and unsubscribe to proactive notifications for a user's income profile
+  bank-statements-uploads-get          Retrieve data for a user's uploaded bank statements
+  employment-get                       Retrieve a summary of an individual's employment information
+  freddie-mac-reports-get              Retrieve an Asset Report with Freddie Mac format (aka VOA - Verification Of Assets), and a Verification Of...
+  payroll-income-get                   Retrieve a user's payroll information
+  payroll-income-parsing-config-update Update the parsing configuration for a document income verification
+  payroll-income-precheck              Check income verification eligibility and optimize conversion
+  payroll-income-refresh               Refresh a digital payroll income verification
+  payroll-income-risk-signals-get      Retrieve fraud insights for a user's manually uploaded document(s).
+  relay-create                         Create a relay token to share an Asset Report with a partner client
+  relay-get                            Retrieve the reports associated with a relay token that was shared with you
+  relay-pdf-get                        Retrieve the pdf reports associated with a relay token that was shared with you (beta)
+  relay-refresh                        Refresh a report of a relay token
+  relay-remove                         Remove relay token
+  report-audit-copy-remove             Remove an Audit Copy token
+  sessions-get                         Retrieve Link sessions for your user
+
+Flags:
+  -h, --help   help for credit
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli credit [command] --help" for more information about a command.

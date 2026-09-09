@@ -1,0 +1,3 @@
+set -euo pipefail
+cp -R testdata/golden/fixtures/dogfood-novel-doc-sync "$CASE_ACTUAL_DIR/fixture"
+"$BINARY" dogfood --dir "$CASE_ACTUAL_DIR/fixture/cli" --research-dir "$CASE_ACTUAL_DIR/fixture/research" --json > "$CASE_ACTUAL_DIR/dogfood.json"

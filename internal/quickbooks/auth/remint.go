@@ -1,0 +1,162 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"time"
+)
+
+// RemintTimeout is the ceiling for automatic 401 remint when the caller
+// supplies no deadline. It fits the whole ladder (relay + headless managed
+// refresh); only a 401 pays it, and success heals silently.
+const RemintTimeout = 12 * time.Second
+
+// AuditCaptureTimeout bounds the best-effort audit-ui key capture that runs
+// after a successful ATS banking capture. It is shorter than RemintTimeout so
+// the audit pass can never block a `qb feed` remint past its own deadline.
+const AuditCaptureTimeout = 8 * time.Second
+
+// ErrRemintNeedsLogin means no authenticated QBO tab was available for a
+// fast remint. The user must run `qb auth remint` or `qb login`.
+var ErrRemintNeedsLogin = errors.New("no authenticated QBO tab; run `qb auth remint` or `qb login`")
+
+// TryRelayRemint recaptures ATS headers from an already-authenticated
+// OMP-relay tab. It does not open ego.
+func TryRelayRemint(ctx context.Context) error {
+	return remintFromRelay(ctx, resolveRelayURL())
+}
+
+// RemintATS recaptures ATS Intuit_APIKey headers. Automatic on every 401 —
+// no flag needed (QB_NO_MANAGED=1 opts out of the managed rung only).
+//
+// Ladder:
+//  1. OMP relay, if an authenticated qbo.intuit.com/app/* tab exists.
+//  2. Headless managed-profile refresh (silent when warm).
+//  3. ego Space, only when the context deadline is longer than
+//     RemintTimeout (explicit remint / login).
+func RemintATS(ctx context.Context) error {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, managedRemintCeiling)
+		defer cancel()
+	}
+
+	relayErr := remintFromRelay(ctx, resolveRelayURL())
+	if relayErr == nil {
+		return nil
+	}
+
+	// Headless managed refresh: silent when the profile session is warm,
+	// fast failure when it needs a human. Runs before ego because ego
+	// needs an interactive Space the remint deadline cannot accommodate.
+	if allowManagedRemint(ctx) {
+		if err := RemintManaged(ctx); err == nil {
+			return nil
+		} else {
+			return fmt.Errorf("remint: relay: %v; managed: %w", relayErr, err)
+		}
+	}
+
+	if allowEgoRemint(ctx) {
+		if err := remintFromEgo(ctx); err == nil {
+			return nil
+		} else {
+			return fmt.Errorf("remint: relay: %v; ego: %w", relayErr, err)
+		}
+	}
+	if errors.Is(relayErr, ErrRemintNeedsLogin) {
+		return relayErr
+	}
+	return fmt.Errorf("remint: %w", relayErr)
+}
+
+// allowManagedRemint gates the headless refresh: enough deadline left to
+// matter (a warm refresh takes ~30s) and not explicitly disabled.
+func allowManagedRemint(ctx context.Context) bool {
+	if os.Getenv(managedDisableEnv) == "1" {
+		return false
+	}
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(dl) > 60*time.Second
+}
+
+func allowEgoRemint(ctx context.Context) bool {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(dl) > RemintTimeout+2*time.Second
+}
+
+func remintFromRelay(ctx context.Context, relayURL string) error {
+	tabs, err := listRelayPages(ctx, relayURL)
+	if err != nil {
+		return fmt.Errorf("relay list: %w", err)
+	}
+	tab := findRelayAuthTab(tabs)
+	if tab == nil {
+		return ErrRemintNeedsLogin
+	}
+	cap, err := CaptureATSFromRelay(ctx, relayURL, tab.ID, BankingCaptureURL)
+	if err != nil {
+		return fmt.Errorf("relay capture: %w", err)
+	}
+	// Best-effort audit-ui key capture. The Audit Log UI sends a shorter
+	// Intuit_APIKey to audit.api.intuit.com; capture it in the same remint
+	// pass so `accounting audit-log read` works without a separate login.
+	// Failure must not fail remint — the banking ATS key is the hard
+	// requirement — and an empty audit key preserves any existing one
+	// via ApplyATSCapture's merge rule.
+	if cap.AuditAuthorization == "" {
+		cap.AuditAuthorization = captureAuditBestEffort(relayURL, tab.ID)
+	}
+	return applyAndSaveCapture(cap, "relay-session")
+}
+
+// captureAuditBestEffort navigates the audit log UI and returns its
+// Intuit_APIKey, or "" with a non-secret warning when the audit capture
+// fails. It never returns an error: callers treat audit as optional.
+func captureAuditBestEffort(relayURL, tabID string) string {
+	actx, cancel := context.WithTimeout(context.Background(), AuditCaptureTimeout)
+	defer cancel()
+	auditKey, aerr := CaptureAuditFromRelay(actx, relayURL, tabID, AuditCaptureURL)
+	if aerr != nil || auditKey == "" {
+		log.Printf("remint: audit-ui key capture skipped (%v); banking ATS key still saved, existing audit key preserved", aerr)
+		return ""
+	}
+	log.Printf("remint: captured audit-ui key %s", redactAuthKey(auditKey))
+	return auditKey
+}
+
+func remintFromEgo(ctx context.Context) error {
+	cap, err := CaptureATSFromEgo(ctx, DefaultLoginURL, BankingCaptureURL)
+	if err != nil {
+		return err
+	}
+	return applyAndSaveCapture(cap, "ego-space")
+}
+
+func applyAndSaveCapture(cap *ATSCapture, source string) error {
+	tok, err := Load()
+	if err != nil {
+		if !errors.Is(err, ErrNoCredentials) {
+			return fmt.Errorf("remint load: %w", err)
+		}
+		tok = &TokenSet{Version: CurrentVersion}
+	}
+	tok.CapturedAt = time.Now().UTC()
+	tok.Source = source
+	if err := tok.ApplyATSCapture(cap); err != nil {
+		return err
+	}
+	if err := Save(tok); err != nil {
+		return fmt.Errorf("remint save: %w", err)
+	}
+	return nil
+}

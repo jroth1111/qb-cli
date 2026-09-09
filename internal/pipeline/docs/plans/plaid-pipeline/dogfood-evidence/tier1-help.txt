@@ -1,0 +1,74 @@
+The Plaid REST API. Please see https://plaid.com/docs/api for more details.
+
+Usage:
+  plaid-cli [command]
+
+Available Commands:
+  accounts                 Manage accounts
+  application              Manage application
+  asset-report             Manage asset report
+  auth                     Manage auth
+  bank-transfer            Manage bank transfer
+  beacon                   Manage beacon
+  beta                     Manage beta
+  business-verification    Manage business verification
+  cashflow-report          Manage cashflow report
+  categories               Manage categories
+  completion               Generate the autocompletion script for the specified shell
+  consent                  Manage consent
+  consumer-report          Manage consumer report
+  cra                      Manage cra
+  credit                   Manage credit
+  dashboard-user           Manage dashboard user
+  doctor                   Check CLI health
+  employers                Manage employers
+  employment               Manage employment
+  fdx                      Manage fdx
+  help                     Help about any command
+  identity                 Manage identity
+  identity-verification    Manage identity verification
+  income                   Manage income
+  institutions             Manage institutions
+  investments              Manage investments
+  issues                   Manage issues
+  item                     Manage item
+  liabilities              Manage liabilities
+  link                     Manage link
+  link-delivery            Manage link delivery
+  network                  Manage network
+  network-insights         Manage network insights
+  oauth                    Manage oauth
+  partner                  Manage partner
+  payment-initiation       Manage payment initiation
+  payment-profile          Manage payment profile
+  processor                Manage processor
+  profile                  Manage profile
+  protect                  Manage protect
+  sandbox                  Manage sandbox
+  session                  Manage session
+  signal                   Manage signal
+  statements               Manage statements
+  transactions             Manage transactions
+  transfer                 Manage transfer
+  user                     Manage user
+  user-account             Manage user account
+  version                  Print version
+  wallet                   Manage wallet
+  watchlist-screening      Manage watchlist screening
+  webhook-verification-key Manage webhook verification key
+
+Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+  -h, --help               help for plaid-cli
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+  -v, --version            version for plaid-cli
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli [command] --help" for more information about a command.

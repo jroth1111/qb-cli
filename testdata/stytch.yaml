@@ -1,0 +1,131 @@
+name: stytch
+description: "Stytch authentication API CLI"
+version: "0.1.0"
+base_url: "https://api.stytch.com/v1"
+
+auth:
+  type: api_key
+  header: "Authorization"
+  format: "Basic {project_id}:{secret}"
+  env_vars:
+    - STYTCH_PROJECT_ID
+    - STYTCH_SECRET
+
+config:
+  format: toml
+  path: "~/.config/stytch-cli/config.toml"
+
+resources:
+  users:
+    description: "Manage Stytch users"
+    endpoints:
+      list:
+        method: GET
+        path: "/users"
+        description: "List all users"
+        params:
+          - name: limit
+            type: int
+            default: 100
+            description: "Max users to return"
+          - name: cursor
+            type: string
+            description: "Pagination cursor"
+        response:
+          type: array
+          item: User
+        pagination:
+          type: cursor
+          cursor_field: "cursor"
+          has_more_field: "results.has_more"
+
+      get:
+        method: GET
+        path: "/users/{user_id}"
+        description: "Get a user by ID"
+        params:
+          - name: user_id
+            type: string
+            required: true
+            positional: true
+            description: "User ID"
+        response:
+          type: object
+          item: User
+
+      create:
+        method: POST
+        path: "/users"
+        description: "Create a new user"
+        body:
+          - name: email
+            type: string
+            description: "User email"
+          - name: phone_number
+            type: string
+            description: "User phone number"
+        response:
+          type: object
+          item: User
+
+      delete:
+        method: DELETE
+        path: "/users/{user_id}"
+        description: "Delete a user"
+        params:
+          - name: user_id
+            type: string
+            required: true
+            positional: true
+            description: "User ID"
+
+  sessions:
+    description: "Manage user sessions"
+    endpoints:
+      list:
+        method: GET
+        path: "/sessions"
+        description: "List sessions for a user"
+        params:
+          - name: user_id
+            type: string
+            required: true
+            description: "User ID"
+        response:
+          type: array
+          item: Session
+
+      revoke:
+        method: POST
+        path: "/sessions/revoke"
+        description: "Revoke a session"
+        body:
+          - name: session_id
+            type: string
+            required: true
+            description: "Session ID to revoke"
+
+types:
+  User:
+    fields:
+      - name: user_id
+        type: string
+      - name: email
+        type: string
+      - name: phone_number
+        type: string
+      - name: status
+        type: string
+      - name: created_at
+        type: string
+
+  Session:
+    fields:
+      - name: session_id
+        type: string
+      - name: user_id
+        type: string
+      - name: started_at
+        type: string
+      - name: expires_at
+        type: string

@@ -1,0 +1,139 @@
+{
+  "api_name": "petstore",
+  "novelty_score": 7,
+  "alternatives": [
+    {
+      "name": "joeydeluca/petstore-client-angular2",
+      "url": "https://github.com/joeydeluca/petstore-client-angular2",
+      "language": "typescript",
+      "install_method": "npm",
+      "stars": 3,
+      "last_updated": "2016-09-30",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "skckadiyala/petcli",
+      "url": "https://github.com/skckadiyala/petcli",
+      "language": "go",
+      "install_method": "binary",
+      "stars": 0,
+      "last_updated": "2022-04-15",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "mydadisalive/petstore-cli",
+      "url": "https://github.com/mydadisalive/petstore-cli",
+      "language": "python",
+      "install_method": "pip",
+      "stars": 0,
+      "last_updated": "2024-08-05",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "ln-nicolas/petstore-client-ts",
+      "url": "https://github.com/ln-nicolas/petstore-client-ts",
+      "language": "typescript",
+      "install_method": "npm",
+      "stars": 0,
+      "last_updated": "2020-12-18",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    },
+    {
+      "name": "mafflerbach/petstoreOpenApiClient",
+      "url": "https://github.com/mafflerbach/petstoreOpenApiClient",
+      "language": "rust",
+      "install_method": "cargo",
+      "stars": 0,
+      "last_updated": "2020-05-17",
+      "command_count": 0,
+      "has_json_output": false,
+      "has_auth_support": false
+    }
+  ],
+  "gaps": [
+    "most alternatives lack --json output mode",
+    "no alternative offers --dry-run mode",
+    "5/5 alternatives are stale (\u003e1 year since last update)"
+  ],
+  "patterns": [
+    "standard CLI patterns (list, get, create, update, delete)"
+  ],
+  "recommendation": "proceed",
+  "researched_at": "2026-03-25T09:12:43.368571-07:00",
+  "competitor_insights": {
+    "analyses": [
+      {
+        "repo_url": "https://github.com/joeydeluca/petstore-client-angular2",
+        "commands_found": [
+          "Demo",
+          "is",
+          "project",
+          "angular2",
+          "means",
+          "initial"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 6
+      },
+      {
+        "repo_url": "https://github.com/skckadiyala/petcli",
+        "commands_found": null,
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 0
+      },
+      {
+        "repo_url": "https://github.com/mydadisalive/petstore-cli",
+        "commands_found": null,
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 0
+      },
+      {
+        "repo_url": "https://github.com/ln-nicolas/petstore-client-ts",
+        "commands_found": [
+          "generator",
+          "level",
+          "system",
+          "build",
+          "install",
+          "run",
+          "to"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 7
+      },
+      {
+        "repo_url": "https://github.com/mafflerbach/petstoreOpenApiClient",
+        "commands_found": [
+          "is",
+          "API",
+          "URIs",
+          "get",
+          "doc"
+        ],
+        "feature_requests": null,
+        "abandoned_prs": null,
+        "pain_points": null,
+        "command_count": 5
+      }
+    ],
+    "command_target": 9,
+    "unmet_features": null,
+    "pain_points_to_avoid": null
+  }
+}

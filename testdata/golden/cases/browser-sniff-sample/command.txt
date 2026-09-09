@@ -1,0 +1,1 @@
+"$BINARY" browser-sniff --har testdata/sniff/sample.har --output "$CASE_ACTUAL_DIR/spec.yaml" --analysis-output "$CASE_ACTUAL_DIR/traffic-analysis.json"

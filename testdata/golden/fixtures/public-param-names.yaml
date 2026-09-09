@@ -1,0 +1,80 @@
+name: public-param-golden
+description: Public parameter name golden fixture
+version: "0.1.0"
+base_url: https://api.public-param.example/v1
+auth:
+  type: none
+resources:
+  stores:
+    description: Store lookup operations
+    endpoints:
+      find:
+        method: GET
+        path: /power/store-locator
+        description: Find nearby stores by address
+        params:
+          - name: s
+            flag_name: address
+            aliases: [s]
+            type: string
+            required: true
+            description: Street address
+          - name: c
+            flag_name: city
+            aliases: [c]
+            type: string
+            required: true
+            description: City, state, zip
+          - name: locationId
+            url_name: location_id
+            type: string
+            required: true
+            description: Location identifier sent with this endpoint's snake-case query key
+          - name: recorded_by[]
+            type: array
+            item_type: string
+            query_style: form
+            query_explode: true
+            description: Filter by recorder emails, sent as repeated bracket query keys
+          - name: sort
+            type: array
+            item_type: object
+            query_style: deepObject
+            query_explode: true
+            fields:
+              - name: field
+                type: string
+                description: Field name to sort by
+              - name: direction
+                type: string
+                description: Sort direction (asc or desc)
+            description: Sort specification sent as indexed deepObject query keys
+        response:
+          type: array
+          item: Store
+      create:
+        method: POST
+        path: /stores
+        description: Create a store record
+        params:
+          - name: dry_run
+            url_name: $dry_run
+            type: boolean
+            description: Preview without writing
+        body:
+          - name: store_code
+            flag_name: store-code
+            aliases: [code]
+            type: string
+            required: true
+            description: Store code
+        response:
+          type: object
+          item: Store
+types:
+  Store:
+    fields:
+      - name: id
+        type: string
+      - name: name
+        type: string

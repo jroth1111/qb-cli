@@ -1,0 +1,28 @@
+Manage income
+
+Usage:
+  plaid-cli income [command]
+
+Available Commands:
+  verification-create             (Deprecated) Create an income verification instance
+  verification-documents-download (Deprecated) Download the original documents used for income verification
+  verification-paystubs-get       (Deprecated) Retrieve information from the paystubs used for income verification
+  verification-precheck           (Deprecated) Check digital income verification eligibility and optimize conversion
+  verification-taxforms-get       (Deprecated) Retrieve information from the tax documents used for income verification
+
+Flags:
+  -h, --help   help for income
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli income [command] --help" for more information about a command.

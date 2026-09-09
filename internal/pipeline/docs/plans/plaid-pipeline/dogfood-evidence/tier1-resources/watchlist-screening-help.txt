@@ -1,0 +1,43 @@
+Manage watchlist screening
+
+Usage:
+  plaid-cli watchlist-screening [command]
+
+Available Commands:
+  entity-create            Create a watchlist screening for an entity
+  entity-get               Get an entity screening
+  entity-history-list      List history for entity watchlist screenings
+  entity-hit-list          List hits for entity watchlist screenings
+  entity-list              List entity watchlist screenings
+  entity-program-get       Get entity watchlist screening program
+  entity-program-list      List entity watchlist screening programs
+  entity-review-create     Create a review for an entity watchlist screening
+  entity-review-list       List reviews for entity watchlist screenings
+  entity-update            Update an entity screening
+  individual-create        Create a watchlist screening for a person
+  individual-get           Retrieve an individual watchlist screening
+  individual-history-list  List history for individual watchlist screenings
+  individual-hit-list      List hits for individual watchlist screening
+  individual-list          List Individual Watchlist Screenings
+  individual-program-get   Get individual watchlist screening program
+  individual-program-list  List individual watchlist screening programs
+  individual-review-create Create a review for an individual watchlist screening
+  individual-review-list   List reviews for individual watchlist screenings
+  individual-update        Update individual watchlist screening
+
+Flags:
+  -h, --help   help for watchlist-screening
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli watchlist-screening [command] --help" for more information about a command.

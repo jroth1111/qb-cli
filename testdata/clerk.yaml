@@ -1,0 +1,191 @@
+name: clerk
+description: "Clerk authentication API CLI"
+version: "0.1.0"
+base_url: "https://api.clerk.com/v1"
+
+auth:
+  type: bearer_token
+  header: "Authorization"
+  env_vars:
+    - CLERK_SECRET_KEY
+
+config:
+  format: toml
+  path: "~/.config/clerk-cli/config.toml"
+
+resources:
+  users:
+    description: "Manage Clerk users"
+    endpoints:
+      list:
+        method: GET
+        path: "/users"
+        description: "List users"
+        params:
+          - name: limit
+            type: int
+            description: "Max users to return"
+          - name: offset
+            type: int
+            description: "Pagination offset"
+          - name: order_by
+            type: string
+            description: "Sort field"
+        response:
+          type: array
+          item: User
+
+      get:
+        method: GET
+        path: "/users/{user_id}"
+        description: "Get a user"
+        params:
+          - name: user_id
+            type: string
+            required: true
+            positional: true
+            description: "User ID"
+        response:
+          type: object
+          item: User
+
+      create:
+        method: POST
+        path: "/users"
+        description: "Create a user"
+        body:
+          - name: email_address
+            type: string
+            required: true
+            description: "Primary email address"
+          - name: first_name
+            type: string
+            description: "First name"
+          - name: last_name
+            type: string
+            description: "Last name"
+        response:
+          type: object
+          item: User
+
+      delete:
+        method: DELETE
+        path: "/users/{user_id}"
+        description: "Delete a user"
+        params:
+          - name: user_id
+            type: string
+            required: true
+            positional: true
+            description: "User ID"
+
+  organizations:
+    description: "Manage Clerk organizations"
+    endpoints:
+      list:
+        method: GET
+        path: "/organizations"
+        description: "List organizations"
+        params:
+          - name: limit
+            type: int
+            description: "Max organizations to return"
+        response:
+          type: array
+          item: Organization
+
+      get:
+        method: GET
+        path: "/organizations/{organization_id}"
+        description: "Get an organization"
+        params:
+          - name: organization_id
+            type: string
+            required: true
+            positional: true
+            description: "Organization ID"
+        response:
+          type: object
+          item: Organization
+
+      create:
+        method: POST
+        path: "/organizations"
+        description: "Create an organization"
+        body:
+          - name: name
+            type: string
+            required: true
+            description: "Organization name"
+          - name: slug
+            type: string
+            required: true
+            description: "Organization slug"
+        response:
+          type: object
+          item: Organization
+
+  sessions:
+    description: "Manage Clerk sessions"
+    endpoints:
+      list:
+        method: GET
+        path: "/sessions"
+        description: "List sessions"
+        params:
+          - name: user_id
+            type: string
+            description: "User ID"
+        response:
+          type: array
+          item: Session
+
+      revoke:
+        method: POST
+        path: "/sessions/{session_id}/revoke"
+        description: "Revoke a session"
+        params:
+          - name: session_id
+            type: string
+            required: true
+            positional: true
+            description: "Session ID"
+        response:
+          type: object
+          item: Session
+
+types:
+  User:
+    fields:
+      - name: id
+        type: string
+      - name: email_address
+        type: string
+      - name: first_name
+        type: string
+      - name: last_name
+        type: string
+      - name: created_at
+        type: string
+
+  Organization:
+    fields:
+      - name: id
+        type: string
+      - name: name
+        type: string
+      - name: slug
+        type: string
+      - name: created_at
+        type: string
+
+  Session:
+    fields:
+      - name: id
+        type: string
+      - name: user_id
+        type: string
+      - name: status
+        type: string
+      - name: expire_at
+        type: string

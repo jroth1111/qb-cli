@@ -1,0 +1,59 @@
+openapi: "3.0.3"
+info:
+  title: Mixed Auth API
+  version: "1.0.0"
+servers:
+  - url: https://api.example.com/v1
+security:
+  - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+paths:
+  /stores:
+    get:
+      operationId: listStores
+      summary: List stores
+      description: List all store locations
+      security: []
+      responses:
+        "200":
+          description: OK
+  /menus:
+    get:
+      operationId: getMenu
+      summary: Get menu
+      description: Get menu for a store
+      security:
+        - {}
+      responses:
+        "200":
+          description: OK
+  /orders:
+    get:
+      operationId: listOrders
+      summary: List orders
+      description: List your orders
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: createOrder
+      summary: Create order
+      description: Place a new order
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "201":
+          description: Created
+  /account:
+    get:
+      operationId: getAccount
+      summary: Get account
+      description: Get account details
+      responses:
+        "200":
+          description: OK

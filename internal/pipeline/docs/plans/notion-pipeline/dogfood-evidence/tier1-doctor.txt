@@ -1,0 +1,6 @@
+  OK Config: ok
+  FAIL Auth: not configured
+  OK API: reachable (HTTP 200 at )
+  config_path: <home>/.config/notion-cli/config.toml
+  base_url: https://api.notion.com
+  version: 1.0.0

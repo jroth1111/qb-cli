@@ -1,0 +1,27 @@
+{
+  "api_name": "fixture",
+  "novelty_score": 8,
+  "alternatives": [],
+  "gaps": [],
+  "patterns": [],
+  "recommendation": "proceed",
+  "researched_at": "2026-04-01T00:00:00Z",
+  "novel_features": [
+    {
+      "name": "Health dashboard",
+      "command": "health",
+      "description": "Summarize account health from local state.",
+      "rationale": "Requires local joins.",
+      "example": "fixture-pp-cli health --agent",
+      "why_it_matters": "Agents can inspect health in one command",
+      "group": "Local state"
+    },
+    {
+      "name": "Stale triage",
+      "command": "triage",
+      "description": "Find stale records.",
+      "rationale": "Requires workflow analysis.",
+      "group": "Local state"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "api_name": "fixture",
+  "cli_name": "fixture-pp-cli",
+  "generated_at": "<GENERATED_AT>",
+  "novel_features": [
+    {
+      "command": "health",
+      "description": "Summarize account health from local state.",
+      "name": "Health dashboard"
+    }
+  ],
+  "printing_press_version": "<PRINTING_PRESS_VERSION>",
+  "schema_version": 1
+}

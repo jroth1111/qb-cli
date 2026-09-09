@@ -1,0 +1,41 @@
+Manage cra
+
+Usage:
+  plaid-cli cra [command]
+
+Available Commands:
+  check-report-base-report-get       Retrieve a Base Report
+  check-report-cashflow-insights-get Retrieve cash flow insights from your user's banking data
+  check-report-create                Refresh or create a Consumer Report
+  check-report-income-insights-get   Retrieve cash flow information from your user's banks
+  check-report-lend-score-get        Retrieve the LendScore from your user's banking data
+  check-report-network-insights-get  Retrieve network attributes for the user
+  check-report-partner-insights-get  Retrieve cash flow insights from partners
+  check-report-pdf-get               Retrieve Consumer Reports as a PDF
+  check-report-verification-get      Retrieve various home lending reports for a user.
+  check-report-verification-pdf-get  Retrieve Consumer Reports as a Verification PDF
+  loans-applications-register        Register loan applications and decisions.
+  loans-register                     Register a list of loans to their applicants.
+  loans-unregister                   Unregister a list of loans.
+  loans-update                       Updates loan data.
+  monitoring-insights-get            Retrieve a Monitoring Insights Report
+  monitoring-insights-subscribe      Subscribe to Monitoring Insights
+  monitoring-insights-unsubscribe    Unsubscribe from Monitoring Insights
+  partner-insights-get               Retrieve cash flow insights from the bank accounts used for income verification
+
+Flags:
+  -h, --help   help for cra
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli cra [command] --help" for more information about a command.

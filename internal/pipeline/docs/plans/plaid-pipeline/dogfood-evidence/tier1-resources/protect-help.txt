@@ -1,0 +1,28 @@
+Manage protect
+
+Usage:
+  plaid-cli protect [command]
+
+Available Commands:
+  compute           Compute Protect Trust Index Score
+  event-get         Get information about a user event
+  event-send        Send a new event to enrich user data
+  report-create     Create a Protect report
+  user-insights-get Get Protect user insights
+
+Flags:
+  -h, --help   help for protect
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli protect [command] --help" for more information about a command.

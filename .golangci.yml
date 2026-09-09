@@ -1,0 +1,39 @@
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - library
+      - dist
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    # Catches accumulated "Go has a newer way to do this" patterns:
+    # interface{} → any, ad-hoc loops → slices.Contains, range-over-int,
+    # min/max builtins, strings.Builder, CutPrefix/CutSuffix, etc. Without
+    # this enabled the codebase drifts (~100 hits accumulated before this
+    # config was introduced); turning it on now keeps it clean.
+    - modernize
+  settings:
+    errcheck:
+      exclude-functions:
+        # CLI output — failure means stdout is broken, nothing to recover.
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+        - (io.Writer).Write
+  exclusions:
+    paths:
+      - library
+      - dist
+    rules:
+      # Test files: unchecked errors in setup/cleanup helpers are noise.
+      - path: '_test\.go'
+        linters:
+          - errcheck

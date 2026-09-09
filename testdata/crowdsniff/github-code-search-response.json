@@ -1,0 +1,74 @@
+{
+  "total_count": 5,
+  "incomplete_results": false,
+  "items": [
+    {
+      "name": "client.js",
+      "path": "src/client.js",
+      "html_url": "https://github.com/alice/notion-tools/blob/main/src/client.js",
+      "repository": {
+        "full_name": "alice/notion-tools"
+      },
+      "text_matches": [
+        {
+          "fragment": "const resp = await fetch('https://api.notion.com/v1/users', { headers })"
+        },
+        {
+          "fragment": "await fetch('https://api.notion.com/v1/projects', { method: 'POST' })"
+        }
+      ]
+    },
+    {
+      "name": "api.py",
+      "path": "notion/api.py",
+      "html_url": "https://github.com/bob/notion-sdk-py/blob/main/notion/api.py",
+      "repository": {
+        "full_name": "bob/notion-sdk-py"
+      },
+      "text_matches": [
+        {
+          "fragment": "response = self.session.get('https://api.notion.com/v1/users/me')"
+        }
+      ]
+    },
+    {
+      "name": "index.ts",
+      "path": "src/index.ts",
+      "html_url": "https://github.com/charlie/notion-wrapper/blob/main/src/index.ts",
+      "repository": {
+        "full_name": "charlie/notion-wrapper"
+      },
+      "text_matches": [
+        {
+          "fragment": "this.http.get('/v1/databases')\nthis.http.post('/v1/pages')"
+        }
+      ]
+    },
+    {
+      "name": "util.js",
+      "path": "lib/util.js",
+      "html_url": "https://github.com/alice/notion-tools/blob/main/lib/util.js",
+      "repository": {
+        "full_name": "alice/notion-tools"
+      },
+      "text_matches": [
+        {
+          "fragment": "fetch('https://api.notion.com/v1/users')"
+        }
+      ]
+    },
+    {
+      "name": "handler.go",
+      "path": "pkg/handler.go",
+      "html_url": "https://github.com/dave/stale-notion/blob/main/pkg/handler.go",
+      "repository": {
+        "full_name": "dave/stale-notion"
+      },
+      "text_matches": [
+        {
+          "fragment": "http.Get(\"https://api.notion.com/v1/blocks\")"
+        }
+      ]
+    }
+  ]
+}

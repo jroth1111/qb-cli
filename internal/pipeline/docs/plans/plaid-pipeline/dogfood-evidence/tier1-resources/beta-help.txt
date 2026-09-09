@@ -1,0 +1,34 @@
+Manage beta
+
+Usage:
+  plaid-cli beta [command]
+
+Available Commands:
+  credit-bank-employment-get     Retrieve information from the bank accounts used for employment verification
+  ewa-report-v1-get              Get EWA Score Report
+  partner-customer-v1-create     Creates a new end customer for a Plaid reseller.
+  partner-customer-v1-enable     Enables a Plaid reseller's end customer in the Production environment.
+  partner-customer-v1-get        Retrieves the details of a Plaid reseller's end customer.
+  partner-customer-v1-update     Updates an existing end customer.
+  transactions-enhance           enhance locally-held transaction data
+  transactions-rules-create      Create transaction category rule
+  transactions-rules-list        Return a list of rules created for the Item associated with the access token.
+  transactions-rules-remove      Remove transaction rule
+  transactions-user-insights-get Obtain user insights based on transactions sent through /transactions/enrich
+
+Flags:
+  -h, --help   help for beta
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli beta [command] --help" for more information about a command.

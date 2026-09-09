@@ -1,0 +1,28 @@
+CLI for notion (generated from docs)
+
+Usage:
+  notion-cli [command]
+
+Available Commands:
+  agents      Operations on agents
+  completion  Generate the autocompletion script for the specified shell
+  doctor      Check CLI health
+  help        Help about any command
+  threads     Operations on threads
+  version     Print version
+
+Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+  -h, --help               help for notion-cli
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+  -v, --version            version for notion-cli
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "notion-cli [command] --help" for more information about a command.

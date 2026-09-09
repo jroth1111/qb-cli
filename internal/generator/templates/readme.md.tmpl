@@ -1,0 +1,740 @@
+# {{.ProseName}} CLI
+{{- $canonicalEnvVar := .Auth.CanonicalEnvVar}}
+{{- $deviceEnvVars := deviceCodeEnvVars .Auth}}
+{{- $authPersistenceCommand := authCredentialPersistenceCommand .Auth .Name}}
+{{- if and .Narrative .Narrative.Headline}}
+
+**{{.Narrative.Headline}}**
+{{- else}}
+
+{{.Description}}
+{{- end}}
+{{- if and .Narrative .Narrative.ValueProp}}
+
+{{.Narrative.ValueProp}}
+{{- end}}
+{{- if .WebsiteURL}}
+
+Learn more at [{{.ProseName}}]({{.WebsiteURL}}).
+{{- end}}
+{{- if .Creator.Handle}}
+
+Created by [@{{.Creator.Handle}}](https://github.com/{{.Creator.Handle}}){{if .Creator.Name}} ({{.Creator.Name}}){{end}}.
+{{- if .Contributors}}
+Contributors: {{range $i, $c := .Contributors}}{{if $i}}, {{end}}{{if $c.Handle}}[@{{$c.Handle}}](https://github.com/{{$c.Handle}}){{if $c.Name}} ({{$c.Name}}){{end}}{{else}}{{$c.Name}}{{end}}{{end}}.
+{{- end}}
+{{- end}}
+
+## Install
+
+The recommended path installs both the `{{.Name}}-pp-cli` binary and the `pp-{{.Name}}` agent skill (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, and other agents supported by the upstream [`skills`](https://github.com/vercel-labs/skills) CLI) in one shot:
+
+```bash
+npx -y @mvanhorn/printing-press-library install {{.Name}}
+```
+
+For CLI only (no skill):
+
+```bash
+npx -y @mvanhorn/printing-press-library install {{.Name}} --cli-only
+```
+
+For skill only — installs the skill into the same agents as the default command above, but skips the CLI binary (use this to update or reinstall just the skill):
+
+```bash
+npx -y @mvanhorn/printing-press-library install {{.Name}} --skill-only
+```
+
+To constrain the skill install to one or more specific agents (repeatable — agent names match the [`skills`](https://github.com/vercel-labs/skills) CLI):
+
+```bash
+npx -y @mvanhorn/printing-press-library install {{.Name}} --agent claude-code
+npx -y @mvanhorn/printing-press-library install {{.Name}} --agent claude-code --agent codex
+```
+{{ if .Category}}
+### Without Node (Go fallback)
+
+If `npx` isn't available (no Node, offline), install the CLI directly via Go (requires Go 1.26.6 or newer):
+
+```bash
+go install github.com/mvanhorn/printing-press-library/library/{{.Category}}/{{.Name}}/cmd/{{.Name}}-pp-cli@latest
+```
+
+This installs the CLI only — no skill.
+{{- else}}
+### Without Node
+
+The generated install path is category-agnostic until this CLI is published. If `npx` is not available before publish, install Node or use the category-specific Go fallback from the public-library entry after publish.
+{{- end}}
+
+### Pre-built binary
+
+Download a pre-built binary for your platform from the [latest release](https://github.com/mvanhorn/printing-press-library/releases/tag/{{.Name}}-current). On macOS, clear the Gatekeeper quarantine: `xattr -d com.apple.quarantine <binary>`. On Unix, mark it executable: `chmod +x <binary>`.
+
+<!-- pp-hermes-install-anchor -->
+## Install for Hermes
+
+Install the CLI binary first. The installer writes binaries to a per-user managed bin directory by default: `$HOME/.local/bin` on macOS/Linux and `%LOCALAPPDATA%\Programs\PrintingPress\bin` on Windows.
+
+```bash
+npx -y @mvanhorn/printing-press-library install {{.Name}} --cli-only
+```
+
+Then install the focused Hermes skill.
+
+From the Hermes CLI:
+
+```bash
+hermes skills install mvanhorn/printing-press-library/cli-skills/pp-{{.Name}} --force
+```
+
+Inside a Hermes chat session:
+
+```bash
+/skills install mvanhorn/printing-press-library/cli-skills/pp-{{.Name}} --force
+```
+
+Restart the Hermes session or gateway if the newly installed skill is not visible immediately.
+
+## Install for OpenClaw
+Install both the CLI binary and the focused OpenClaw skill. The installer defaults binaries to a per-user bin directory (`$HOME/.local/bin` on macOS/Linux, `%LOCALAPPDATA%\Programs\PrintingPress\bin` on Windows):
+
+```bash
+npx -y @mvanhorn/printing-press-library install {{.Name}} --agent openclaw
+```
+
+Restart the OpenClaw session or gateway if the newly installed skill is not visible immediately.
+
+## Use with Claude Desktop
+
+This CLI ships an [MCPB](https://github.com/modelcontextprotocol/mcpb) bundle — Claude Desktop's standard format for one-click MCP extension installs (no JSON config required).
+{{- if or (eq .Auth.Type "cookie") (eq .Auth.Type "composed")}}
+
+The bundle reuses your local browser session — set it up first if you haven't:
+
+```bash
+{{.Name}}-pp-cli auth login --chrome
+```
+{{- else if eq .Auth.EffectiveOAuth2Grant "device_code"}}
+
+The bundle reuses your local OAuth tokens — authenticate first if you haven't:
+
+```bash
+{{- if or .Auth.DefaultClientID (not $deviceEnvVars)}}
+{{.Name}}-pp-cli auth login --device-code
+{{- else}}
+export {{(index $deviceEnvVars 0).Name}}=<client-id>
+{{.Name}}-pp-cli auth login --device-code
+{{- end}}
+```
+{{- else if eq .Auth.Type "oauth2"}}
+
+The bundle reuses your local OAuth tokens — authenticate first if you haven't:
+
+```bash
+{{.Name}}-pp-cli auth login
+```
+{{- else if eq .Auth.Type "oauth2_refresh"}}
+
+The bundle reuses your local OAuth2 refresh-token credentials — configure them first if you haven't:
+
+```bash
+{{- range .Auth.EnvVarSpecs}}
+export {{.Name}}="{{authEnvPlaceholder .}}"
+{{- end}}
+```
+{{- else if and (eq .Auth.Type "bearer_token") (not $canonicalEnvVar) $authPersistenceCommand}}
+
+Store your token first if you haven't:
+
+```bash
+{{$authPersistenceCommand}}
+```
+{{- end}}
+
+To install:
+
+1. Download the `.mcpb` for your platform from the [latest release](https://github.com/mvanhorn/printing-press-library/releases/tag/{{.Name}}-current).
+2. Double-click the `.mcpb` file. Claude Desktop opens and walks you through the install.
+{{- if and $canonicalEnvVar (ne .Auth.Type "none") (ne .Auth.Type "cookie") (ne .Auth.Type "composed")}}
+3. Fill in `{{$canonicalEnvVar.Name}}` when Claude Desktop prompts you.
+{{- end}}
+
+Requires Claude Desktop 1.0.0 or later. Pre-built bundles ship for macOS Apple Silicon (`darwin-arm64`) and Windows (`amd64`, `arm64`); for other platforms, use the manual config below.
+
+<details>
+<summary>Manual JSON config (advanced)</summary>
+
+If you can't use the MCPB bundle (older Claude Desktop, unsupported platform), install the MCP binary and configure it manually.
+
+{{ if .Category}}
+```bash
+go install github.com/mvanhorn/printing-press-library/library/{{.Category}}/{{.Name}}/cmd/{{.Name}}-pp-mcp@latest
+```
+{{- else}}
+Install the MCP binary from this CLI's published public-library entry or pre-built release.
+{{- end}}
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "{{.Name}}": {
+      "command": "{{.Name}}-pp-mcp"{{- if and $canonicalEnvVar (ne .Auth.Type "none") (ne .Auth.Type "cookie") (ne .Auth.Type "composed")}},
+      "env": {
+{{- range .EndpointTemplateVars}}
+        "{{envName $.Name}}_{{upper .}}": "{{if eq . "shop"}}<your-store>.myshopify.com{{else if eq . "api_version"}}{{$.Version}}{{else}}<{{.}}>{{end}}",
+{{- end}}
+        "{{$canonicalEnvVar.Name}}": "<your-key>"
+      }{{- end}}
+    }
+  }
+}
+```
+
+</details>
+{{- if and .Narrative .Narrative.AuthNarrative}}
+
+{{if .Auth.Optional}}## Optional: API Key{{else}}## Authentication{{end}}
+
+{{if .Auth.Optional}}**All core commands work without setup.** The API key below is only needed to unlock additional features.
+
+{{end}}{{.Narrative.AuthNarrative}}
+{{- end}}
+
+## Quick Start
+{{- if and .Narrative .Narrative.QuickStart}}
+
+```bash
+{{- range .Narrative.QuickStart}}
+{{if .Comment}}# {{.Comment}}
+{{end}}{{.Command}}
+
+{{end -}}
+```
+{{- else}}
+
+### 1. Install
+
+See [Install](#install) above.
+{{- if eq .Auth.Type "api_key"}}
+
+### 2. Set Up Credentials
+
+{{- if .GraphQLEndpointPath}}
+This CLI talks to the {{.ProseName}} GraphQL API at `{{.BaseURL}}{{.GraphQLEndpointPath}}`.
+{{- end}}
+{{- if .EndpointTemplateVars}}
+
+Set the endpoint variables for the tenant, workspace, or API version you want this CLI to use:
+
+```bash
+{{- range .EndpointTemplateVars}}
+export {{endpointTemplateEnvName .}}="{{if eq . "shop"}}<your-store>.myshopify.com{{else if eq . "api_version"}}{{$.Version}}{{else}}<{{.}}>{{end}}"
+{{- end}}
+```
+{{- end}}
+
+Get your API key from your API provider's developer portal. The key typically looks like a long alphanumeric string.
+{{- with $canonicalEnvVar}}
+
+```bash
+export {{.Name}}="<paste-your-key>"
+```
+
+{{- if $authPersistenceCommand}}
+To persist credentials, use `{{$authPersistenceCommand}}`. Stored secrets live in `credentials.toml` under the data directory, not in `config.toml`.
+{{- end}}
+{{- end}}
+{{- else if eq .Auth.EffectiveOAuth2Grant "device_code"}}
+
+### 2. Authenticate
+
+Authorize with the OAuth2 device-code flow:
+
+```bash
+{{- if or .Auth.DefaultClientID (not $deviceEnvVars)}}
+{{.Name}}-pp-cli auth login --device-code
+{{- else}}
+export {{(index $deviceEnvVars 0).Name}}=<client-id>
+{{.Name}}-pp-cli auth login --device-code
+{{- end}}
+```
+
+Open the verification URL, enter the printed user code, and return to the CLI. Your tokens are stored locally and refreshed automatically.
+{{- else if eq .Auth.Type "oauth2"}}
+
+### 2. Authenticate
+
+Authorize via your browser:
+
+```bash
+{{.Name}}-pp-cli auth login
+```
+
+This opens a browser window to complete the OAuth2 flow. Your tokens are stored locally and refreshed automatically.
+{{- else if eq .Auth.Type "oauth2_refresh"}}
+
+### 2. Set Up OAuth2 Refresh Credentials
+
+This CLI uses OAuth2 with refresh-token rotation. Provide the client credentials and refresh token; access tokens are refreshed automatically.
+
+```bash
+{{- range .Auth.EnvVarSpecs}}
+export {{.Name}}="{{authEnvPlaceholder .}}"
+{{- end}}
+```
+{{- else if eq .Auth.Type "bearer_token"}}
+
+### 2. Set Up Credentials
+
+Get your access token from your API provider's developer portal{{if $authPersistenceCommand}}, then store it{{end}}:
+{{- if $authPersistenceCommand}}
+
+```bash
+{{$authPersistenceCommand}}
+```
+{{- end}}
+{{- if .BearerRefresh.Enabled}}
+
+If commands start returning auth errors after working for a while, refresh the public client bearer token from the live web bundle:
+
+```bash
+{{.Name}}-pp-cli doctor --refresh-bearer
+{{.Name}}-pp-cli refresh-bearer
+```
+{{- end}}
+{{- with $canonicalEnvVar}}
+
+Or set it via environment variable:
+
+```bash
+export {{.Name}}="your-token-here"
+```
+{{- end}}
+{{- else if or (eq .Auth.Type "cookie") (eq .Auth.Type "composed")}}
+
+### 2. Authenticate
+
+This CLI uses your browser session for authentication. Log in to {{.Auth.CookieDomain}} in Chrome, then:
+
+```bash
+{{.Name}}-pp-cli auth login --chrome
+```
+
+Or import an existing browser capture:
+
+```bash
+{{.Name}}-pp-cli auth login --cookies-file storage-state.json
+```
+
+`--cookies-file` accepts Playwright storage-state JSON or a raw `Cookie:` header text file. The Chrome path requires a cookie extraction tool. Install one:
+
+```bash
+pip install pycookiecheat          # Python (recommended)
+brew install barnardb/cookies/cookies  # Homebrew
+```
+
+When your session expires, run `auth login --chrome` again.
+{{- else if eq .Auth.Type "session_handshake"}}
+
+### 2. Authenticate
+
+This CLI uses a browser-backed session handshake. Import browser cookies from Playwright storage-state JSON or a raw `Cookie:` header text file:
+
+```bash
+{{.Name}}-pp-cli auth login --cookies-file storage-state.json
+```
+{{- end}}
+
+### {{if and (ne .Auth.Type "") (ne .Auth.Type "none")}}3{{else}}2{{end}}. Verify Setup
+
+```bash
+{{.Name}}-pp-cli doctor
+```
+
+This checks your configuration{{if and (ne .Auth.Type "") (ne .Auth.Type "none")}} and credentials{{end}}.
+
+{{- $firstCmd := firstCommandExample .Resources}}
+{{- if $firstCmd}}
+
+### {{if and (ne .Auth.Type "") (ne .Auth.Type "none")}}4{{else}}3{{end}}. Try Your First Command
+
+```bash
+{{.Name}}-pp-cli {{$firstCmd}}
+```
+{{- end}}
+{{- end}}
+{{- if .NovelFeatures}}
+
+## Unique Features
+
+These capabilities aren't available in any other tool for this API.
+{{- $groups := groupNovelFeatures .NovelFeatures}}
+{{- if $groups}}
+{{- range $groups}}
+
+### {{.Name}}
+{{range .Features}}
+- **`{{.Command}}`** — {{.Description}}
+{{- if .WhyItMatters}}
+
+  _{{.WhyItMatters}}_
+{{- end}}
+{{- if .Example}}
+
+  ```bash
+  {{.Example}}
+  ```
+{{- end}}
+{{- end}}
+{{- end}}
+{{- else}}
+{{range .NovelFeatures}}
+- **`{{.Command}}`** — {{.Description}}
+{{- if .WhyItMatters}}
+
+  _{{.WhyItMatters}}_
+{{- end}}
+{{- if .Example}}
+
+  ```bash
+  {{.Example}}
+  ```
+{{- end}}
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if and .Narrative .Narrative.Recipes}}
+
+## Recipes
+{{range .Narrative.Recipes}}
+
+### {{.Title}}
+
+```bash
+{{.Command}}
+```
+{{- if .Explanation}}
+
+{{.Explanation}}
+{{- end}}
+{{- end}}
+{{- end}}
+
+## Usage
+
+Run `{{.Name}}-pp-cli --help` for the full command reference and flag list.
+
+## Paths & environment variables
+
+This CLI separates local files into four path kinds:
+
+| Kind | Contents |
+|------|----------|
+| `config` | User-editable settings such as `config.toml` and saved profiles |
+| `data` | Durable local data{{if .HasAuthCommand}}: `credentials.toml`, `data.db`, cookies, browser-session proof files, and other auth sidecars{{else}} such as `data.db`{{end}} |
+| `state` | Runtime state such as persisted queries, jobs, and `teach.log` |
+| `cache` | Regenerable HTTP/cache files |
+
+Each kind resolves independently. The ladder is:
+
+1. Per-kind env var: `{{envName .Name}}_CONFIG_DIR`, `{{envName .Name}}_DATA_DIR`, `{{envName .Name}}_STATE_DIR`, or `{{envName .Name}}_CACHE_DIR`
+2. `--home <dir>` for this invocation
+3. `{{envName .Name}}_HOME` for a flat relocated root
+4. XDG env vars: `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`
+5. Platform defaults matching existing installs
+
+For containers and agent sandboxes, prefer a single relocated root:
+
+```bash
+export {{envName .Name}}_HOME=/srv/{{.Name}}
+{{.Name}}-pp-cli doctor
+```
+
+Under `{{envName .Name}}_HOME=/srv/{{.Name}}`, the four dirs resolve to `/srv/{{.Name}}/config`, `/srv/{{.Name}}/data`, `/srv/{{.Name}}/state`, and `/srv/{{.Name}}/cache`.
+
+MCP servers do not receive CLI flags from the host. Put relocation in the host `env` block:
+
+```json
+{
+  "mcpServers": {
+    "{{.Name}}": {
+      "command": "{{.Name}}-pp-mcp",
+      "env": {
+        "{{envName .Name}}_HOME": "/srv/{{.Name}}"
+      }
+    }
+  }
+}
+```
+
+Precedence matters in fleets: an ambient per-kind variable such as `{{envName .Name}}_DATA_DIR` overrides an explicit `--home` for that kind. Use `{{envName .Name}}_HOME` or the per-kind variables for durable fleet relocation; treat `--home` as the weaker per-invocation lever.
+
+Relocation is one-way. Unsetting `{{envName .Name}}_HOME` does not move files back to platform defaults, and `doctor` cannot find {{if .HasAuthCommand}}credentials{{else}}files{{end}} left under a former root. Move the files manually before unsetting relocation variables.
+
+{{if .HasAuthCommand -}}
+Existing installs keep working because the platform-default rung matches the legacy layout. On the first auth write, stored secrets leave `config.toml` and are consolidated into `credentials.toml` under the data directory. Run `{{.Name}}-pp-cli doctor --fail-on warn` to check path and credential-location warnings in automation.
+{{- else -}}
+Existing installs keep working because the platform-default rung matches the legacy layout. Run `{{.Name}}-pp-cli doctor --fail-on warn` to check path warnings in automation.
+{{- end}}
+
+## Commands
+{{range $name, $resource := .Resources}}
+### {{$name}}
+
+{{$resource.Description}}
+{{range $eName, $endpoint := $resource.Endpoints}}
+{{- if index $.PromotedResourceNames $name}}
+- **`{{$.Name}}-pp-cli {{kebab $name}}{{positionalArgs $endpoint}}`** - {{$endpoint.Description}}
+{{- else}}
+- **`{{$.Name}}-pp-cli {{kebab $name}} {{kebab $eName}}`** - {{$endpoint.Description}}
+{{- end}}
+{{- end}}
+{{end}}
+{{- if .Learn.Enabled}}
+
+### Self-learning loop
+
+This CLI caches per-question discovery so repeat queries skip the walk and structurally similar queries get answered via entity substitution. The loop also self-captures: every invocation is journaled locally, and failed-flag corrections plus fresh teaches surface as candidates on the next `recall` for confirm/reject judgment. Agents call `recall` before discovery and fire `teach &` after answering. See the `## Automatic learning` section in `SKILL.md` for the full protocol.
+
+- **`{{$.Name}}-pp-cli recall <query>`** - Look up cached resources for a query before running discovery
+- **`{{$.Name}}-pp-cli teach`** - Record a query -> resource mapping (silent on success, safe to background with `&`)
+- **`{{$.Name}}-pp-cli learnings list`** - Inspect taught rows
+- **`{{$.Name}}-pp-cli learnings forget <query>`** - Undo a teach
+- **`{{$.Name}}-pp-cli learnings candidates`** - List auto-captured candidates awaiting confirm/reject
+- **`{{$.Name}}-pp-cli learnings stats`** - Local loop metrics: recall hit rate, teach-to-reuse, playbook resolution, candidate counts
+- **`{{$.Name}}-pp-cli teach-pattern`** - Install a query/resource template up front
+- **`{{$.Name}}-pp-cli teach-lookup`** - Add an entity mapping (e.g. country code, team alias) for pattern substitution
+
+Pass `--no-learn` or set `{{envPrefix .Name}}_NO_LEARN=true` to disable the loop for deterministic flows.
+
+The local store's schema version stamp is one-way: once this version of `{{$.Name}}-pp-cli` opens the database, older binaries refuse it with a version error — upgrade the binary rather than downgrading.
+{{- end}}
+
+## Output Formats
+{{- $example := firstCommandExample .Resources}}
+{{- if $example}}
+
+```bash
+# Human-readable table (default in terminal, JSON when piped)
+{{.Name}}-pp-cli {{$example}}
+
+# JSON for scripting and agents
+{{.Name}}-pp-cli {{$example}} --json
+
+{{- if .SelectExample}}
+# Filter to specific fields
+{{.Name}}-pp-cli {{$example}} --json --select {{.SelectExample}}
+{{- else}}
+# Filter to specific fields by name
+{{.Name}}-pp-cli {{$example}} --json --select <field>[,<field>...]
+{{- end}}
+
+# Dry run — show the request without sending
+{{.Name}}-pp-cli {{$example}} --dry-run
+
+# Agent mode — JSON + compact + no prompts in one flag
+{{.Name}}-pp-cli {{$example}} --agent
+```
+{{- else}}
+
+Every command supports these output flags:
+
+- `--json` — structured output for scripting and agents
+- `--select <field>[,<field>...]` — filter to specific fields
+- `--dry-run` — preview the request without sending
+- `--agent` — JSON + compact + non-interactive in one flag
+{{- end}}
+
+## Agent Usage
+
+This CLI is designed for AI agent consumption:
+
+- **Non-interactive** - never prompts, every input is a flag
+- **Pipeable** - `--json` output to stdout, errors to stderr
+- **Filterable** - `--select <field>[,<field>...]` returns only fields you need
+- **Previewable** - `--dry-run` shows the request without sending
+{{- if .HasWriteCommands}}
+{{- if or .HasCreateCommands .HasDelete}}
+- **Explicit retries** - {{if .HasCreateCommands}}add `--idempotent` to create retries{{if .HasDelete}} and {{end}}{{end}}{{if .HasDelete}}add `--ignore-missing` to delete retries{{end}} when a no-op success is acceptable
+{{- end}}
+- **Explicit confirmation** - `--agent` does not imply `--yes`; pass `--yes` separately only after the target, arguments, and side effects are clear
+- **Piped input** - write commands can accept structured input when their help lists `--stdin`
+{{- else}}
+- **Read-only by default** - this CLI does not create, update, delete, publish, send, or mutate remote resources
+{{- end}}
+{{- if .HasDataLayer}}
+- **Offline-friendly** - sync/search commands can use the local SQLite store when available
+{{- end}}
+- **Agent-safe by default** - no colors or formatting unless `--human-friendly` is set
+
+Exit codes: `0` success, `2` usage error, `3` not found{{if .HasAuth}}, `4` auth error{{end}}, `5` API error, `7` rate limited, `10` config error.
+{{- if and .HasDataLayer .HasAutoRefresh}}
+
+## Freshness
+
+This CLI owns bounded freshness for registered store-backed read command paths. In `--data-source auto` mode, covered commands check the local SQLite store before serving results; stale or missing resources trigger a bounded refresh, and refresh failures fall back to the existing local data with a warning. `--data-source local` never refreshes, and `--data-source live` reads the API without mutating the local store.
+
+Set `{{if .Cache.EnvOptOut}}{{.Cache.EnvOptOut}}{{else}}{{envName .Name}}_NO_AUTO_REFRESH{{end}}=1` to disable the pre-read freshness hook while preserving the selected data source.
+{{- if .FreshnessCommands}}
+
+Covered command paths:
+{{- range .FreshnessCommands}}
+- `{{.}}`
+{{- end}}
+{{- end}}
+
+JSON outputs that use the generated provenance envelope include freshness metadata at `meta.freshness`. This metadata describes the freshness decision for the covered command path; it does not claim full historical backfill or API-specific enrichment.
+{{- end}}
+{{- if .EndpointTemplateVars}}
+
+## Runtime Endpoint
+
+This CLI resolves endpoint placeholders at runtime, so one installed binary can target different tenants or API versions without regeneration.
+
+Endpoint environment variables:
+{{- range .EndpointTemplateVars}}
+- `{{endpointTemplateEnvName .}}` resolves `{ {{- . -}} }`
+{{- end}}
+
+Base URL: `{{.BaseURL}}`
+{{- if .GraphQLEndpointPath}}
+
+GraphQL path: `{{.GraphQLEndpointPath}}`
+{{- end}}
+{{- end}}
+
+## Health Check
+
+```bash
+{{.Name}}-pp-cli doctor
+```
+
+Verifies configuration{{if and (ne .Auth.Type "") (ne .Auth.Type "none")}}, credentials,{{end}} and connectivity to the API.
+
+## Configuration
+
+Run `{{.Name}}-pp-cli doctor` to see the resolved config, data, state, and cache directories. The platform-default config path is `{{.Config.Path}}`; `--home`, `{{envName .Name}}_HOME`, and per-kind env vars can relocate it.
+
+Static request headers can be configured under `headers`; per-command header overrides take precedence.
+{{- if or .Auth.EnvVarSpecs .Auth.EnvVars}}
+
+Environment variables:
+
+| Name | Kind | Required | Description |
+| --- | --- | --- | --- |
+{{- range .EndpointTemplateVars}}
+| `{{envName $.Name}}_{{upper .}}` | endpoint | Yes |  |
+{{- end}}
+{{- if .Auth.EnvVarSpecs}}
+{{- range .Auth.EnvVarSpecs}}
+| `{{.Name}}` | {{.Kind}} | {{if .Required}}Yes{{else}}No{{end}} | {{.MarkdownDescription}} |
+{{- end}}
+{{- else}}
+{{- range .Auth.EnvVars}}
+| `{{.}}` | per_call | Yes |  |
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if hasNonCookieAuth .Auth}}
+
+### agentcookie (optional)
+
+If you use agentcookie to sync secrets across machines, this CLI auto-adopts agentcookie-managed credentials with no extra setup. When the daemon writes to this CLI's config, `{{.Name}}-pp-cli doctor` reports `agentcookie: detected` and `auth-status` labels the source as `agentcookie`. Skip this section if you don't use agentcookie - the CLI works the same as any other.
+{{- end}}
+
+## Troubleshooting
+
+{{- if .HasAuth}}
+**Authentication errors (exit code 4)**
+- Run `{{.Name}}-pp-cli doctor` to check credentials
+{{- if .BearerRefresh.Enabled}}
+- Run `{{.Name}}-pp-cli refresh-bearer` if a long-working public bearer token may have rotated
+{{- end}}
+{{- with $canonicalEnvVar}}
+- Verify the environment variable is set: `echo ${{.Name}}`
+{{- end}}
+
+{{- end}}
+**Not found errors (exit code 3)**
+- Check the resource ID is correct
+- Run the `list` command to see available items
+{{- if and .Narrative .Narrative.Troubleshoots}}
+
+### API-specific
+{{range .Narrative.Troubleshoots}}
+- **{{.Symptom}}** — {{.Fix}}
+{{- end}}
+{{- end}}
+{{- if .UsesHTTP2DisabledTransport}}
+
+## HTTP Transport
+
+This CLI uses standard HTTP transport with HTTP/2 disabled for browser-facing endpoints. It does not require a resident browser process for normal API calls.
+{{- else if .UsesBrowserHTTPTransport}}
+
+## HTTP Transport
+
+This CLI uses Chrome-compatible HTTP transport{{if .UsesBrowserHTTP3Transport}} over HTTP/3{{end}} for browser-facing endpoints. It does not require a resident browser process for normal API calls.
+
+TLS certificates are verified by default. For a trusted development or self-signed endpoint only, pass `--insecure` for one invocation, set `{{envPrefix .Name}}_SKIP_TLS_VERIFY=true` for the current environment, or set `skip_tls_verify = true` in the config file for a persistent override.
+{{- end}}
+{{- if .TrafficAnalysis}}
+
+## Discovery Signals
+
+This CLI was generated with browser-captured traffic analysis.
+{{- if .TrafficAnalysis.TargetURL}}
+- Target observed: {{.TrafficAnalysis.TargetURL}}
+{{- end}}
+- Capture coverage: {{.TrafficAnalysis.APIEntryCount}} API entries from {{.TrafficAnalysis.EntryCount}} total network entries
+{{- if .TrafficAnalysis.Reachability}}
+- Reachability: {{.TrafficAnalysis.Reachability}}
+{{- end}}
+{{- if .TrafficAnalysis.Protocols}}
+- Protocols: {{join .TrafficAnalysis.Protocols ", "}}
+{{- end}}
+{{- if .TrafficAnalysis.AuthCandidates}}
+- Auth signals: {{join .TrafficAnalysis.AuthCandidates "; "}}
+{{- end}}
+{{- if .TrafficAnalysis.Protections}}
+- Protection signals: {{join .TrafficAnalysis.Protections ", "}}
+{{- end}}
+{{- if .TrafficAnalysis.GenerationHints}}
+- Generation hints: {{join .TrafficAnalysis.GenerationHints ", "}}
+{{- end}}
+{{- if .TrafficAnalysis.CandidateCommands}}
+- Candidate command ideas: {{join .TrafficAnalysis.CandidateCommands "; "}}
+{{- end}}
+{{- if .TrafficAnalysis.Warnings}}
+
+Warnings from discovery:
+{{- range .TrafficAnalysis.Warnings}}
+- {{.}}
+{{- end}}
+{{- end}}
+{{- end}}
+
+---
+{{- if or (gt (len .Sources) 1) (gt (len .DiscoveryPages) 0)}}
+
+## Sources & Inspiration
+
+This CLI was built by studying these projects and resources:
+{{- if .DiscoveryPages}}
+
+**Discovery** — API endpoints were mapped by observing traffic from:
+{{range .DiscoveryPages}}
+- {{.}}
+{{- end}}
+{{- end}}
+{{- if gt (len .Sources) 1}}
+{{range .Sources}}
+- [**{{.Name}}**]({{.URL}}){{if .Language}} — {{.Language}}{{end}}{{if .Stars}} ({{.Stars}} stars){{end}}
+{{- end}}
+{{- end}}
+{{- end}}
+
+Generated by [CLI Printing Press](https://github.com/mvanhorn/cli-printing-press)

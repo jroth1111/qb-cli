@@ -1,0 +1,50 @@
+Manage sandbox
+
+Usage:
+  plaid-cli sandbox [command]
+
+Available Commands:
+  bank-income-fire-webhook           Manually fire a bank income webhook in sandbox
+  bank-transfer-fire-webhook         Manually fire a Bank Transfer webhook
+  bank-transfer-simulate             Simulate a bank transfer event in Sandbox
+  cra-cashflow-updates-update        Trigger an update for Cash Flow Updates
+  income-fire-webhook                Manually fire an Income webhook
+  item-fire-webhook                  Fire a test webhook
+  item-reset-login                   Force a Sandbox Item into an error state
+  item-set-verification-status       Set verification status for Sandbox account
+  oauth-select-accounts              Save the selected accounts when connecting to the Platypus Oauth institution
+  payment-profile-reset-login        Reset the login of a Payment Profile
+  payment-simulate                   Simulate a payment event in Sandbox
+  processor-token-create             Create a test Item and processor token
+  public-token-create                Create a test Item
+  transactions-create                Create sandbox transactions
+  transfer-fire-webhook              Manually fire a Transfer webhook
+  transfer-ledger-deposit-simulate   Simulate a ledger deposit event in Sandbox
+  transfer-ledger-simulate-available Simulate converting pending balance to available balance
+  transfer-ledger-withdraw-simulate  Simulate a ledger withdraw event in Sandbox
+  transfer-refund-simulate           Simulate a refund event in Sandbox
+  transfer-repayment-simulate        Trigger the creation of a repayment
+  transfer-simulate                  Simulate a transfer event in Sandbox
+  transfer-sweep-simulate            Simulate creating a sweep
+  transfer-test-clock-advance        Advance a test clock
+  transfer-test-clock-create         Create a test clock
+  transfer-test-clock-get            Get a test clock
+  transfer-test-clock-list           List test clocks
+  user-reset-login                   Force item(s) for a Sandbox User into an error state
+
+Flags:
+  -h, --help   help for sandbox
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli sandbox [command] --help" for more information about a command.

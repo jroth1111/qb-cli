@@ -1,0 +1,44 @@
+openapi: "3.0.3"
+info:
+  title: Café Bistro API
+  version: "1.0.0"
+  description: Purpose-built fixture for the Unicode-to-ASCII slug contract.
+servers:
+  - url: https://api.cafe-bistro.example/v1
+security:
+  - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    # Schema name and one property are deliberately non-ASCII to lock in
+    # that sanitizeTypeName + toCamelCase fold to ASCII — the resulting
+    # types.go must define `type CafEMenu struct` (or similar ASCII shape)
+    # with `Specialite string` rather than retaining the accented bytes.
+    CaféMenu:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        spécialité:
+          type: string
+paths:
+  /menus:
+    get:
+      tags: [menus]
+      operationId: listMenus
+      summary: List menus
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CaféMenu"

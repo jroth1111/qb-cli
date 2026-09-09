@@ -1,0 +1,54 @@
+name: httpbin
+description: Discovered API spec for httpbin
+version: 0.1.0
+base_url: https://httpbin.org
+spec_source: sniffed
+auth:
+    type: none
+    header: ""
+    format: ""
+    env_vars: []
+config:
+    format: toml
+    path: ~/.config/httpbin-pp-cli/config.toml
+resources:
+    get:
+        description: Operations on get
+        endpoints:
+            list_get:
+                method: GET
+                path: /get
+                description: GET /get
+                params: []
+                body: []
+                response:
+                    type: object
+                    item: get
+                pagination: null
+    headers:
+        description: Operations on headers
+        endpoints:
+            list_headers:
+                method: GET
+                path: /headers
+                description: GET /headers
+                params: []
+                body: []
+                response:
+                    type: object
+                    item: headers
+                pagination: null
+    ip:
+        description: Operations on ip
+        endpoints:
+            list_ip:
+                method: GET
+                path: /ip
+                description: GET /ip
+                params: []
+                body: []
+                response:
+                    type: object
+                    item: ip
+                pagination: null
+types: {}

@@ -1,0 +1,36 @@
+Manage beacon
+
+Usage:
+  plaid-cli beacon [command]
+
+Available Commands:
+  account-risk-evaluate     Evaluate risk of a bank account
+  duplicate-get             Get a Beacon Duplicate
+  report-create             Create a Beacon Report
+  report-get                Get a Beacon Report
+  report-list               List Beacon Reports for a Beacon User
+  report-syndication-get    Get a Beacon Report Syndication
+  report-syndication-list   List Beacon Report Syndications for a Beacon User
+  user-account-insights-get Get Account Insights for a Beacon User
+  user-create               Create a Beacon User
+  user-get                  Get a Beacon User
+  user-history-list         List a Beacon User's history
+  user-review               Review a Beacon User
+  user-update               Update the identity data of a Beacon User
+
+Flags:
+  -h, --help   help for beacon
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "plaid-cli beacon [command] --help" for more information about a command.

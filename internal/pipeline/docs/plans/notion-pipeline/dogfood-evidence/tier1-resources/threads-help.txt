@@ -1,0 +1,24 @@
+Operations on threads
+
+Usage:
+  notion-cli threads [command]
+
+Available Commands:
+  get_messages GET /v1/threads/{thread_id}/messages
+
+Flags:
+  -h, --help   help for threads
+
+Global Flags:
+      --config string      Config file path
+      --dry-run            Show request without sending
+      --json               Output as JSON
+      --no-cache           Bypass response cache
+      --no-color           Disable colored output
+      --plain              Output as plain tab-separated text
+      --quiet              Bare output, one value per line
+      --select string      Comma-separated fields to include in output (e.g. --select id,name,status)
+      --timeout duration   Request timeout (default 30s)
+      --yes                Skip confirmation prompts (for agents and scripts)
+
+Use "notion-cli threads [command] --help" for more information about a command.

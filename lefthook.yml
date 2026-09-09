@@ -1,0 +1,52 @@
+output:
+  - summary
+  - success
+  - failure
+  - execution
+
+post-checkout:
+  commands:
+    build:
+      run: |
+        go build -o ./cli-printing-press ./cmd/cli-printing-press 2>/dev/null && echo "cli-printing-press binary rebuilt" || true
+        [ -x "$HOME/go/bin/cli-printing-press" ] && go install ./cmd/cli-printing-press 2>/dev/null && echo "cli-printing-press go install synced" || true
+
+post-merge:
+  commands:
+    build:
+      run: |
+        go build -o ./cli-printing-press ./cmd/cli-printing-press 2>/dev/null && echo "cli-printing-press binary rebuilt" || true
+        [ -x "$HOME/go/bin/cli-printing-press" ] && go install ./cmd/cli-printing-press 2>/dev/null && echo "cli-printing-press go install synced" || true
+
+pre-commit:
+  commands:
+    fmt:
+      glob: "*.go"
+      run: |
+        files="$(printf '%s\n' {staged_files} | grep -v '^testdata/golden/expected/' || true)"
+        test -z "$files" || { printf '%s\n' "$files" | xargs gofmt -w; printf '%s\n' "$files" | xargs git add; }
+      stage_fixed: true
+    sync-verify-skill:
+      # Keep internal/cli/verify_skill_bundled.py byte-identical to the
+      # canonical scripts/verify-skill/verify_skill.py so the binary's
+      # `verify-skill` runs the same checks as the library repo's CI. The
+      # Go test TestVerifySkillScriptInSync is the safety net for commits
+      # that bypass lefthook (--no-verify); this hook is the auto-fix path.
+      glob: "scripts/verify-skill/verify_skill.py"
+      run: |
+        cp scripts/verify-skill/verify_skill.py internal/cli/verify_skill_bundled.py
+        git add internal/cli/verify_skill_bundled.py
+      stage_fixed: true
+
+pre-push:
+  commands:
+    fmt:
+      glob: "*.go"
+      run: |
+        unformatted="$(git ls-files '*.go' ':!:testdata/golden/expected/**' | xargs gofmt -l)"
+        test -z "$unformatted" || { printf '%s\n' "$unformatted"; exit 1; }
+      fail_text: "gofmt failed. Run 'go fmt ./...' to fix. Do not run 'gofmt -w .' from the repo root; it can rewrite golden fixtures."
+    lint:
+      glob: "*.go"
+      run: golangci-lint run ./...
+      fail_text: "golangci-lint failed. Fix lint errors before pushing."
