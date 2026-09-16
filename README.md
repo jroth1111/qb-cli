@@ -36,7 +36,7 @@ go build -o qb ./cmd/qb
 | Feed (banking classify/split/exclude/undo) | 7 | 10 | `qb feed` |
 | Payroll (pay runs, STP, super) | 5 | 3 | `qb payroll` |
 | Tax (GST, BAS, TPAR, agencies, codes) | 2 | 5 | `qb tax` |
-| Inventory (items, purchase orders) | 7 | 8 | `qb inventory` |
+| Inventory (items, purchase orders) | 10 | 8 | `qb inventory` |
 | Customers | 3 | 11 | `qb customers` |
 | Reports + forecasts | 0 | 28 | `qb reports` |
 | GraphQL (captured webapp ops) | 8 | 3 | `qb gql` |

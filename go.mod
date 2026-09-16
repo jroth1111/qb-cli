@@ -7,6 +7,7 @@ require (
 	github.com/dave/dst v0.27.4
 	github.com/enetx/surf v1.0.199
 	github.com/getkin/kin-openapi v0.137.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/keybase/go-keychain v0.0.1
 	github.com/mozillazg/go-unidecode v0.2.0
 	github.com/spf13/cobra v1.10.2
@@ -23,7 +24,6 @@ require (
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/saltosystems/winrt-go v0.0.0-20260317170058-9c2fec580d96 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/soypat/cyw43439 v0.1.0 // indirect
@@ -42,7 +42,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/enetx/g v1.0.224 // indirect
-	github.com/enetx/http v1.0.29 // indirect
+	github.com/enetx/http v1.0.29
 	github.com/enetx/http2 v1.0.26 // indirect
 	github.com/enetx/http3 v1.0.7 // indirect
 	github.com/enetx/iter v0.0.0-20250912135656-f1583323588f // indirect
@@ -71,7 +71,7 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/sergi/go-diff v1.4.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/pflag v1.0.10
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/wzshiming/socks5 v0.7.0 // indirect

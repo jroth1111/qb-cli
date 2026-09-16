@@ -553,7 +553,12 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 			long: "Disconnect one or more bank feed (OLB) accounts via\n" +
 				"BankingDisconnectOlbAccounts. Ids may be bare olbAccountIds or full\n" +
 				"`realm:bank:accountId` display ids — everything after the last ':' is\n" +
-				"sent, matching the webapp's parseOlbAccountIds behavior.",
+				"sent, matching the webapp's parseOlbAccountIds behavior.\n\n" +
+				"Known drift (2026-09-16): this captured op 403s on fitransactions in\n" +
+				"current AU builds — the banking UI disconnect instead POSTs\n" +
+				"/api/neo/v1/company/{realm}/lists/account/save with\n" +
+				"disconnectAccount:true. The wired op is the documented GraphQL\n" +
+				"contract; where it is refused the neo path is the observed truth.",
 			example: "  qb gql mutate bank-disconnect --olb-account-id 12345:bktdig:123456789\n" +
 				"  qb gql mutate bank-disconnect --olb-account-id 111111 --olb-account-id 222222",
 			build: func(cmd *cobra.Command) (map[string]any, error) {

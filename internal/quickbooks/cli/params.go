@@ -216,6 +216,36 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("max-pages-per-account", "int", "page ceiling per account at 300 rows per page", false, "40"),
 		}, true
+	case "QBO.INVENTORY.ITEM_RECEIPT_CREATE":
+		// Standalone single-line receipt; the catalog's PO-linked flag text
+		// predates the captured warehouse contract (2026-09-16).
+		return []paramDoc{
+			p("vendor-id", "string", "supplier id the goods were received from (required)", true, ""),
+			p("item-id", "string", "inventory item id being received (required)", true, ""),
+			p("qty", "string", "received quantity recorded on line 1 (required)", true, ""),
+			p("rate", "string", "per-unit cost applied to line 1 (required)", true, ""),
+			p("date", "string", "receipt date dd/MM/yyyy (defaults to today)", false, ""),
+			p("ref-no", "string", "receipt reference number shown on the receipt", false, ""),
+			p("memo", "string", "free-text memo stored on the receipt record", false, ""),
+			p("currency", "string", "ISO 4217 code; omitted uses the company home currency", false, ""),
+		}, true
+	case "QBO.INVENTORY.ITEM_RECEIPT_EDIT":
+		return []paramDoc{
+			p("id", "string", "item receipt id (required)", true, ""),
+			p("qty", "string", "corrected received quantity applied to line 1", false, ""),
+			p("rate", "string", "corrected per-unit cost applied to line 1", false, ""),
+			p("date", "string", "receipt date dd/MM/yyyy to move the receipt to", false, ""),
+			p("ref-no", "string", "receipt reference number shown on the receipt", false, ""),
+			p("memo", "string", "free-text memo stored on the receipt record", false, ""),
+		}, true
+	case "QBO.INVENTORY.PURCHASE_ORDER_PARTIAL":
+		// Partial receipt rides CommerceReceiveInventory against the PO's
+		// lines; the catalog's bill-linked flag text predates the warehouse
+		// contract (2026-09-16).
+		return []paramDoc{
+			p("id", "string", "purchase order id to receive against (required)", true, ""),
+			p("items", "string", `JSON array of received lines, [{"line-id"|"item-id","qty":N}] (required)`, true, ""),
+		}, true
 	case "QBO.ACCOUNTING.PREPAID_READ":
 		// Schedule fetch keyed solely by --source-id; the cobra command
 		// defines no --limit/--id.

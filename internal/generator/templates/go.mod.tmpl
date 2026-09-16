@@ -61,4 +61,11 @@ require golang.org/x/sys v0.46.0 // indirect
 // is present, so MVS keeps the floor; tidy drops it for CLIs without surf.
 require golang.org/x/crypto v0.53.0 // indirect
 require github.com/quic-go/quic-go v0.60.0 // indirect
+
+// Floor enetx/http at v1.0.29: enetx/http2@v1.0.26's go1.27-tagged file reads
+// Server.DisableClientPriority, added in enetx/http v1.0.29. surf v1.0.199 only
+// requires v1.0.28, so under go1.27 toolchains MVS resolves a version the
+// compiled http2 file cannot build against. Like the floors above, tidy drops
+// this for CLIs that pull no surf.
+require github.com/enetx/http v1.0.29 // indirect
 {{- end}}

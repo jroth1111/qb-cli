@@ -89,6 +89,105 @@ func newInventoryV3MutateCmd(flags *rootFlags, e primitiveEntry, command, entity
 	return cmd
 }
 
+// newItemReceiptMutateCmd runs item-receipt create/update against the
+// warehouse-management-svc GraphQL host via client.ReplayItemReceipt*;
+// the create/update contract was captured from /app/itemreceipt on
+// Test Company 2 (2026-09-16).
+func newItemReceiptMutateCmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Command {
+	use := verbOf(command)
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: command + " (warehouse-management-svc)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := collectFlags(cmd)
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: command,
+					ID:      e.ID,
+					Mode:    modeWired,
+					Method:  "POST",
+					URL:     client.PlannedItemReceiptURL(),
+					Flags:   fm,
+					Note:    "warehouse-management-svc " + map[string]string{"create": "CreateItemReceipt", "update": "UpdateItemReceipt"}[use] + " POST; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			var res *client.MutateResult
+			var err error
+			if use == "create" {
+				res, err = client.ReplayItemReceiptCreate(ctx, fm)
+			} else {
+				res, err = client.ReplayItemReceiptUpdate(ctx, fm)
+			}
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", res.Op, res.Entity, res.Item.ID)
+			return nil
+		},
+	}
+	attachParamFlags(cmd, e.ID)
+	ensureFlag(cmd, "vendor-id", "supplier id the goods were received from (create)")
+	ensureFlag(cmd, "item-id", "inventory item id being received (create)")
+	ensureFlag(cmd, "qty", "received quantity on line 1")
+	ensureFlag(cmd, "rate", "unit cost on line 1")
+	ensureFlag(cmd, "date", "receipt date dd/MM/yyyy (defaults to today)")
+	ensureFlag(cmd, "ref-no", "receipt reference number")
+	ensureFlag(cmd, "memo", "receipt memo")
+	ensureFlag(cmd, "currency", "ISO 4217 code; omitted uses the company home currency")
+	ensureFlag(cmd, "id", "item receipt id (update)")
+	applyCatalogHelp(cmd, e.ID)
+	return cmd
+}
+
+// newPOPartialCmd runs `inventory purchase-order update partial`: it loads the
+// PO via v3, resolves the --items subset against its lines, and posts the
+// proven CommerceReceiveInventory mutation with the partial quantities.
+func newPOPartialCmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "partial",
+		Short: command + " (warehouse-management-svc CommerceReceiveInventory)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := collectFlags(cmd)
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: command,
+					ID:      e.ID,
+					Mode:    modeWired,
+					Method:  "POST",
+					URL:     client.PlannedItemReceiptURL(),
+					Flags:   fm,
+					Note:    "warehouse-management-svc CommerceReceiveInventory POST; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayPurchaseOrderPartial(ctx, fm)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", res.Op, res.Entity, res.Item.ID)
+			return nil
+		},
+	}
+	attachParamFlags(cmd, e.ID)
+	ensureFlag(cmd, "id", "purchase order id to receive against")
+	ensureFlag(cmd, "items", `JSON array of partial lines, e.g. [{"line-id":"1","qty":2}] or [{"item-id":"3","qty":2}]`)
+	applyCatalogHelp(cmd, e.ID)
+	return cmd
+}
+
 func newInventoryCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "inventory",
@@ -136,8 +235,10 @@ func newInventoryCmd(flags *rootFlags) *cobra.Command {
 	itemEnt.AddCommand(newStubCmd(flags, "inventory item", "search", "item search (not wired)"))
 	cmd.AddCommand(itemEnt)
 	item_receiptEnt := &cobra.Command{Use: "item-receipt", Short: "item-receipt"}
-	item_receiptEnt.AddCommand(newStubCmd(flags, "inventory item-receipt", "create", "item-receipt create (not wired)"))
-	item_receiptEnt.AddCommand(newStubCmd(flags, "inventory item-receipt", "update", "item-receipt edit (not wired)"))
+	irCreate := primitiveEntry{ID: "QBO.INVENTORY.ITEM_RECEIPT_CREATE", Domain: "inventory", Risk: "R2", Mode: modeWired, Command: "inventory item-receipt create"}
+	irUpdate := primitiveEntry{ID: "QBO.INVENTORY.ITEM_RECEIPT_EDIT", Domain: "inventory", Risk: "R2", Mode: modeWired, Command: "inventory item-receipt update"}
+	item_receiptEnt.AddCommand(newItemReceiptMutateCmd(flags, irCreate, irCreate.Command))
+	item_receiptEnt.AddCommand(newItemReceiptMutateCmd(flags, irUpdate, irUpdate.Command))
 	item_receiptEnt.AddCommand(newStubCmd(flags, "inventory item-receipt", "get", "item-receipt read (not wired)"))
 	item_receiptEnt.AddCommand(newStubCmd(flags, "inventory item-receipt", "search", "item-receipt search (not wired)"))
 	cmd.AddCommand(item_receiptEnt)
@@ -150,7 +251,8 @@ func newInventoryCmd(flags *rootFlags) *cobra.Command {
 	purchase_orderEnt.AddCommand(newStubCmd(flags, "inventory purchase-order", "delete", "purchase-order delete (not wired)"))
 	poUpdateEnt := &cobra.Command{Use: "update", Short: "update"}
 	poUpdateEnt.AddCommand(newStubCmd(flags, "inventory purchase-order update", "edit", "purchase-order edit (not wired)"))
-	poUpdateEnt.AddCommand(newStubCmd(flags, "inventory purchase-order update", "partial", "purchase-order partial (not wired)"))
+	poPartial := primitiveEntry{ID: "QBO.INVENTORY.PURCHASE_ORDER_PARTIAL", Domain: "inventory", Risk: "R2", Mode: modeWired, Command: "inventory purchase-order update partial"}
+	poUpdateEnt.AddCommand(newPOPartialCmd(flags, poPartial, poPartial.Command))
 	purchase_orderEnt.AddCommand(poUpdateEnt)
 	purchase_orderEnt.AddCommand(newStubCmd(flags, "inventory purchase-order", "get", "purchase-order read (not wired)"))
 	purchase_orderEnt.AddCommand(newStubCmd(flags, "inventory purchase-order", "search", "purchase-order search (not wired)"))

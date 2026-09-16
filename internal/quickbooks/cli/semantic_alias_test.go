@@ -103,16 +103,16 @@ var falseSemanticAliases = append(append(falseReportAliases, falseFixedAssetAlia
 
 // deadMutateMapIDs are the stale v3MutateByID entries wired-alias-audit-08
 // finding S2 flagged on already-blocked catalog rows: company settings
-// update, item-receipt create/update, delayed-charge/delayed-credit create,
-// and time-invoice create. The mode check in maybeV3MutateCmd made each
-// mapping unreachable, but a leftover entry would silently re-arm a live
-// mutation if a row ever flipped back to wired. The entries were removed;
-// this list pins both the absence and the blocked mode so a flip fails here
-// first.
+// update, delayed-charge/delayed-credit create, and time-invoice create.
+// The mode check in maybeV3MutateCmd made each mapping unreachable, but a
+// leftover entry would silently re-arm a live mutation if a row ever
+// flipped back to wired. The entries were removed; this list pins both the
+// absence and the blocked mode so a flip fails here first. Item-receipt
+// create/edit dropped off this list 2026-09-16 when they were wired to the
+// captured warehouse-management-svc CreateItemReceipt/UpdateItemReceipt
+// mutations (not a resurrected v3 mapping).
 var deadMutateMapIDs = []string{
 	"QBO.COMPANY.SETTINGS_EDIT",
-	"QBO.INVENTORY.ITEM_RECEIPT_CREATE",
-	"QBO.INVENTORY.ITEM_RECEIPT_EDIT",
 	"QBO.SALES.DELAYED_CHARGE_CREATE",
 	"QBO.SALES.DELAYED_CREDIT_CREATE",
 	"QBO.SALES.TIME_INVOICE_CREATE",

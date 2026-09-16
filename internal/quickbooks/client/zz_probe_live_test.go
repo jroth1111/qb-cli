@@ -76,6 +76,39 @@ func TestLiveRawPost(t *testing.T) {
 	t.Log(string(body))
 }
 
+// TestLiveNeoPost posts QB_PROBE_BODY to the neo path in QB_PROBE_NEO
+// (relative to /api/neo/v1/company/{realm}) for one-off first-party probes.
+func TestLiveNeoPost(t *testing.T) {
+	path := os.Getenv("QB_PROBE_NEO")
+	if path == "" {
+		t.Skip("set QB_PROBE_NEO")
+	}
+	c, err := newAPIClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	u := "https://qbo.intuit.com/api/neo/v1/company/" + c.realm + "/" + path
+	resp, err := c.postJSON(ctx, u, []byte(os.Getenv("QB_PROBE_BODY")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
+	body, err := readBody(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("status=%d bytes=%d", resp.StatusCode, len(body))
+	if out := os.Getenv("QB_PROBE_OUT"); out != "" {
+		if err := os.WriteFile(out, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Log(string(body))
+}
+
 // TestLiveGQLHost posts QB_PROBE_GQL (JSON {query,variables}) to the
 // QB_PROBE_HOST api.intuit.com host via doURIHost for one-off host probes.
 func TestLiveGQLHost(t *testing.T) {
