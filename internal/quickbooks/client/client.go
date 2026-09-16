@@ -115,7 +115,7 @@ func decodeInitialData(ctx context.Context, ac *apiClient, url string) (*Account
 	if err != nil {
 		return nil, err
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading getInitialData: %w", err)
@@ -172,15 +172,14 @@ func replayFeedOnce(ctx context.Context, accountID, reviewState string, limit in
 		return nil, err
 	}
 	url := fmt.Sprintf("%s/getTransactions?sort=-txnDate&reviewState=%s&ignoreMatching=false&accountId=%s",
-		ac.baseURL(), state, accountID)
+		ac.neoFeedURL(), state, accountID)
 	xRange := fmt.Sprintf("items=0-%d", limit-1)
 
 	resp, err := ac.get(ctx, url, xRange)
 	if err != nil {
 		return nil, fmt.Errorf("getTransactions: %w", err)
 	}
-	defer drainAndClose(resp)
-
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading getTransactions: %w", err)
@@ -310,11 +309,11 @@ var ErrIncomplete = errors.New("feed enumeration incomplete")
 // expectedPending reads numTxnToReview for accountID from getInitialData.
 // Returns -1 when the account is absent or the count is absent.
 func (c *apiClient) expectedPending(ctx context.Context, accountID string) int {
-	resp, err := c.get(ctx, c.baseURL()+"/getInitialData", "")
+	resp, err := c.get(ctx, c.neoFeedURL()+"/getInitialData", "")
 	if err != nil {
 		return -1
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return -1
@@ -334,13 +333,13 @@ func (c *apiClient) expectedPending(ctx context.Context, accountID string) int {
 // fetchFeedPage requests one startIndex/chunkSize page of the feed.
 func fetchFeedPage(ctx context.Context, ac *apiClient, accountID, state string, start, size int) (*feedPage, error) {
 	url := fmt.Sprintf("%s/getTransactions?sort=-txnDate&reviewState=%s&ignoreMatching=false&accountId=%s&startIndex=%d&chunkSize=%d",
-		ac.baseURL(), state, accountID, start, size)
+		ac.neoFeedURL(), state, accountID, start, size)
 	xRange := fmt.Sprintf("items=%d-%d", start, start+size-1)
 	resp, err := ac.get(ctx, url, xRange)
 	if err != nil {
 		return nil, fmt.Errorf("getTransactions page @%d: %w", start, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading getTransactions page @%d: %w", start, err)
@@ -570,7 +569,7 @@ func readBody(resp *http.Response) ([]byte, error) {
 	if resp.Body == nil {
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
@@ -644,10 +643,10 @@ func formatFloatID(v *float64) string {
 		return ""
 	}
 	s := fmt.Sprintf("%v", *v)
-	if i := strings.Index(s, "."); i >= 0 {
-		frac := s[i+1:]
+	if before, after, ok := strings.Cut(s, "."); ok {
+		frac := after
 		if frac == "0" || frac == "" {
-			return s[:i]
+			return before
 		}
 	}
 	return s

@@ -31,7 +31,7 @@ func replayManagementFolio(ctx context.Context, _, query string, limit int) (*Qu
 	if err != nil {
 		return nil, fmt.Errorf("management folio GET /v1/folio: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading management folio: %w", err)

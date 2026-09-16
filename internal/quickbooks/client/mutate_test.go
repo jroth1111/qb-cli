@@ -1,6 +1,11 @@
 package client
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -662,5 +667,94 @@ func TestBuildUpdateBillPaymentCarriesLines(t *testing.T) {
 	}
 	if body["TotalAmt"] != 5.0 {
 		t.Fatalf("TotalAmt=%v, want 5", body["TotalAmt"])
+	}
+}
+
+// writeoffServer serves the three calls a write-off makes: GET the invoice,
+// POST the credit memo, POST the $0 apply-payment. It records each request.
+type writeoffServer struct {
+	lastPaymentBody []byte
+	calls           []string
+}
+
+func (s *writeoffServer) handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/company/12345/invoice/125", func(w http.ResponseWriter, r *http.Request) {
+		s.calls = append(s.calls, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Invoice":{"Id":"125","SyncToken":"0","Balance":10.0,"TotalAmt":10.0,"CustomerRef":{"value":"1"},"Line":[{"Amount":10.0,"DetailType":"SalesItemLineDetail","SalesItemLineDetail":{"ItemRef":{"value":"1"}}}]}}`))
+	})
+	mux.HandleFunc("/api/v3/company/12345/creditmemo", func(w http.ResponseWriter, r *http.Request) {
+		s.calls = append(s.calls, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"CreditMemo":{"Id":"129","TotalAmt":10.0,"Balance":10.0,"CustomerRef":{"value":"1"}}}`))
+	})
+	mux.HandleFunc("/api/v3/company/12345/payment", func(w http.ResponseWriter, r *http.Request) {
+		s.calls = append(s.calls, r.Method+" "+r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		s.lastPaymentBody = body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Payment":{"Id":"130","TotalAmt":0}}`))
+	})
+	return mux
+}
+
+// A write-off must not stop at creating the credit memo: the invoice only
+// settles once a $0 payment links the invoice to the new credit memo. This
+// regresses the live bug where the credit memo was created unapplied and the
+// invoice balance stayed open.
+func TestWriteoffAppliesCreditMemoToInvoice(t *testing.T) {
+	saveUsable(t)
+	s := &writeoffServer{}
+	srv := httptest.NewServer(s.handler())
+	t.Cleanup(srv.Close)
+	interceptHTTP(t, srv.URL)
+
+	res, err := ReplayMutate(context.Background(), "Invoice", "writeoff", "125", map[string]string{})
+	if err != nil {
+		t.Fatalf("ReplayMutate writeoff: %v", err)
+	}
+	if res.Item.ID != "129" {
+		t.Fatalf("credit memo id = %q, want 129", res.Item.ID)
+	}
+	var seenInvoiceGet, seenPayment bool
+	for _, c := range s.calls {
+		if c == "GET /api/v3/company/12345/invoice/125" {
+			seenInvoiceGet = true
+		}
+		if c == "POST /api/v3/company/12345/payment" {
+			seenPayment = true
+		}
+	}
+	if !seenInvoiceGet || !seenPayment {
+		t.Fatalf("calls = %v, want invoice GET + payment POST", s.calls)
+	}
+	var pay map[string]any
+	if err := json.Unmarshal(s.lastPaymentBody, &pay); err != nil {
+		t.Fatalf("payment body not JSON: %v", err)
+	}
+	if total, _ := pay["TotalAmt"].(float64); total != 0 {
+		t.Fatalf("apply payment TotalAmt = %v, want 0", pay["TotalAmt"])
+	}
+	lines, _ := pay["Line"].([]any)
+	if len(lines) != 2 {
+		t.Fatalf("apply payment lines = %v, want 2", pay["Line"])
+	}
+	want := map[string]string{"125": "Invoice", "129": "CreditMemo"}
+	for _, l := range lines {
+		linked, _ := l.(map[string]any)["LinkedTxn"].([]any)
+		if len(linked) != 1 {
+			t.Fatalf("line missing LinkedTxn: %v", l)
+		}
+		lt := linked[0].(map[string]any)
+		id, _ := lt["TxnId"].(string)
+		wantType, ok := want[id]
+		if !ok || lt["TxnType"] != wantType {
+			t.Fatalf("unexpected LinkedTxn %v", lt)
+		}
+		delete(want, id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("payment missing links for %v", want)
 	}
 }

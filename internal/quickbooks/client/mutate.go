@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -62,7 +64,7 @@ func parseIDList(raw string) []string {
 	raw = strings.TrimPrefix(raw, "[")
 	raw = strings.TrimSuffix(raw, "]")
 	var out []string
-	for _, p := range strings.Split(raw, ",") {
+	for p := range strings.SplitSeq(raw, ",") {
 		p = strings.Trim(strings.TrimSpace(p), `"'`)
 		if p != "" {
 			out = append(out, p)
@@ -124,6 +126,19 @@ type MutateResult struct {
 func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]string) (*MutateResult, error) {
 	entity = strings.TrimSpace(entity)
 	op = strings.ToLower(strings.TrimSpace(op))
+	cheque := entity == "Cheque"
+	if cheque {
+		entity = "Purchase"
+		copyFlags := make(map[string]string, len(flags)+1)
+		maps.Copy(copyFlags, flags)
+		flags = copyFlags
+		for _, key := range []string{"payment-type", "mode", "type"} {
+			if value := strings.ToLower(strings.TrimSpace(flags[key])); value != "" && value != "check" && value != "cheque" {
+				return nil, fmt.Errorf("cheque requires payment type Check, got --%s %s", key, value)
+			}
+		}
+		flags["cheque"] = "true"
+	}
 	path, ok := v3Path[entity]
 	if !ok || entity == "" {
 		return nil, fmt.Errorf("no v3 path for entity %q", entity)
@@ -135,9 +150,17 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 	if err := CheckLineItemsJSON(flags); err != nil {
 		return nil, err
 	}
+	fetchExisting := func(path, id string) (map[string]any, error) {
+		existing, err := fetchV3(ctx, ac, path, id)
+		if err == nil && cheque && existing["PaymentType"] != "Check" {
+			return nil, fmt.Errorf("purchase %s is not a cheque; expected PaymentType Check", id)
+		}
+		return existing, err
+	}
 
 	var body map[string]any
 	opQ := ""
+	var writeoffApply *writeoffLink
 	switch op {
 	case "create":
 		if entity == "Budget" {
@@ -146,7 +169,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 				return gres, nil
 			}
 			var re *ReplayError
-			if !(errors.As(gerr, &re) && re.Status == http.StatusForbidden) {
+			if !errors.As(gerr, &re) || re.Status != http.StatusForbidden {
 				return nil, gerr
 			}
 			// budgeting.api GraphQL 403s from this process (captured UI is 200);
@@ -160,7 +183,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		existing, errf := fetchV3(ctx, ac, path, id)
+		existing, errf := fetchExisting(path, id)
 		if errf != nil {
 			return nil, errf
 		}
@@ -177,7 +200,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		existing, errf := fetchV3(ctx, ac, path, id)
+		existing, errf := fetchExisting(path, id)
 		if errf != nil {
 			return nil, errf
 		}
@@ -194,7 +217,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		existing, errf := fetchV3(ctx, ac, path, id)
+		existing, errf := fetchExisting(path, id)
 		if errf != nil {
 			return nil, errf
 		}
@@ -207,12 +230,12 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		existing, errf := fetchV3(ctx, ac, path, id)
+		existing, errf := fetchExisting(path, id)
 		if errf != nil {
 			return nil, errf
 		}
 		body = map[string]any{"Id": existing["Id"], "SyncToken": existing["SyncToken"], "Active": false}
-		for _, k := range []string{"Name", "DisplayName", "GivenName", "FamilyName", "AccountType", "AccountSubType", "Type", "DueDays", "DiscountPercent", "DiscountDays", "DayOfMonthDue", "DueNextMonthDays", "IncomeAccountRef", "ExpenseAccountRef", "AssetAccountRef"} {
+		for _, k := range []string{"Name", "DisplayName", "GivenName", "FamilyName", "AccountType", "AccountSubType", "Type", "Code", "DueDays", "DiscountPercent", "DiscountDays", "DayOfMonthDue", "DueNextMonthDays", "IncomeAccountRef", "ExpenseAccountRef", "AssetAccountRef"} {
 			if v := existing[k]; v != nil {
 				body[k] = v
 			}
@@ -226,7 +249,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		existing, errf := fetchV3(ctx, ac, path, id)
+		existing, errf := fetchExisting(path, id)
 		if errf != nil {
 			return nil, errf
 		}
@@ -253,7 +276,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		inv, errf := fetchV3(ctx, ac, "invoice", id)
+		inv, errf := fetchExisting("invoice", id)
 		if errf != nil {
 			return nil, errf
 		}
@@ -284,6 +307,14 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		path = "creditmemo"
 		entity = "CreditMemo"
 		op = "create"
+		// The credit memo alone leaves the invoice balance open; a write-off
+		// also posts a $0 payment that links the invoice to the new credit
+		// memo so the credit applies and the invoice settles.
+		writeoffApply = &writeoffLink{
+			invoiceID: id,
+			customer:  firstFlag(flags, "customer"),
+			amount:    parseAmount(flags["amount"]),
+		}
 	case "send":
 		if strings.TrimSpace(id) == "" {
 			id = flags["id"]
@@ -299,7 +330,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if err != nil {
 			return nil, fmt.Errorf("v3 send %s: %w", entity, err)
 		}
-		defer drainAndClose(resp)
+		defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 		got, err := readBody(resp)
 		if err != nil {
 			return nil, err
@@ -316,7 +347,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
-		existing, errf := fetchV3(ctx, ac, path, id)
+		existing, errf := fetchExisting(path, id)
 		if errf != nil {
 			return nil, errf
 		}
@@ -340,7 +371,7 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 	if err != nil {
 		return nil, fmt.Errorf("v3 %s %s: %w", op, entity, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	got, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -349,10 +380,61 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(got)}
 	}
 	item := projectMutateItem(entity, got)
+	if writeoffApply != nil {
+		if err := applyWriteoffCredit(ctx, ac, writeoffApply, item); err != nil {
+			return nil, err
+		}
+	}
 	return &MutateResult{Status: resp.StatusCode, Op: op, Entity: entity, Item: item}, nil
 }
 
+// writeoffLink carries the invoice write-off target through the shared
+// mutate POST so the apply-payment can link the created credit memo.
+type writeoffLink struct {
+	invoiceID string
+	customer  string
+	amount    float64
+}
+
+// applyWriteoffCredit posts the $0 payment that links the write-off credit
+// memo to the invoice. Without it the credit memo sits unapplied and the
+// invoice balance stays open, so the write-off is incomplete.
+func applyWriteoffCredit(ctx context.Context, ac *apiClient, link *writeoffLink, cmItem QueryItem) error {
+	if cmItem.ID == "" || link.invoiceID == "" || link.amount <= 0 {
+		return fmt.Errorf("write-off apply requires invoice id, credit-memo id and a positive amount")
+	}
+	body := map[string]any{
+		"CustomerRef": map[string]any{"value": link.customer},
+		"TotalAmt":    0,
+		"Line": []map[string]any{
+			{"Amount": link.amount, "LinkedTxn": []map[string]any{{"TxnId": link.invoiceID, "TxnType": "Invoice"}}},
+			{"Amount": link.amount, "LinkedTxn": []map[string]any{{"TxnId": cmItem.ID, "TxnType": "CreditMemo"}}},
+		},
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/payment?minorversion=73", ac.realm)
+	resp, err := ac.postJSON(ctx, u, raw)
+	if err != nil {
+		return fmt.Errorf("v3 write-off apply payment: %w", err)
+	}
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
+	got, err := readBody(resp)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return &ReplayError{Status: resp.StatusCode, Message: "write-off apply payment: " + errorMessage(got)}
+	}
+	return nil
+}
+
 func PlannedMutateURL(entity, op string) string {
+	if entity == "Cheque" {
+		entity = "Purchase"
+	}
 	path := v3Path[entity]
 	if path == "" {
 		path = strings.ToLower(entity)
@@ -385,7 +467,7 @@ func fetchV3(ctx context.Context, ac *apiClient, path, id string) (map[string]an
 	if err != nil {
 		return nil, err
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -417,7 +499,7 @@ func fetchRecurringByID(ctx context.Context, ac *apiClient, id string) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -456,19 +538,19 @@ func fetchRecurringByID(ctx context.Context, ac *apiClient, id string) (map[stri
 func buildCreateBody(entity string, flags map[string]string) (map[string]any, error) {
 	out := map[string]any{}
 	name := firstFlag(flags, "name", "title")
-	date := firstFlag(flags, "date")
+	date := transactionDateFlag(flags)
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	} else {
 		date = normalizeDate(date)
 	}
-	amt := parseAmount(firstFlag(flags, "amount"))
+	amt, amtSet, amtErr := numericFlag(flags, "amount")
 	cust := firstFlag(flags, "customer")
 	vend := firstFlag(flags, "supplier")
 	item := firstFlag(flags, "item")
 	acct := firstFlag(flags, "from-account", "account")
 	toAcct := firstFlag(flags, "to-account")
-	cashAccount := firstFlag(flags, "account")
+	cashAccount := firstFlag(flags, "deposit-to", "refund-from", "account")
 
 	switch entity {
 	case "Customer", "Vendor", "Employee":
@@ -561,7 +643,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if acctID == "" {
 			acctID = "7"
 		}
-		if amt == 0 {
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		if !amtSet {
 			amt = 1
 		}
 		out["BudgetDetail"] = []map[string]any{{
@@ -577,12 +662,15 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if cust == "" {
 			return nil, fmt.Errorf("recurring create requires --customer")
 		}
-		if amt == 0 {
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		if !amtSet {
 			amt = 1
 		}
 		out["Invoice"] = map[string]any{
 			"CustomerRef": map[string]any{"value": cust},
-			"Line":        salesLines(flags, amt, firstFlag(flags, "item")),
+			"Line":        salesLines(flags, amt, amtSet, firstFlag(flags, "item")),
 			"RecurringInfo": map[string]any{
 				"Name":      name,
 				"RecurType": "Unscheduled",
@@ -619,10 +707,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if typ := firstFlag(flags, "type"); typ != "" {
 			out["Type"] = typ
 		}
-		if dd := firstFlag(flags, "due-days", "due_days", "duedays"); dd != "" {
-			if n := int(parseAmount(dd)); n > 0 {
-				out["DueDays"] = n
-			}
+		if days, set, derr := numericFlag(flags, "due-days", "due_days", "duedays"); derr != nil {
+			return nil, derr
+		} else if set {
+			out["DueDays"] = int(days)
 		}
 	case "PaymentMethod":
 		if name == "" {
@@ -669,8 +757,11 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			out["ExpenseAccountRef"] = map[string]any{"value": exp}
 			out["AssetAccountRef"] = map[string]any{"value": asset}
 			out["TrackQtyOnHand"] = true
-			qty := parseAmount(firstFlag(flags, "qty", "quantity", "new-qty"))
-			if qty == 0 {
+			qty, qtySet, qerr := numericFlag(flags, "qty", "quantity", "new-qty")
+			if qerr != nil {
+				return nil, qerr
+			}
+			if !qtySet {
 				qty = 1
 			}
 			out["QtyOnHand"] = qty
@@ -682,7 +773,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		}
 		out["CustomerRef"] = map[string]any{"value": cust}
 		out["TxnDate"] = date
-		out["Line"] = salesLines(flags, amt, item)
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		out["Line"] = salesLines(flags, amt, amtSet, item)
 		if e := firstFlag(flags, "email", "to"); e != "" {
 			out["BillEmail"] = map[string]any{"Address": e}
 		}
@@ -741,7 +835,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		}
 		out["CustomerRef"] = map[string]any{"value": cust}
 		out["TxnDate"] = date
-		if amt == 0 {
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		if !amtSet {
 			amt = 0.01
 		}
 		out["TotalAmt"] = amt
@@ -760,7 +857,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		}
 		out["VendorRef"] = map[string]any{"value": vend}
 		out["TxnDate"] = date
-		out["Line"] = expenseLines(flags, amt, firstFlag(flags, "category-account", "account"))
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		out["Line"] = expenseLines(flags, amt, amtSet, firstFlag(flags, "category-account", "account"))
 	case "BillPayment":
 		if vend == "" {
 			return nil, fmt.Errorf("bill-payment create requires --supplier")
@@ -774,7 +874,7 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		} else if len(ids) == 1 {
 			billID = ids[0]
 		}
-		payAcct := firstFlag(flags, "account", "payment-account", "bank-account")
+		payAcct := firstFlag(flags, "payment-account", "bank-account", "account")
 		if payAcct == "" {
 			return nil, fmt.Errorf("bill-payment create requires --account")
 		}
@@ -790,7 +890,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			delete(out, "CheckPayment")
 		}
 		out["TxnDate"] = date
-		if amt == 0 {
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		if !amtSet {
 			amt = 0.01
 		}
 		out["TotalAmt"] = amt
@@ -803,7 +906,7 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		// the cash side; previously only --account fed payAcct, so the
 		// catalog-required payment flags led nowhere and minimal calls
 		// failed with "requires --account".
-		payAcct := firstFlag(flags, "account", "payment-account", "bank-account")
+		payAcct := firstFlag(flags, "payment-account", "bank-account", "account")
 		if payAcct == "" {
 			payAcct = cashAccount // --account and its aliases are the unified cash side
 		}
@@ -834,7 +937,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if vend != "" {
 			out["EntityRef"] = map[string]any{"value": vend}
 		}
-		out["Line"] = expenseLines(flags, amt, lineAcct)
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		out["Line"] = expenseLines(flags, amt, amtSet, lineAcct)
 
 	case "JournalEntry":
 		out["TxnDate"] = date
@@ -844,6 +950,9 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 				out["Line"] = parsed
 				break
 			}
+		}
+		if amtErr != nil {
+			return nil, amtErr
 		}
 		from := firstFlag(flags, "from-account")
 		to := firstFlag(flags, "to-account")
@@ -861,6 +970,9 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 	case "Transfer":
 		if acct == "" || toAcct == "" {
 			return nil, fmt.Errorf("transfer create requires --from-account --to-account")
+		}
+		if amtErr != nil {
+			return nil, amtErr
 		}
 		out["FromAccountRef"] = map[string]any{"value": acct}
 		out["ToAccountRef"] = map[string]any{"value": toAcct}
@@ -880,6 +992,9 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 				break
 			}
 		}
+		if amtErr != nil {
+			return nil, amtErr
+		}
 		src := firstFlag(flags, "category-account", "from-account")
 		if src == "" {
 			src = firstFlag(flags, "to-account")
@@ -895,51 +1010,9 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			},
 		}}
 	case "TimeActivity":
-		emp := firstFlag(flags, "employee")
-		vendID := firstFlag(flags, "vendor", "supplier")
-		if emp == "" && vendID == "" {
-			return nil, fmt.Errorf("timesheet create requires --employee")
-		}
-		if vendID != "" && (emp == "" || strings.EqualFold(firstFlag(flags, "name-of"), "vendor")) {
-			out["NameOf"] = "Vendor"
-			out["VendorRef"] = map[string]any{"value": vendID}
-		} else {
-			out["NameOf"] = "Employee"
-			out["EmployeeRef"] = map[string]any{"value": emp}
-		}
 		out["TxnDate"] = date
-		hours := parseAmount(firstFlag(flags, "hours"))
-		if minutes := parseAmount(firstFlag(flags, "minutes")); minutes != 0 {
-			out["Hours"] = hours + minutes/60
-		} else {
-			if hours == 0 {
-				hours = 1
-			}
-			out["Hours"] = int(hours)
-		}
-		rate := parseAmount(firstFlag(flags, "rate"))
-		if rate == 0 {
-			rate = 1
-		}
-		out["HourlyRate"] = rate
-		if custID := firstFlag(flags, "customer", "customer-id"); custID != "" {
-			out["CustomerRef"] = map[string]any{"value": custID}
-		}
-		if itemID := firstFlag(flags, "item", "item-id"); itemID != "" {
-			out["ItemRef"] = map[string]any{"value": itemID}
-		}
-		if desc := firstFlag(flags, "description"); desc != "" {
-			out["Description"] = desc
-		}
-		if bill := firstFlag(flags, "billable"); bill != "" {
-			switch strings.ToLower(bill) {
-			case "true", "1", "yes", "billable":
-				out["BillableStatus"] = "Billable"
-			case "false", "0", "no", "notbillable", "not-billable":
-				out["BillableStatus"] = "NotBillable"
-			default:
-				out["BillableStatus"] = bill
-			}
+		if err := applyTimeActivityFields(out, flags, true); err != nil {
+			return nil, err
 		}
 	case "InventoryAdjustment":
 		itemID := firstFlag(flags, "item")
@@ -947,12 +1020,18 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if itemID == "" || adj == "" {
 			return nil, fmt.Errorf("inventory adjust create requires --item and --account")
 		}
-		qty := parseAmount(firstFlag(flags, "qty", "quantity", "new-qty"))
-		if qty == 0 {
-			qty = amt
+		qty, qtySet, qerr := numericFlag(flags, "qty", "quantity", "new-qty")
+		if qerr != nil {
+			return nil, qerr
 		}
-		if qty == 0 {
-			qty = 1
+		if !qtySet {
+			if amtErr != nil {
+				return nil, amtErr
+			}
+			qty = amt
+			if !amtSet {
+				qty = 1
+			}
 		}
 		out["TxnDate"] = date
 		doc := firstFlag(flags, "doc-number", "number")
@@ -990,6 +1069,9 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			out["TxnDate"] = date
 		}
 	}
+	if due := firstFlag(flags, "due-date"); due != "" && (entity == "Invoice" || entity == "Bill") {
+		out["DueDate"] = normalizeDate(due)
+	}
 	if memo := firstFlag(flags, "memo", "notes"); memo != "" {
 		out["PrivateNote"] = memo
 	}
@@ -1002,11 +1084,48 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		"SyncToken": existing["SyncToken"],
 		"sparse":    true,
 	}
+	a, amountSet, amountErr := numericFlag(flags, "amount")
+	if amountErr != nil {
+		return nil, amountErr
+	}
 	if entity == "Transfer" {
 		copyExisting(out, existing, "FromAccountRef", "ToAccountRef", "Amount")
 	}
 	if entity == "Deposit" {
 		copyExisting(out, existing, "DepositToAccountRef", "Line")
+	}
+	if entity == "JournalEntry" {
+		copyExisting(out, existing, "Line", "TxnDate", "CurrencyRef")
+		if raw := firstFlag(flags, "amount"); raw != "" {
+			amount, err := strconv.ParseFloat(raw, 64)
+			if err != nil || amount == 0 {
+				return nil, fmt.Errorf("journal amount must be a non-zero number")
+			}
+			lines, ok := existing["Line"].([]any)
+			if !ok || len(lines) != 2 {
+				return nil, fmt.Errorf("journal amount updates require a balanced two-line entry")
+			}
+			updated := make([]any, 0, 2)
+			kinds := map[string]bool{}
+			for _, value := range lines {
+				line, ok := value.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("invalid journal line")
+				}
+				detail, ok := line["JournalEntryLineDetail"].(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("invalid journal detail")
+				}
+				kinds[fmt.Sprint(detail["PostingType"])] = true
+				copy := maps.Clone(line)
+				copy["Amount"] = amount
+				updated = append(updated, copy)
+			}
+			if !kinds["Debit"] || !kinds["Credit"] {
+				return nil, fmt.Errorf("journal must have one debit and one credit")
+			}
+			out["Line"] = updated
+		}
 	}
 	if entity == "Item" {
 		copyExisting(out, existing, "Type", "IncomeAccountRef", "ExpenseAccountRef")
@@ -1017,11 +1136,22 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	if entity == "BillPayment" {
 		copyExisting(out, existing, "VendorRef", "APAccountRef", "PayType", "Line", "TotalAmt", "CurrencyRef")
 	}
+	if entity == "Payment" {
+		copyExisting(out, existing, "CustomerRef", "DepositToAccountRef", "Line", "TotalAmt", "TxnDate", "PaymentRefNum")
+		if firstFlag(flags, "amount") != "" {
+			if lines, ok := existing["Line"].([]any); ok && len(lines) > 1 {
+				return nil, fmt.Errorf("payment amount updates require a single allocation; multi-invoice reallocation is not supported")
+			}
+		}
+	}
 	if entity == "Purchase" {
 		copyExisting(out, existing, "AccountRef", "PaymentType", "EntityRef", "Line", "CurrencyRef")
 	}
 	if entity == "TimeActivity" {
-		copyExisting(out, existing, "NameOf", "EmployeeRef", "VendorRef", "CustomerRef", "Hours", "HourlyRate", "TxnDate")
+		copyExisting(out, existing, "NameOf", "EmployeeRef", "VendorRef", "CustomerRef", "ItemRef", "Hours", "Minutes", "HourlyRate", "TxnDate", "Description", "BillableStatus")
+		if err := applyTimeActivityFields(out, flags, false); err != nil {
+			return nil, err
+		}
 	}
 	if entity == "Class" {
 		copyExisting(out, existing, "Active", "SubClass", "ParentRef")
@@ -1054,6 +1184,8 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 			out["DisplayName"] = name
 		case "CompanyInfo":
 			out["CompanyName"] = name
+		case "Attachable":
+			out["FileName"] = name
 		case "RecurringTransaction":
 			info := map[string]any{"Name": name, "RecurType": "Unscheduled"}
 			if existing != nil {
@@ -1074,10 +1206,16 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 			out["Vendor1099"] = tpar == "true" || tpar == "1"
 		}
 	}
-	if d := firstFlag(flags, "date"); d != "" {
+	if due := firstFlag(flags, "due-date"); due != "" && (entity == "Invoice" || entity == "Bill") {
+		out["DueDate"] = normalizeDate(due)
+	}
+	if memo := firstFlag(flags, "memo", "notes"); memo != "" {
+		out["PrivateNote"] = memo
+	}
+	if d := transactionDateFlag(flags); d != "" {
 		out["TxnDate"] = normalizeDate(d)
 	}
-	if a := parseAmount(firstFlag(flags, "amount")); a != 0 {
+	if amountSet {
 		if entity == "Transfer" {
 			out["Amount"] = a
 		} else {
@@ -1135,9 +1273,6 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		out["Line"] = lines
 		out["sparse"] = false
 	}
-	if h := parseAmount(firstFlag(flags, "hours")); h != 0 && entity == "TimeActivity" {
-		out["Hours"] = int(h)
-	}
 	if e := firstFlag(flags, "email"); e != "" {
 		switch entity {
 		case "Invoice", "Estimate", "CreditMemo", "SalesReceipt", "RefundReceipt", "DelayedCharge", "DelayedCredit":
@@ -1150,6 +1285,95 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		out["Active"] = false
 	}
 	return out, nil
+}
+
+// applyTimeActivityFields keeps native Hours and Minutes separate. Empty flag
+// values mean omitted (collectFlags also includes unset CLI flags); explicit
+// zero must overwrite existing values rather than selecting a default.
+func applyTimeActivityFields(out map[string]any, flags map[string]string, create bool) error {
+	if create {
+		out["Hours"], out["Minutes"], out["HourlyRate"] = 0, 0, 0.0
+		if firstFlag(flags, "hours", "minutes") == "" {
+			// Preserve the existing one-hour default only for omitted duration.
+			out["Hours"] = 1
+		}
+	}
+	for _, field := range []struct{ flag, key string }{{"hours", "Hours"}, {"minutes", "Minutes"}} {
+		if raw := firstFlag(flags, field.flag); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 0 {
+				return fmt.Errorf("time activity --%s must be a non-negative whole number", field.flag)
+			}
+			if field.flag == "minutes" && value > 59 {
+				return fmt.Errorf("time activity --minutes must be between 0 and 59; use --hours for whole hours")
+			}
+			out[field.key] = value
+		}
+	}
+	if raw := firstFlag(flags, "rate"); raw != "" {
+		rate, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+			return fmt.Errorf("time activity --rate must be a finite non-negative number")
+		}
+		out["HourlyRate"] = rate
+	}
+
+	emp, vendor := firstFlag(flags, "employee"), firstFlag(flags, "vendor", "supplier")
+	nameOf := firstFlag(flags, "name-of")
+	if nameOf == "" {
+		switch {
+		case emp != "":
+			nameOf = "Employee"
+		case vendor != "":
+			nameOf = "Vendor"
+		case create:
+			return fmt.Errorf("time activity create requires --employee or --vendor")
+		}
+	}
+	if nameOf != "" {
+		switch {
+		case strings.EqualFold(nameOf, "Employee"):
+			if emp != "" {
+				out["EmployeeRef"] = map[string]any{"value": emp}
+			}
+			if out["EmployeeRef"] == nil {
+				return fmt.Errorf("time activity NameOf Employee requires --employee")
+			}
+			out["NameOf"] = "Employee"
+			delete(out, "VendorRef")
+		case strings.EqualFold(nameOf, "Vendor"):
+			if vendor != "" {
+				out["VendorRef"] = map[string]any{"value": vendor}
+			}
+			if out["VendorRef"] == nil {
+				return fmt.Errorf("time activity NameOf Vendor requires --vendor")
+			}
+			out["NameOf"] = "Vendor"
+			delete(out, "EmployeeRef")
+		default:
+			return fmt.Errorf("time activity --name-of must be Employee or Vendor")
+		}
+	}
+	if customer := firstFlag(flags, "customer", "customer-id"); customer != "" {
+		out["CustomerRef"] = map[string]any{"value": customer}
+	}
+	if item := firstFlag(flags, "item", "item-id"); item != "" {
+		out["ItemRef"] = map[string]any{"value": item}
+	}
+	if description := firstFlag(flags, "description"); description != "" {
+		out["Description"] = description
+	}
+	if billable := firstFlag(flags, "billable"); billable != "" {
+		switch strings.ToLower(billable) {
+		case "true", "1", "yes", "billable":
+			out["BillableStatus"] = "Billable"
+		case "false", "0", "no", "notbillable", "not-billable":
+			out["BillableStatus"] = "NotBillable"
+		default:
+			out["BillableStatus"] = billable
+		}
+	}
+	return nil
 }
 
 // stripForCopy removes server-managed fields from a fetched entity so the
@@ -1176,14 +1400,14 @@ func stripForCopy(existing map[string]any) map[string]any {
 	return out
 }
 
-func salesLines(flags map[string]string, amt float64, item string) []map[string]any {
+func salesLines(flags map[string]string, amt float64, amtSet bool, item string) []map[string]any {
 	if raw := firstFlag(flags, "line-items", "lines"); raw != "" && strings.HasPrefix(strings.TrimSpace(raw), "[") {
 		var parsed []map[string]any
 		if json.Unmarshal([]byte(raw), &parsed) == nil && len(parsed) > 0 {
 			return parsed
 		}
 	}
-	if amt == 0 {
+	if !amtSet {
 		amt = 1
 	}
 	if item == "" {
@@ -1217,14 +1441,14 @@ func salesLines(flags map[string]string, amt float64, item string) []map[string]
 	return lines
 }
 
-func expenseLines(flags map[string]string, amt float64, acct string) []map[string]any {
+func expenseLines(flags map[string]string, amt float64, amtSet bool, acct string) []map[string]any {
 	if raw := firstFlag(flags, "line-items", "lines"); raw != "" && strings.HasPrefix(strings.TrimSpace(raw), "[") {
 		var parsed []map[string]any
 		if json.Unmarshal([]byte(raw), &parsed) == nil && len(parsed) > 0 {
 			return parsed
 		}
 	}
-	if amt == 0 {
+	if !amtSet {
 		amt = 1
 	}
 	if acct == "" {
@@ -1332,6 +1556,11 @@ func firstItemRef(obj map[string]any) string {
 	return ""
 }
 
+// transactionDateFlag accepts the domain date names published in qb actions.
+func transactionDateFlag(flags map[string]string) string {
+	return firstFlag(flags, "date", "txn-date", "invoice-date", "bill-date", "purchase-date", "quote-date", "payment-date", "refund-date", "charge-date", "credit-date")
+}
+
 func firstFlag(flags map[string]string, keys ...string) string {
 	for _, k := range keys {
 		if v := strings.TrimSpace(flags[k]); v != "" {
@@ -1351,6 +1580,24 @@ func parseAmount(s string) float64 {
 		return 0
 	}
 	return f
+}
+
+// numericFlag reads an explicitly provided numeric flag, distinguishing an
+// omitted flag (set=false) from an explicit finite zero (set=true, value=0).
+// Invalid or non-finite input is rejected so it can never silently coerce
+// to a builder default before POST; callers only consult the error on code
+// paths that actually consume the flag.
+func numericFlag(flags map[string]string, keys ...string) (value float64, set bool, err error) {
+	for _, k := range keys {
+		if v := strings.TrimSpace(flags[k]); v != "" {
+			f, perr := strconv.ParseFloat(v, 64)
+			if perr != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+				return 0, true, fmt.Errorf("--%s must be a finite number, got %q", k, v)
+			}
+			return f, true, nil
+		}
+	}
+	return 0, false, nil
 }
 
 func normalizeDate(s string) string {

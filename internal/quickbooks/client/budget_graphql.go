@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/enetx/surf"
 )
 
 const budgetGraphQLURL = "https://budgeting.api.intuit.com/graphql"
@@ -133,7 +131,10 @@ func (c *apiClient) postBudgetGraphQL(ctx context.Context, body []byte) (*http.R
 	}
 	authz := ""
 	if c.tok != nil {
-		authz = strings.TrimSpace(c.tok.AuditAuthorization)
+		authz = strings.TrimSpace(headerGetFold(c.tok.URIHostHeaders["budgeting.api.intuit.com"], "authorization"))
+		if authz == "" {
+			authz = strings.TrimSpace(c.tok.AuditAuthorization)
+		}
 		if authz == "" {
 			// Sessions captured without an audit-ui request fall back to
 			// the main ATS Intuit_APIKey; budgeting.api accepts it.
@@ -152,20 +153,17 @@ func (c *apiClient) postBudgetGraphQL(ctx context.Context, body []byte) (*http.R
 	req.Header.Set("Origin", "https://qbo.intuit.com")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36")
 	req.Header.Set("Accept-Language", "en-AU,en;q=0.9")
-	if uid := c.intuitUserID(); uid != "" {
+	uid := headerGetFold(c.tok.URIHostHeaders["budgeting.api.intuit.com"], "intuit-user-id")
+	if uid == "" {
+		uid = c.intuitUserID()
+	}
+	if uid != "" {
 		req.Header.Set("intuit-user-id", uid)
 	}
 	if c.cookies != "" {
 		req.Header.Set("Cookie", c.cookies)
 	}
-	builder := surf.NewClient().Builder().Impersonate().Chrome().Timeout(httpTimeout)
-	sc, err := builder.Build().Result()
-	if err != nil {
-		return nil, fmt.Errorf("building surf client: %w", err)
-	}
-	std := sc.Std()
-	std.Timeout = httpTimeout
-	return std.Do(req)
+	return impersonatedDo(req)
 }
 
 // ReplayBudgetCreate posts businessPlanningCreateBudget as captured from
@@ -187,7 +185,7 @@ func ReplayBudgetCreate(ctx context.Context, flags map[string]string) (*MutateRe
 	if err != nil {
 		return nil, fmt.Errorf("budget graphql: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading budget graphql: %w", err)

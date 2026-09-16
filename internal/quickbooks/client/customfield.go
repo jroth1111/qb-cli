@@ -44,7 +44,7 @@ func replayCustomFieldsQueryCES(ctx context.Context, _, _ string, _ int) (*Query
 	if err != nil {
 		return nil, fmt.Errorf("custom-field CustomFieldsQueryCES: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading custom-field CustomFieldsQueryCES: %w", err)
@@ -77,10 +77,19 @@ func projectCustomFieldsQueryCES(body []byte) *QueryResult {
 	if len(wrap.Errors) > 0 && wrap.Errors[0].Message != "" {
 		note += "; gql: " + wrap.Errors[0].Message
 	}
+	items := projectJSONItems("CustomField", gqlEdgeNodes(wrap.Data.Defs.Edges), customFieldItemKeys)
 	return &QueryResult{
 		Entity: "CustomField",
-		Counts: map[string]int{"items": 0, "totalCount": n},
-		Items:  []QueryItem{},
+		Counts: map[string]int{"items": len(items), "totalCount": n},
+		Items:  items,
 		Note:   note,
 	}
+}
+
+// customFieldItemKeys maps customFieldDefinitions nodes onto QueryItem;
+// the node's deleted flag inverts into Active.
+var customFieldItemKeys = itemKeys{
+	id:      []string{"id", "Id"},
+	name:    []string{"name", "Name", "label"},
+	deleted: []string{"deleted"},
 }

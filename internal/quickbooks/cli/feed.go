@@ -72,7 +72,7 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 
 	rec := &cobra.Command{Use: "rec", Short: "Reconcile helpers"}
 	rec.AddCommand(newFeedMutationCmd(flags, "rec", "run", "rec auto-adjust (not wired)"))
-	if e, ok := catalogByID("QBO.FEED.REC_REPORT"); ok {
+	if e, ok := catalogByID("QBO.FEED.REC_REPORT"); ok && e.Mode != modeBlocked && e.Mode != modeExcluded {
 		rec.AddCommand(newV3ReportCmd(flags, e, "feed rec get", "BalanceSheet"))
 	} else {
 		rec.AddCommand(newFeedMutationCmd(flags, "rec", "get", "rec report (not wired)"))
@@ -455,9 +455,12 @@ func isImportHeader(rec []string) bool {
 		strings.EqualFold(strings.TrimSpace(rec[2]), "amount")
 }
 
-// newFeedCategoriseCmd POSTs categoriseTransactions (captured OMP session).
-// --ids are olbTxnIds; --category is the QBO account/category id to post to;
-// --class is an optional class id. Empty ids or category fail before network.
+// newFeedCategoriseCmd POSTs batchAcceptTransactions?acceptOnly=true — the
+// current SPA folds categorise into the accept call, setting
+// addAsQboTxn.details[0].categoryId on each full feed row. --ids are
+// olbTxnIds; --category is the QBO account/category id to post to; --class
+// is refused (no class field exists in the captured contract). Empty ids or
+// category fail before network.
 func newFeedCategoriseCmd(flags *rootFlags) *cobra.Command {
 	ff := &feedFlags{}
 	var (
@@ -502,16 +505,18 @@ func newFeedCategoriseCmd(flags *rootFlags) *cobra.Command {
 		"banking account id")
 	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to categorise (not :ofx display ids)")
 	cmd.Flags().StringVar(&category, "category", "", "account/category id to post to (e.g. 7)")
-	cmd.Flags().StringVar(&classRef, "class", "", "class id (optional)")
+	cmd.Flags().StringVar(&classRef, "class", "", "class id (rejected: no class field in the captured contract)")
 	cmd.Flags().StringVar(&entityType, "entity-type", "Expense", "QBO entity type (Expense, Deposit)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_CATEGORISE")
 	return cmd
 }
 
-// newFeedMatchCmd POSTs matchTransactions (captured OMP session).
-// --ids are olbTxnIds; --match-id are existing QBO record ids to match against;
-// --txn-type is the record type (default Bill). Empty ids or match-ids fail
-// before network.
+// newFeedMatchCmd POSTs acceptTransactions — the current SPA's match call.
+// --ids are olbTxnIds; --match-id are existing QBO record ids to match
+// against, resolved against the feed account's register so txnTypeId,
+// sequence, sync token and payment amount all come from a live read.
+// --txn-type is advisory only (the register's recorded type is sent).
+// Empty ids or match-ids fail before network.
 func newFeedMatchCmd(flags *rootFlags) *cobra.Command {
 	ff := &feedFlags{}
 	var (
@@ -520,7 +525,7 @@ func newFeedMatchCmd(flags *rootFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "match",
-		Short: "Match pending feed rows to existing QBO records (POST matchTransactions)",
+		Short: "Match pending feed rows to existing QBO records (POST acceptTransactions)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			matchTxns := make([]client.MatchTxn, 0, len(matchIDs))
 			for _, id := range matchIDs {
@@ -557,15 +562,17 @@ func newFeedMatchCmd(flags *rootFlags) *cobra.Command {
 		"banking account id")
 	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to match (not :ofx display ids)")
 	cmd.Flags().StringSliceVar(&matchIDs, "match-id", nil, "existing QBO record ids to match against")
-	cmd.Flags().StringVar(&txnType, "txn-type", "Bill", "QBO record type (Bill, Expense, Deposit, Cheque)")
+	cmd.Flags().StringVar(&txnType, "txn-type", "", "advisory record type hint (the register's recorded type is sent)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_MATCH")
 	return cmd
 }
 
-// newFeedSplitCmd POSTs splitTransactions (captured OMP session).
-// --ids are olbTxnIds; --lines is a comma-separated list of categoryId=amount
-// pairs (e.g. 7=-6,8=-4). Amounts should sum to the row total. Empty ids or
-// fewer than two lines fail before network.
+// newFeedSplitCmd POSTs batchAcceptTransactions?acceptOnly=true — the
+// current SPA folds split into the accept call, writing the lines to
+// addAsQboTxn.details on each full feed row. --ids are olbTxnIds; --lines is
+// a comma-separated list of categoryId=amount pairs (e.g. 7=-6,8=-4).
+// The wire contract sends unsigned line magnitudes; signed or unsigned input
+// is accepted. Empty ids or fewer than two lines fail before network.
 func newFeedSplitCmd(flags *rootFlags) *cobra.Command {
 	ff := &feedFlags{}
 	var (
@@ -574,7 +581,7 @@ func newFeedSplitCmd(flags *rootFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "split",
-		Short: "Split pending feed rows across multiple accounts (POST splitTransactions)",
+		Short: "Split pending feed rows across multiple accounts (POST batchAcceptTransactions)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			lines, perr := parseSplitLines(linesStr)
 			if perr != nil {
@@ -606,14 +613,15 @@ func newFeedSplitCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
 		"banking account id")
 	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to split (not :ofx display ids)")
-	cmd.Flags().StringVar(&linesStr, "lines", "", "comma-separated categoryId=amount pairs (e.g. 7=-6,8=-4)")
+	cmd.Flags().StringVar(&linesStr, "lines", "", "comma-separated categoryId=amount pairs; sent as positive magnitudes (e.g. 7=-6,8=-4)")
 	cmd.Flags().StringVar(&entityType, "entity-type", "Expense", "QBO entity type (Expense, Deposit)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_SPLIT")
 	return cmd
 }
 
-// newFeedBatchAcceptCmd POSTs batchAcceptTransactions (captured OMP session).
-// --ids are olbTxnIds to accept (post) in bulk. Empty ids fail before network.
+// newFeedBatchAcceptCmd POSTs batchAcceptTransactions?acceptOnly=true
+// (captured live SPA). --ids are olbTxnIds to accept (post) in bulk, sent as
+// full feed rows with acceptType ADD. Empty ids fail before network.
 func newFeedBatchAcceptCmd(flags *rootFlags) *cobra.Command {
 	ff := &feedFlags{}
 	cmd := &cobra.Command{

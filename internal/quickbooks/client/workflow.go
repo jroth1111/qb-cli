@@ -50,7 +50,7 @@ func replayWASAllRules(ctx context.Context, _, _ string, _ int) (*QueryResult, e
 	if err != nil {
 		return nil, fmt.Errorf("workflow WASAllRules: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading workflow WASAllRules: %w", err)
@@ -85,10 +85,18 @@ func projectWASAllRules(body []byte) *QueryResult {
 	if len(wrap.Errors) > 0 && wrap.Errors[0].Message != "" {
 		note += "; gql: " + wrap.Errors[0].Message
 	}
+	items := projectJSONItems("Workflow", gqlEdgeNodes(wrap.Data.Workflows.Definitions.Edges), workflowItemKeys)
 	return &QueryResult{
 		Entity: "Workflow",
-		Counts: map[string]int{"items": 0, "totalCount": n},
-		Items:  []QueryItem{},
+		Counts: map[string]int{"items": len(items), "totalCount": n},
+		Items:  items,
 		Note:   note,
 	}
+}
+
+// workflowItemKeys maps WASAllRules definition nodes onto QueryItem.
+var workflowItemKeys = itemKeys{
+	id:     []string{"id", "Id"},
+	name:   []string{"displayName", "name", "Name", "definitionKey"},
+	typeOf: []string{"status", "Status"},
 }

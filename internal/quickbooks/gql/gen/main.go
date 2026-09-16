@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql/routes"
 )
 
 const corpusDir = "/tmp/qbo-cap"
@@ -23,48 +25,25 @@ type pass3 struct {
 	VariableTypes  []string          `json:"variable_types"`
 }
 
-// Endpoint and kind constants mirror the gql package values; they are
-// spelled out here so the generator has no dependency on its output.
+// Endpoint constants share the runtime's routing source without depending
+// on the generated catalog. Kind constants describe the captured documents.
 const (
-	EndpointDefault    = "https://qbo.intuit.com/api/v4/graphql"
-	EndpointWarehouse  = "https://warehouse-management-svc.api.intuit.com/graphql"
-	EndpointCommerce   = "https://commercecontrol.api.intuit.com/graphql"
-	EndpointSpendLists = "https://smallbusiness.api.intuit.com/graphql"
+	EndpointDefault    = routes.EndpointDefault
+	EndpointWarehouse  = routes.EndpointWarehouse
+	EndpointCommerce   = routes.EndpointCommerceControl
+	EndpointSpendLists = routes.EndpointSpendLists
 
 	KindQuery    = "query"
 	KindMutation = "mutation"
 )
 
-// opEndpoints carries hand-verified endpoint routing evidence. The capture
-// corpus ties each GraphQL host to the webpack module that declares it:
-//   - qbo.intuit.com/api/v4/graphql        — default SPA Apollo link
-//   - warehouse-management-svc.api…/graphql — order-management-ui chunk 3275
-//     (Commerce* inventory ops) and inventory-addon-ui chunk 1156
-//   - commercecontrol.api…/graphql          — order-management-ui + P&S core
-//   - smallbusiness.api…/graphql            — tasks-ui / app-revx-ui bundles
-//
-// Everything else rides the default endpoint.
-var opEndpoints = map[string]string{
-	"CommerceGetAvailableInventory":    EndpointWarehouse,
-	"CommerceInventoryLocations":       EndpointWarehouse,
-	"CommerceInventoryQuantities":      EndpointWarehouse,
-	"CommerceInventoryMovement":        EndpointWarehouse,
-	"CommerceGenerateSerialLotNumbers": EndpointWarehouse,
-	"CommerceConsumeInventory":         EndpointWarehouse,
-	"CommerceReceiveInventory":         EndpointWarehouse,
-	// Spend-lists reads/writes observed on the smallbusiness host
-	// (tasks-ui / app-revx-ui bundles). Previously dropped by the map,
-	// which silently regenerates them onto the default endpoint.
-	"CreateAttachment":                    EndpointSpendLists,
-	"CreateAttachment_qbo":                EndpointSpendLists,
-	"CustomFieldDefinitionCreateMutation": EndpointSpendLists,
-	"CustomFieldsQuery":                   EndpointSpendLists,
-	"CustomFieldsQueryCES":                EndpointSpendLists,
-	"GetContacts":                         EndpointSpendLists,
-	"QbAppFoundationDeleteAttachment":     EndpointSpendLists,
-	"QbAppFoundationReadAttachments":      EndpointSpendLists,
-	"UpdateAttachment":                    EndpointSpendLists,
-	"UpdateFieldDefinitionCreateMutation": EndpointSpendLists,
+// endpointFor uses verified routing when available and retains the
+// generator's default endpoint for operations without routing evidence.
+func endpointFor(operation string) string {
+	if endpoint, found := routes.Lookup(operation); found {
+		return endpoint
+	}
+	return EndpointDefault
 }
 
 var (
@@ -185,10 +164,7 @@ func run() error {
 		doc, broken = inlineTemplateFragments(name, doc, broken)
 		kind := kindOf(doc)
 		varTypes := varTypesOf(doc)
-		endpoint := opEndpoints[name]
-		if endpoint == "" {
-			endpoint = EndpointDefault
-		}
+		endpoint := endpointFor(name)
 		inputType := ""
 		if t, ok := p3.MutationInputs[name]; ok && kind == KindMutation {
 			inputType = summarizeInput(t)
@@ -221,7 +197,7 @@ func readJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return json.NewDecoder(f).Decode(v)
 }
 

@@ -49,7 +49,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	}
 	outPath := outFile.Name()
 	_ = outFile.Close()
-	defer os.Remove(outPath)
+	defer func() { _ = os.Remove(outPath) }()
 	_ = os.Chmod(outPath, 0o600)
 
 	timeoutMs := int64(10 * time.Minute / time.Millisecond)
@@ -61,9 +61,17 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 
 	// ego-browser nodejs does not reliably forward parent env into the
 	// script VM. Stamp paths into the source so capture cannot miss them.
+	// QB_EGO_SPACE_ID/QB_EGO_SPACE select the capture Space (default
+	// "qb-login"); reuse the gql exec convention so an authenticated exec
+	// Space can also serve remint.
+	space := os.Getenv("QB_EGO_SPACE_ID")
+	if space == "" {
+		space = os.Getenv("QB_EGO_SPACE")
+	}
 	preamble := "process.env.QB_CAPTURE_OUT = " + strconv.Quote(outPath) + ";\n" +
 		"process.env.QB_LOGIN_URL = " + strconv.Quote(loginURL) + ";\n" +
 		"process.env.QB_BANKING_URL = " + strconv.Quote(bankingURL) + ";\n" +
+		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
 		"process.env.QB_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), script...))
@@ -71,6 +79,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		"QB_CAPTURE_OUT="+outPath,
 		"QB_LOGIN_URL="+loginURL,
 		"QB_BANKING_URL="+bankingURL,
+		"QB_EGO_SPACE="+space,
 		"QB_TIMEOUT_MS="+strconv.FormatInt(timeoutMs, 10),
 	)
 
@@ -83,14 +92,16 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		return nil, fmt.Errorf("reading ego capture: %w", err)
 	}
 	var file struct {
-		Headers  map[string]string `json:"headers"`
-		Cookies  []Cookie          `json:"cookies"`
-		Identity Identity          `json:"identity"`
+		Headers     map[string]string            `json:"headers"`
+		APIHeaders  map[string]string            `json:"api_headers"`
+		HostHeaders map[string]map[string]string `json:"host_headers"`
+		Cookies     []Cookie                     `json:"cookies"`
+		Identity    Identity                     `json:"identity"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("parsing ego capture: %w", err)
 	}
-	cap := &ATSCapture{Headers: file.Headers, Cookies: file.Cookies, Identity: file.Identity}
+	cap := &ATSCapture{Headers: file.Headers, SecondaryHeaders: file.APIHeaders, HostHeaders: file.HostHeaders, Cookies: file.Cookies, Identity: file.Identity}
 	if !isIntuitAPIKey(headerGet(cap.Headers, "authorization")) {
 		return nil, ErrNoATSAuthorization
 	}

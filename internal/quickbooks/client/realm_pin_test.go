@@ -34,18 +34,6 @@ func TestRealmPinAllowsSessionRealm(t *testing.T) {
 	}
 }
 
-func newCountingServer(t *testing.T, calls *int) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(nilHandler(calls))
-	return srv
-}
-
-func nilHandler(calls *int) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { *calls++ })
-	return mux
-}
-
 // TestReplayFeedCompleteUnknownOracleNotComplete proves that when the server
 // omits numTxnToReview (expected=-1), the walk is NOT silently marked
 // complete — it returns ErrIncomplete with Complete=false.

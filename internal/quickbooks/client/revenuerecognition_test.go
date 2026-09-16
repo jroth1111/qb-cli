@@ -58,6 +58,20 @@ func TestProjectDeferredRecognitionLinesGQLError(t *testing.T) {
 	}
 }
 
+// Live Common_MoneyAmountV2 serialises value as a string ("120.00") and
+// scheduleLines/template can be null — a float64 field used to fail the
+// whole decode and report "(unparsed)" with items=0.
+func TestProjectDeferredRecognitionLinesStringMoneyValue(t *testing.T) {
+	body := []byte(`{"data":{"accountingDeferredRecognitionTransactionLineDetails":{"edges":[{"node":{"id":"133","docNum":null,"postingStatus":"INPROGRESS","serviceStartDate":"2026-09-16","remainingAmount":{"value":"120.00","currency":"AUD"},"item":{"id":"1"},"scheduleLines":null,"template":null,"sourceDetail":{"transaction":{"id":"133","type":"INVOICE"}}}}], "__typename":"Accounting_DeferredRecognitionTransactionLineConnection"}}}`)
+	got := projectDeferredRecognitionLines(body)
+	if strings.Contains(got.Note, "unparsed") {
+		t.Fatalf("string money value must not fail decode: %q", got.Note)
+	}
+	if len(got.Items) != 1 || got.Items[0].ID != "133" || got.Items[0].Amount != 120 {
+		t.Fatalf("items=%+v", got.Items)
+	}
+}
+
 func TestReplayQueryRevenueRecognitionNoCreds(t *testing.T) {
 	noCredsDir(t)
 	start := time.Now()

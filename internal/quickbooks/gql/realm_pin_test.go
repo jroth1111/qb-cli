@@ -36,14 +36,3 @@ func TestExecuteNoCompanyGate(t *testing.T) {
 		}
 	}
 }
-
-func saveTokenPinned(t *testing.T, realm string) {
-	t.Helper()
-	t.Setenv("QB_HOME", t.TempDir())
-	if err := auth.Save(&auth.TokenSet{
-		Authorization: "Intuit_APIKey intuit_apikey=x,intuit_apikey_version=1.0",
-		RealmID:       realm,
-	}); err != nil {
-		t.Fatal(err)
-	}
-}

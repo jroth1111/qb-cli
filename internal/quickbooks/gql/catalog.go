@@ -15,24 +15,25 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql/routes"
 )
 
-// Endpoint constants: per-operation GraphQL hosts, encoded as catalog
-// metadata. Evidence for each mapping lives in the capture corpus
-// (/tmp/qbo-cap): each host appears in exactly one webpack chunk that also
-// contains the operations routed to it.
+// Endpoint constants retain the public GraphQL host names. Verified
+// per-operation routing and its evidence are shared with the generator
+// through the routes package.
 const (
 	// EndpointDefault is the qbo webapp Apollo link.
-	EndpointDefault = "https://qbo.intuit.com/api/v4/graphql"
+	EndpointDefault = routes.EndpointDefault
 	// EndpointWarehouse serves Commerce* inventory ops (order-management-ui
 	// chunk 3275, inventory-addon-ui chunk 1156).
-	EndpointWarehouse = "https://warehouse-management-svc.api.intuit.com/graphql"
+	EndpointWarehouse = routes.EndpointWarehouse
 	// EndpointCommerceControl serves order-management / P&S list mutations
 	// (commercecontrol.api.intuit.com).
-	EndpointCommerceControl = "https://commercecontrol.api.intuit.com/graphql"
+	EndpointCommerceControl = routes.EndpointCommerceControl
 	// EndpointSpendLists serves spend/tasks/app-rev ops observed on the
 	// smallbusiness host (tasks-ui, app-revx-ui, integrations-apptransactions).
-	EndpointSpendLists = "https://smallbusiness.api.intuit.com/graphql"
+	EndpointSpendLists = routes.EndpointSpendLists
 )
 
 // Operation kinds.
@@ -74,10 +75,148 @@ func (e *ErrNotFound) Error() string {
 // catalog is built once from the generated table, sorted by name.
 var catalog = buildCatalog()
 
+// docOverrides replaces generated documents where the live schema drifted
+// after the /tmp/qbo-cap corpus was extracted. Add entries only with live
+// evidence (the server's validation errors + a verified corrected doc).
+// 2026-09-16: commercecontrol dropped Product.channelIds and
+// ProductVariant.channelIds; the rest of the captured GetProduct selection
+// validates and returns live rows.
+var docOverrides = map[string]string{
+	"GetProduct": `query GetProduct($id: ID!) {
+    item: getProduct(id: $id) {
+      id
+      description
+      name
+      status
+      type
+      trackStock
+      source
+      taxable
+      systemGenerated
+      default
+      deferredRevenue
+      deferredRevenueAccountId
+      revRecDurationValue
+      revRecDurationType
+      category {
+        name
+        id
+      }
+      brand {
+        name
+      }
+      source
+      sellable
+      purchasable
+      mediaCollection {
+        medias {
+          id
+          version
+          documentId
+          url
+          mediumThumbnailUrl
+          largeThumbnailUrl
+          extraLargeThumbnailUrl
+        }
+      }
+      taxCategoryId
+      klassId
+      version
+      productAccountReferences {
+        preferredVendorId
+        purchaseDescription
+        salesDescription
+        purchaseAccountId
+        salesAccountId
+        salesTaxCodeId
+        purchaseTaxCodeId
+      }
+      purchaseAccountId
+      variabilityDimensions {
+        name
+        values
+      }
+      variants {
+        id
+        version
+        name
+        status
+        price
+        cost
+        trackStock
+        salesDescription
+        sku
+        qboItemId
+        status
+        purchaseRateIncludesTax
+        salesRateIncludesTax
+        costGroupId
+        productVariantAccountReferences {
+          purchaseDescription
+          salesDescription
+          salesAccountId
+          purchaseAccountId
+          salesTaxCodeId
+          purchaseTaxCodeId
+        }
+        variabilityValues {
+          dimension
+          value
+        }
+        inventoryItemSummary {
+          lowOnStock
+          outOfStock
+        }
+        inventoryItem {
+          id
+          itemVersion
+          accountReferences {
+            cogsAccountId
+            assetAccountId
+          }
+          inventoryLevels {
+            qtyAvailable
+            qtyOnHands
+            maxReorderPoint
+            committedOnSO
+            committedOnMO
+            committedOnTransfer
+            incomingOnPO
+            reorderPoint
+            lowOnStock
+            outOfStock
+            quantityOnEstimates
+          }
+        }
+        customExtensions {
+          dimensions {
+            definition {
+              id
+            }
+            value
+          }
+          customObjects {
+            definition {
+              id
+            }
+            values
+          }
+        }
+      }
+    }
+  }`,
+}
+
 func buildCatalog() map[string]*Op {
 	m := make(map[string]*Op, len(catalogEntries))
 	for i := range catalogEntries {
 		op := catalogEntries[i]
+		if endpoint, found := routes.Lookup(op.Name); found {
+			op.Endpoint = endpoint
+		}
+		if doc, found := docOverrides[op.Name]; found {
+			op.Document = doc
+		}
 		m[op.Name] = &op
 	}
 	return m
@@ -141,18 +280,14 @@ func (op *Op) DeclaredVars() []string {
 	doc := op.Document
 	open := strings.Index(doc, "(")
 	closing := strings.Index(doc, ")")
-	if open < 0 || closing < open || !strings.HasPrefix(strings.TrimSpace(doc), op.Kind) {
+	selection := strings.Index(doc, "{")
+	if open < 0 || closing < open || (selection >= 0 && selection < open) || !strings.HasPrefix(strings.TrimSpace(doc), op.Kind) {
 		return nil
 	}
 	sig := doc[open+1 : closing]
 	var out []string
-	for _, part := range strings.Split(sig, ",") {
-		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "$") {
-			if i := strings.IndexAny(part, " :"); i > 0 {
-				out = append(out, part[1:i])
-			}
-		}
+	for _, match := range varDeclNameRe.FindAllStringSubmatch(sig, -1) {
+		out = append(out, match[1])
 	}
 	return out
 }
@@ -182,8 +317,9 @@ const (
 // DetectWalkStyle inspects the document for cursor ($after), offset
 // ($offset/$skip) or limit-only pagination.
 func (op *Op) DetectWalkStyle() WalkStyle {
+	declared := op.DeclaredVars()
 	has := func(names ...string) bool {
-		for _, v := range op.DeclaredVars() {
+		for _, v := range declared {
 			for _, n := range names {
 				if strings.EqualFold(v, n) {
 					return true

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"testing"
 	"time"
 )
@@ -54,10 +55,23 @@ func invLiveGate(t *testing.T) *apiClient {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ac.realm == "" || ac.realm == prodRealm {
-		t.Fatalf("refusing inventory live write on realm %q", ac.realm)
+	if expected := os.Getenv("QB_EXPECTED_REALM"); expected == "" || ac.realm != expected {
+		t.Fatal("live inventory writes require QB_EXPECTED_REALM matching the verified test session")
 	}
 	return ac
+}
+
+func liveJSONShape(raw []byte) string {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return fmt.Sprintf("non-object response (%d bytes)", len(raw))
+	}
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return fmt.Sprintf("object keys=%v", keys)
 }
 
 func invLiveCtx(t *testing.T) context.Context {

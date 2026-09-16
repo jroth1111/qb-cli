@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -33,10 +32,24 @@ func saveToken(t *testing.T, realm, hdrCompany string, expired bool) {
 	}
 }
 
-// swapProbeTarget routes client.ProbeSession's qbo.intuit.com request to srv.
+// swapProbeTarget supplies the doctor's probe dependency using a local server.
+// The client's actual impersonated transport is tested in the client package.
 func swapProbeTarget(t *testing.T, srv *httptest.Server) {
 	t.Helper()
-	interceptHTTP(t, srv.URL)
+	original := probeSession
+	probeSession = func(ctx context.Context) (bool, int, string) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+		if err != nil {
+			return false, 0, "test request failed"
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false, 0, "test probe failed"
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusOK, resp.StatusCode, "local test probe"
+	}
+	t.Cleanup(func() { probeSession = original })
 }
 
 // healthyServer returns 200 for any path.
@@ -161,30 +174,3 @@ func TestRunDoctorExpiredToken(t *testing.T) {
 
 // farFuture returns a time far in the future for a valid token.
 func farFuture() time.Time { return time.Now().Add(365 * 24 * time.Hour) }
-
-// interceptHTTP routes production qbo.intuit.com requests to srv by
-// swapping http.DefaultTransport (restored on cleanup).
-func interceptHTTP(t *testing.T, rawurl string) {
-	t.Helper()
-	orig := http.DefaultTransport
-	u, _ := url.Parse(rawurl)
-	rt := &http.Transport{}
-	http.DefaultTransport = &rewriteTransport{scheme: u.Scheme, host: u.Host, rt: rt}
-	t.Cleanup(func() {
-		rt.CloseIdleConnections()
-		http.DefaultTransport = orig
-	})
-}
-
-type rewriteTransport struct {
-	scheme, host string
-	rt           http.RoundTripper
-}
-
-func (r *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	clone := req.Clone(req.Context())
-	clone.URL.Scheme = r.scheme
-	clone.URL.Host = r.host
-	clone.Host = ""
-	return r.rt.RoundTrip(clone)
-}

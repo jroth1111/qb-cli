@@ -50,7 +50,7 @@ func replayGetSchedules(ctx context.Context, _, _ string, limit int) (*QueryResu
 	if err != nil {
 		return nil, fmt.Errorf("prepaid GetSchedules: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading prepaid GetSchedules: %w", err)
@@ -70,7 +70,8 @@ func projectGetSchedules(body []byte) *QueryResult {
 		} `json:"errors"`
 		Data struct {
 			Result struct {
-				TotalCount int `json:"totalCount"`
+				Edges      []json.RawMessage `json:"edges"`
+				TotalCount int               `json:"totalCount"`
 			} `json:"cboSchedules"`
 		} `json:"data"`
 	}
@@ -83,10 +84,23 @@ func projectGetSchedules(body []byte) *QueryResult {
 	if len(wrap.Errors) > 0 && wrap.Errors[0].Message != "" {
 		note += "; gql: " + wrap.Errors[0].Message
 	}
+	items := projectJSONItems("PrepaidSchedule", gqlEdgeNodes(wrap.Data.Result.Edges), prepaidScheduleItemKeys)
 	return &QueryResult{
 		Entity: "PrepaidSchedule",
-		Counts: map[string]int{"items": 0, "totalCount": total},
-		Items:  []QueryItem{},
+		Counts: map[string]int{"items": len(items), "totalCount": total},
+		Items:  items,
 		Note:   note,
 	}
+}
+
+// prepaidScheduleItemKeys maps cboSchedules edge nodes onto QueryItem. The
+// selection set's two dates pack into the fixed fields: startDate→Date,
+// endDate→DocNumber; sourceTxnType→Name, status→Type, amount→Amount.
+var prepaidScheduleItemKeys = itemKeys{
+	id:        []string{"id", "Id"},
+	name:      []string{"sourceTxnType"},
+	date:      []string{"startDate"},
+	docNumber: []string{"endDate"},
+	amount:    []string{"amount", "homeAmount"},
+	typeOf:    []string{"status", "Status"},
 }

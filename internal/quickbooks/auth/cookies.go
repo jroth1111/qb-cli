@@ -105,17 +105,17 @@ func parseCookieHeader(header, domain string) []Cookie {
 		return nil
 	}
 	var out []Cookie
-	for _, part := range strings.Split(header, ";") {
+	for part := range strings.SplitSeq(header, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		eq := strings.IndexByte(part, '=')
-		if eq < 0 {
+		before, after, ok := strings.Cut(part, "=")
+		if !ok {
 			continue
 		}
-		name := strings.TrimSpace(part[:eq])
-		val := part[eq+1:]
+		name := strings.TrimSpace(before)
+		val := after
 		if name == "" {
 			continue
 		}
@@ -190,10 +190,10 @@ func readCookiesDB(cookiesDB string, domainPatterns []string) ([]Cookie, error) 
 		return nil, fmt.Errorf("creating temp cookies db: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-	defer os.Remove(tmpPath + "-wal")
-	defer os.Remove(tmpPath + "-shm")
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	defer func() { _ = os.Remove(tmpPath + "-wal") }()
+	defer func() { _ = os.Remove(tmpPath + "-shm") }()
 
 	if err := copyFileIfExists(cookiesDB, tmpPath); err != nil {
 		return nil, fmt.Errorf("copying cookies db: %w", err)
@@ -282,12 +282,12 @@ func copyFileIfExists(src, dst string) error {
 		}
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
 	return err
 }

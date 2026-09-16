@@ -26,7 +26,7 @@ func VerifyFeed(ctx context.Context, accountID string) (*VerifyResult, error) {
 
 	const pageSize = 300
 	seen := make(map[string]struct{})
-	for page := 0; page < 40; page++ {
+	for page := range 40 {
 		p, err := fetchFeedPage(ctx, ac, accountID, "PENDING", page*pageSize, pageSize)
 		if err != nil {
 			return nil, err

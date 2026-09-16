@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -27,7 +28,7 @@ func newGqlCmd(flags *rootFlags) *cobra.Command {
 		Short: "Captured GraphQL operations (list, query, mutate, walk)",
 		Long: "qb gql runs GraphQL operations captured from the QBO webapp.\n\n" +
 			"Execution happens inside your authenticated qbo.intuit.com browser tab\n" +
-			"via the OMP relay — never as offline HTTP, which the GraphQL hosts reject.\n" +
+			"via ego-browser; these GraphQL hosts require the browser session.\n" +
 			"Browse locally with `qb gql ops <filter>`; run with `qb gql query|mutate|walk`.",
 		SilenceUsage: true,
 	}
@@ -97,7 +98,7 @@ func newGqlRunCmd(flags *rootFlags, kind string) *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   use + " <OpName> [--vars k=v ...]",
-		Short: short + " via the relay tab",
+		Short: short + " via the ego-browser tab",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			op, err := gql.Lookup(args[0])
@@ -134,33 +135,52 @@ func newGqlRunCmd(flags *rootFlags, kind string) *cobra.Command {
 			if err != nil {
 				return exitRelay(err)
 			}
-			if flags.asJSON {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(resp)
-			}
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "POST %s -> %d\n", op.Endpoint, resp.Status)
-			var pretty map[string]any
-			if json.Unmarshal(resp.Body, &pretty) == nil {
-				b, _ := json.MarshalIndent(pretty, "", "  ")
-				fmt.Fprintln(out, string(b))
-			} else {
-				fmt.Fprintln(out, string(resp.Body))
-			}
-			if len(resp.Errors) > 0 {
-				msgs := make([]string, len(resp.Errors))
-				for i, e := range resp.Errors {
-					msgs[i] = e.Message
-				}
-				return fmt.Errorf("GraphQL errors: %s", strings.Join(msgs, "; "))
-			}
-			if resp.Status >= 400 {
-				return &ExitError{Code: ExitRelayError, Err: fmt.Errorf("HTTP %d from %s", resp.Status, op.Endpoint)}
-			}
-			return nil
+			return writeGqlResponse(cmd.OutOrStdout(), flags.asJSON, op.Endpoint, resp)
 		},
 	}
 	cmd.Flags().StringSliceVar(&rawVars, "vars", nil, "variables as k=v pairs (k must match the op's declared $k)")
 	return cmd
+}
+
+// writeGqlResponse preserves machine-readable errors and still fails the command.
+func writeGqlResponse(out io.Writer, asJSON bool, endpoint string, resp *gql.Response) error {
+	if resp == nil || !json.Valid(resp.Body) {
+		return fmt.Errorf("GraphQL response is not valid JSON")
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(resp.Body, &envelope) != nil || envelope == nil {
+		return fmt.Errorf("GraphQL response must be an object")
+	}
+	if _, data := envelope["data"]; !data && len(resp.Errors) == 0 {
+		return fmt.Errorf("GraphQL response has neither data nor errors")
+	}
+	if asJSON {
+		if err := json.NewEncoder(out).Encode(resp); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(out, "POST %s -> %d\n", endpoint, resp.Status)
+		pretty, _ := json.MarshalIndent(envelope, "", "  ")
+		fmt.Fprintln(out, string(pretty))
+	}
+	if len(resp.Errors) > 0 {
+		msgs := make([]string, len(resp.Errors))
+		for i, e := range resp.Errors {
+			msgs[i] = e.Message
+		}
+		return fmt.Errorf("GraphQL errors: %s", strings.Join(msgs, "; "))
+	}
+	if resp.Status >= 400 {
+		return &ExitError{Code: ExitRelayError, Err: fmt.Errorf("HTTP %d from %s", resp.Status, endpoint)}
+	}
+	return nil
+}
+
+func gqlWalkError(res *gql.WalkResult) error {
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("GraphQL errors: %s", strings.Join(res.Errors, "; "))
+	}
+	return nil
 }
 
 // newGqlWalkCmd implements `qb gql walk <OpName> --from --to [--page-size N]`.
@@ -198,14 +218,17 @@ func newGqlWalkCmd(flags *rootFlags) *cobra.Command {
 			res, err := gql.Walk(ctx, gql.Request{Op: op, Variables: vars}, w)
 			if err != nil {
 				if res != nil && res.Pages > 0 && flags.asJSON {
-					enc := json.NewEncoder(os.Stdout)
+					enc := json.NewEncoder(cmd.OutOrStdout())
 					_ = enc.Encode(res)
 					return exitRelay(err)
 				}
 				return exitRelay(err)
 			}
 			if flags.asJSON {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(res); err != nil {
+					return err
+				}
+				return gqlWalkError(res)
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "%s: style=%s pages=%d nodes=%d", res.Op, res.Style, res.Pages, len(res.Nodes))
@@ -219,7 +242,7 @@ func newGqlWalkCmd(flags *rootFlags) *cobra.Command {
 					fmt.Fprintln(out, string(b))
 				}
 			}
-			return nil
+			return gqlWalkError(res)
 		},
 	}
 	cmd.Flags().IntVar(&maxPages, "max-pages", 10, "hard ceiling on pages fetched (0 = walk to exhaustion)")
@@ -268,6 +291,15 @@ func runNamedWalk(cmd *cobra.Command, flags *rootFlags, opName string, spec gql.
 	if vars == nil {
 		vars = map[string]any{}
 	}
+	if opName == "GetBills" {
+		request := gql.BillsRequest(win)
+		op, vars, w.Window = request.Op, request.Variables, nil
+	}
+	if opName == "Items" {
+		request := gql.ItemsRequest()
+		op, vars, w.InputVar = request.Op, request.Variables, ""
+		w.NodesPath = []string{"data", "result", "entities"}
+	}
 	if err := op.ValidateVars(vars); err != nil {
 		return exitInput(err)
 	}
@@ -276,7 +308,7 @@ func runNamedWalk(cmd *cobra.Command, flags *rootFlags, opName string, spec gql.
 	res, err := gql.Walk(ctx, gql.Request{Op: op, Variables: vars}, w)
 	if err != nil {
 		if res != nil && res.Pages > 0 && flags.asJSON {
-			_ = json.NewEncoder(os.Stdout).Encode(res)
+			_ = json.NewEncoder(cmd.OutOrStdout()).Encode(res)
 			return exitRelay(err)
 		}
 		return exitRelay(err)
@@ -299,10 +331,7 @@ func runNamedWalk(cmd *cobra.Command, flags *rootFlags, opName string, spec gql.
 			}
 		}
 	}
-	if len(res.Errors) > 0 {
-		return fmt.Errorf("GraphQL errors: %s", strings.Join(res.Errors, "; "))
-	}
-	return nil
+	return gqlWalkError(res)
 }
 
 // newGqlWalkBillsCmd implements `qb gql walk bills --from --to`: every bill
@@ -315,7 +344,7 @@ func newGqlWalkBillsCmd(flags *rootFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "bills",
-		Short: "Walk all bills (GetBills), optionally filtered by transaction date",
+		Short: "Walk QBO bills, optionally filtered by transaction date",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := gql.Walker{MaxPages: maxPages}
 			if pageSize > 0 {
@@ -346,7 +375,7 @@ func newGqlWalkTasksCmd(flags *rootFlags) *cobra.Command {
 			if pageSize > 0 {
 				w.PageSize = pageSize
 			}
-			return runNamedWalk(cmd, flags, "TaskManagementTasks", gql.TaskDueDateWindow, dates, w, nil)
+			return runNamedWalk(cmd, flags, "TaskManagementTasks", gql.TaskDueDateWindow, dates, w, taskPanelVariables())
 		},
 	}
 	dates.register(cmd)
@@ -355,8 +384,19 @@ func newGqlWalkTasksCmd(flags *rootFlags) *cobra.Command {
 	return cmd
 }
 
+// taskPanelVariables follows the QBO task-panel request captured on 2026-09-12.
+// The service rejects an empty filter; the union covers the panel's namespaces.
+func taskPanelVariables() map[string]any {
+	namespaces := []string{"DTM_TASKS", "ADV_NTTF_SETUP_TASKS", "ADV_UPGRADER_SETUP_TASKS", "BASIC_BUSINESS_INFO_TASK", "APP_ONBOARDING_TASK", "IES_SETUP_TASKS", "BANKING_TASKS", "SPEND_TASKS", "BILL_PAY_TASKS", "CUSTOMER_HUB_TASKS", "PAYMENTS_TASKS", "INVOICING_TASKS", "INDIRECT_TAX", "QBL_TASKS", "QBL_FREE_SETUP_TASK", "MAILCHIMP_TASK"}
+	filters := make([]any, 0, len(namespaces))
+	for _, name := range namespaces {
+		filters = append(filters, map[string]any{"domain": map[string]any{"equals": "QBO"}, "useCase": map[string]any{"equals": name}})
+	}
+	return map[string]any{"filter": map[string]any{"namespace": map[string]any{"in": filters}}}
+}
+
 // newGqlWalkItemsCmd implements `qb gql walk items`: the product/service
-// catalog as a baseline walk (no date filter; pages via getItemsInput).
+// catalog as a baseline walk (no date filter; native offset pagination).
 func newGqlWalkItemsCmd(flags *rootFlags) *cobra.Command {
 	var (
 		maxPages int
@@ -364,7 +404,7 @@ func newGqlWalkItemsCmd(flags *rootFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "items",
-		Short: "Walk the item catalog (Items), paged through getItemsInput",
+		Short: "Walk the product/service catalog and variants using native pagination",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := gql.Walker{MaxPages: maxPages, InputVar: "getItemsInput"}
 			if pageSize > 0 {
@@ -470,14 +510,17 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 	return []gqlMutationFlagSpec{
 		{
 			use:    "create-account",
-			opName: "CreateAccountV2",
+			opName: "CreateAccount",
 			short:  "Create a ledger account",
-			long: "Create a ledger account via CreateAccountV2 without hand-building\n" +
-				"the Accounting_CreateAccountInputV2 envelope. Name and subtype are\n" +
-				"required; type defaults to Bank. Enum values follow QBO detail types\n" +
-				"(e.g. --subtype Checking, Savings, Bank).",
+			long: "Create a ledger account via CreateAccount on the verified\n" +
+				"coa-core.api.intuit.com host — the document and route the live\n" +
+				"chart-of-accounts SPA uses — without hand-building the\n" +
+				"Accounting_CreateAccountInput envelope. --name and --subtype are\n" +
+				"required; --type defaults to BANK. Enum values are normalized to\n" +
+				"UPPER_SNAKE before sending (e.g. --subtype 'cash and cash\n" +
+				"equivalents' → CASH_AND_CASH_EQUIVALENTS).",
 			example: "  qb gql mutate create-account --name 'Payroll Clearing' --subtype Checking\n" +
-				"  qb gql mutate create-account --name Petty\\ Cash --subtype Cash --type Cash --number 1010",
+				"  qb gql mutate create-account --name Petty\\ Cash --subtype 'cash and cash equivalents' --type BANK --number 1010",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
 				name, _ := cmd.Flags().GetString("name")
 				subtype, _ := cmd.Flags().GetString("subtype")
@@ -485,15 +528,15 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 					return nil, fmt.Errorf("--name and --subtype are required")
 				}
 				input := map[string]any{
-					"Name":           name,
-					"AccountSubType": subtype,
-					"AccountType":    mustString(cmd, "type", "Bank"),
+					"name":        name,
+					"accountType": gqlEnumUpper(mustString(cmd, "type", "Bank")),
+					"detailType":  gqlEnumUpper(subtype),
+					"description": mustString(cmd, "description", ""),
+					"number":      mustString(cmd, "number", ""),
 				}
 				for flag, key := range map[string]string{
-					"description": "Description",
-					"number":      "AcctNum",
-					"parent-id":   "ParentAccountId",
-					"currency":    "Currency",
+					"parent-id": "parentAccountId",
+					"currency":  "currency",
 				} {
 					if v := mustString(cmd, flag, ""); v != "" {
 						input[key] = v
@@ -537,7 +580,7 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 				"@file reference). The SPA builds these rows programmatically; rather\n" +
 				"than guess its per-field flags, this exposes the array verbatim.",
 			example: "  qb gql mutate batch-update-products --products-json @rows.json\n" +
-				"  qb gql mutate batch-update-products --products-json '[{\"id\":\"123\",\"version\":0}]'",
+				"  qb gql mutate batch-update-products --products-json '[{\"correlationId\":\"3\",\"product\":{\"id\":\"3\",\"version\":0,\"type\":\"PHYSICAL\",\"name\":\"CR-Test-Item\",\"variants\":[{\"id\":\"3\",\"version\":0,\"name\":\"CR-Test-Item\",\"price\":\"0\",\"cost\":\"0\",\"sku\":\"P28SKU\",\"variabilityValues\":[],\"inventoryItems\":[]}]}}]'",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
 				raw, _ := cmd.Flags().GetString("products-json")
 				if raw == "" {
@@ -564,8 +607,11 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 			long: "Assign product dimension values via AssignDimensionsForProducts.\n" +
 				"The SPA forwards its task payload straight through as $input, so this\n" +
 				"command accepts the AssignProductDimensionsInput object verbatim via\n" +
-				"--input-json (@file allowed) while still validating required-ness.",
-			example: "  qb gql mutate assign-dimensions --input-json '{\"productIds\":[\"1\"],\"dimensionValues\":{}}'",
+				"--input-json (@file allowed) while still validating required-ness.\n" +
+				"Live contract (2026-09-16): input.products[] needs {id, version};\n" +
+				"input.dimensions[] needs {id, value} — definition and value ids come\n" +
+				"from GetCustomDimensionDefinitions/GetCustomDimensionValues.",
+			example: "  qb gql mutate assign-dimensions --input-json '{\"products\":[{\"id\":\"3\",\"version\":2}],\"dimensions\":[{\"id\":\"<defId>\",\"value\":\"<valueId>\"}]}'",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
 				input, err := gqlFlagInputObject(cmd)
 				if err != nil {
@@ -605,11 +651,13 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 			short:  "Record inbound inventory movement (warehouse svc)",
 			long: "Record inbound stock against a source transaction via\n" +
 				"CommerceReceiveInventory on warehouse-management-svc. The source\n" +
-				"transaction identity comes from --txn-id/--txn-type (+ optional date,\n" +
-				"vendor, customer); line items come from --lines-json (@file allowed).\n" +
-				"--txn-date takes dd/MM/yyyy (en-AU).",
-			example: "  qb gql mutate receive-inventory --txn-id 198 --txn-type Bill \\\n" +
-				"    --lines-json '[{\"itemId\":\"72\",\"quantity\":3,\"inventoryLocationId\":\"L1\"}]'",
+				"transaction identity comes from --txn-id/--txn-type/--source-version\n" +
+				"(+ optional date, vendor, customer); line items come from\n" +
+				"--lines-json (@file allowed) and must carry the line identity fields\n" +
+				"the service requires (sourceTransactionLineId, lineOrder).\n" +
+				"--txn-date takes an RFC3339 full date (yyyy-MM-dd).",
+			example: "  qb gql mutate receive-inventory --txn-id 198 --txn-type Bill --source-version 1 \\\n" +
+				"    --lines-json '[{\"itemId\":\"72\",\"quantity\":3,\"inventoryLocationId\":\"L1\",\"sourceTransactionLineId\":\"1\",\"lineOrder\":1}]'",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
 				input, err := gqlCommerceInventoryInput(cmd, "lines-json")
 				if err != nil {
@@ -624,9 +672,10 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 			short:  "Record outbound inventory movement (warehouse svc)",
 			long: "Record outbound stock against a source transaction via\n" +
 				"CommerceConsumeInventory on warehouse-management-svc. Same flags as\n" +
-				"receive-inventory; only the mutation differs.",
-			example: "  qb gql mutate consume-inventory --txn-id 201 --txn-type Invoice \\\n" +
-				"    --lines-json '[{\"itemId\":\"72\",\"quantity\":1}]'",
+				"receive-inventory — including required --source-version\n" +
+				"(sourceTransaction.version, NonNull Int!); only the mutation differs.",
+			example: "  qb gql mutate consume-inventory --txn-id 201 --txn-type Invoice --source-version 1 \\\n" +
+				"    --lines-json '[{\"itemId\":\"72\",\"quantity\":1,\"sourceTransactionLineId\":\"2\",\"lineOrder\":1}]'",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
 				input, err := gqlCommerceInventoryInput(cmd, "lines-json")
 				if err != nil {
@@ -637,10 +686,11 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 		},
 		{
 			use:    "activate-products",
-			opName: "ActivateProductEntities",
+			opName: "UpdateItemStatus",
 			short:  "Reactivate inactivated products/services",
-			long: "Reactivate products/services via ActivateProductEntities. Entities\n" +
-				"are built from repeatable flags: each --entity-id gets type\n" +
+			long: "Reactivate products/services via UpdateItemStatus on the\n" +
+				"commerce-control supergraph. Entities are built from repeatable flags;\n" +
+				"each --entity-id gets entityType\n" +
 				"(--entity-type, default INVENTORY) and version (--entity-version).\n" +
 				"For mixed batches pass full JSON instead via --entities-json.",
 			example: "  qb gql mutate activate-products --entity-id 72 --entity-id 73\n" +
@@ -667,7 +717,7 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 						if id == "" {
 							return nil, fmt.Errorf("--entity-id values must be non-empty")
 						}
-						entities = append(entities, map[string]any{"id": id, "version": version, "type": typ})
+						entities = append(entities, map[string]any{"id": id, "version": version, "entityType": typ, "actionType": "ACTIVATE"})
 					}
 					return map[string]any{"entities": entities}, nil
 				default:
@@ -714,14 +764,14 @@ func newGqlMutationFlagCmd(flags *rootFlags, spec gqlMutationFlagSpec) *cobra.Co
 func gqlDeclareMutationFlags(cmd *cobra.Command, opName string) {
 	fs := cmd.Flags()
 	switch opName {
-	case "CreateAccountV2":
-		fs.String("name", "", "account Name (required)")
-		fs.String("subtype", "", "AccountSubType detail enum, e.g. Checking, Savings (required)")
-		fs.String("type", "Bank", "AccountType enum (default Bank)")
-		fs.String("description", "", "Description")
-		fs.String("number", "", "AcctNum")
-		fs.String("parent-id", "", "ParentAccountId")
-		fs.String("currency", "", "Currency (default company currency)")
+	case "CreateAccount":
+		fs.String("name", "", "account name (required)")
+		fs.String("subtype", "", "detailType enum, e.g. Checking, Savings, 'cash and cash equivalents' (required)")
+		fs.String("type", "Bank", "accountType enum (default BANK)")
+		fs.String("description", "", "description")
+		fs.String("number", "", "account number")
+		fs.String("parent-id", "", "parentAccountId for sub-accounts")
+		fs.String("currency", "", "currency code (default company currency)")
 	case "BankingDisconnectOlbAccounts":
 		fs.StringSlice("olb-account-id", nil, "OLB account id, repeatable; realm:bank:id suffixes trimmed (required)")
 	case "BatchUpdateProducts":
@@ -734,11 +784,12 @@ func gqlDeclareMutationFlags(cmd *cobra.Command, opName string) {
 	case "CommerceReceiveInventory", "CommerceConsumeInventory":
 		fs.String("txn-id", "", "source transaction id (required)")
 		fs.String("txn-type", "", "source transaction type, e.g. Bill, Invoice (required)")
+		fs.Int("source-version", 0, "sourceTransaction.version, NonNull Int! (required, must be > 0)")
 		fs.String("txn-date", "", "source transaction date, ISO 8601 yyyy-MM-dd (optional)")
 		fs.String("vendor-id", "", "vendor id (Bill flows)")
 		fs.String("customer-id", "", "customer id (Invoice flows)")
 		fs.String("lines-json", "", "movement lines as JSON array, @file allowed (required)")
-	case "ActivateProductEntities":
+	case "UpdateItemStatus":
 		fs.StringSlice("entity-id", nil, "product/service id to activate, repeatable")
 		fs.String("entity-type", "INVENTORY", "entity type enum (default INVENTORY)")
 		fs.Int("entity-version", 0, "entity version for optimistic locking")
@@ -750,8 +801,8 @@ func gqlDeclareMutationFlags(cmd *cobra.Command, opName string) {
 // anything else is used inline. The result need not be valid JSON yet;
 // callers unmarshal into their target shape.
 func gqlFlagJSONArg(raw string) ([]byte, error) {
-	if strings.HasPrefix(raw, "@") {
-		b, err := os.ReadFile(strings.TrimPrefix(raw, "@"))
+	if after, ok := strings.CutPrefix(raw, "@"); ok {
+		b, err := os.ReadFile(after)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", raw, err)
 		}
@@ -784,14 +835,20 @@ func gqlFlagInputObject(cmd *cobra.Command) (map[string]any, error) {
 // gqlCommerceInventoryInput assembles the Commerce_Receive/ConsumeInventoryInput
 // shape observed in the order-management-ui capture: a sourceTransaction
 // identity plus movement lines. Required-ness of txnId/txnType mirrors the
-// SPA's own guards ("txnId is required to fetch inventory movement").
+// SPA's own guards ("txnId is required to fetch inventory movement"), and the
+// warehouse service declares sourceTransaction.version NonNull Int! — the live
+// service rejected a version-less input, so --source-version must be > 0.
 func gqlCommerceInventoryInput(cmd *cobra.Command, linesFlag string) (map[string]any, error) {
 	txnID, _ := cmd.Flags().GetString("txn-id")
 	txnType, _ := cmd.Flags().GetString("txn-type")
 	if txnID == "" || txnType == "" {
 		return nil, fmt.Errorf("--txn-id and --txn-type are required")
 	}
-	src := map[string]any{"txnId": txnID, "txnType": txnType}
+	version, _ := cmd.Flags().GetInt("source-version")
+	if version <= 0 {
+		return nil, fmt.Errorf("--source-version is required and must be a positive integer (sourceTransaction.version is NonNull Int!)")
+	}
+	src := map[string]any{"txnId": txnID, "txnType": txnType, "version": version}
 	for flag, key := range map[string]string{
 		"txn-date":    "txnDate",
 		"vendor-id":   "vendorId",
@@ -827,4 +884,12 @@ func mustString(cmd *cobra.Command, name, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// gqlEnumUpper normalizes a user-facing enum flag to the UPPER_SNAKE wire
+// form the GraphQL services declare (the SPA sends "BANK",
+// "CASH_AND_CASH_EQUIVALENTS"): spaces fold to underscores and letters
+// uppercase, so both "Bank" and "cash and cash equivalents" are accepted.
+func gqlEnumUpper(v string) string {
+	return strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(v)), " ", "_")
 }

@@ -57,7 +57,7 @@ func base64RawURLEncode(b []byte) string {
 	for i := 0; i < len(b); i += 3 {
 		var n uint32
 		var cnt int
-		for j := 0; j < 3; j++ {
+		for j := range 3 {
 			if i+j < len(b) {
 				n = (n << 8) | uint32(b[i+j])
 				cnt++

@@ -21,34 +21,40 @@ const egoSpaceName = "qb-gql"
 
 // egoLoginURL is opened when the space has no authenticated app tab yet.
 const egoLoginURL = "https://qbo.intuit.com/app/banking"
-const egoExecuteScript = `import fs from 'fs';
+const egoExecuteScript = `const fs = await import('node:fs');
 const outPath = process.env.QB_EGO_OUT;
 const endpoint = process.env.QB_EGO_ENDPOINT;
+const method = process.env.QB_EGO_METHOD || 'POST';
 const headers = JSON.parse(process.env.QB_EGO_HEADERS || '{}');
-const body = process.env.QB_EGO_BODY || '{}';
+const body = process.env.QB_EGO_BODY || '';
 const loginURL = process.env.QB_EGO_LOGIN_URL;
-const spaceName = process.env.QB_EGO_SPACE;
-function done(obj) { fs.writeFileSync(outPath, JSON.stringify(obj)); fs.chmodSync(outPath, 0o600); }
-function fail(msg, code) { try { done({ ok: false, error: msg }); } catch (_) {} process.exit(code || 2); }
-if (!outPath || !endpoint) fail('missing env', 2);
-const task = await useOrCreateTaskSpace(spaceName || 'qb-gql');
-await openOrReuseTab(loginURL, { wait: true, timeout: 30 });
-const info = await pageInfo();
-if (!info || info.dialog) fail('need-login: dialog open', 3);
-const url = String((info && info.url) || '');
+const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
+function done(obj) { fs.writeFileSync(outPath, JSON.stringify(obj), {mode:0o600}); }
+function fail(msg, code) { try { done({ok:false,error:msg}); } catch (_) {} process.exit(code || 2); }
+if (!outPath || !endpoint) fail('missing browser request parameters', 2);
+const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKey);
+const tabs = await task.tabs();
+const existing = tabs.find(t => t.url.includes('qbo.intuit.com/app/'));
+let page;
+if (existing) page = existing.label ? task.page(existing.label) : await task.adopt(existing.page);
+else {
+ const blank = tabs.find(t => t.label && t.url === 'about:blank');
+ page = blank ? task.page(blank.label) : await task.newPage();
+ await page.goto(loginURL);
+}
+const info = await page.info();
+if (info && info.dialog) fail('need-login: dialog open', 3);
+const url = await page.url();
 if (!url.includes('qbo.intuit.com/app/') || url.includes('sign-in') || url.includes('UNAUTHENTICATED')) fail('need-login: no authenticated app tab', 3);
 headers['content-type'] = 'application/json';
 headers['accept'] = 'application/json';
-const expr = '(async () => { try { const r = await fetch(' + JSON.stringify(endpoint) +
-  ', { method: \'POST\', headers: ' + JSON.stringify(headers) +
-  ', body: ' + JSON.stringify(body) + ', credentials: \'include\' });' +
-  ' return { status: r.status, text: (await r.text()).slice(0, 4000000) }; }' +
-  ' catch (e) { return { error: String(e).slice(0, 200) }; } })()';
-let res;
-try { res = await js(expr); }
-catch (e) { fail('js evaluate: ' + String(e).slice(0, 200), 2); }
-if (res && res.error) fail('page fetch: ' + res.error, 2);
-done({ ok: true, status: (res && res.status) || 0, body: String((res && res.text) || '') });
+const options = {method, headers, credentials:'include', timeout:Math.min(30000,Number(process.env.QB_EGO_TIMEOUT_MS || 30000))};
+if (method !== 'GET' && method !== 'HEAD' && body) options.body = body;
+let result;
+try { result = await page.fetch(endpoint, options); }
+catch (_) { fail('browser fetch failed', 2); }
+const responseBody = typeof result.body === 'string' ? result.body : JSON.stringify(result.body);
+done({ok:true,status:result.status,body:responseBody || ''});
 `
 
 // ExecuteEgo posts req inside the ego-browser QBO space via an in-page
@@ -57,9 +63,6 @@ done({ ok: true, status: (res && res.status) || 0, body: String((res && res.text
 func ExecuteEgo(ctx context.Context, req Request) (*Response, error) {
 	if req.Op == nil {
 		return nil, fmt.Errorf("gql: missing operation")
-	}
-	if _, err := exec.LookPath("ego-browser"); err != nil {
-		return nil, ErrEgoMissing
 	}
 	endpoint := req.Endpoint
 	if endpoint == "" {
@@ -80,7 +83,19 @@ func ExecuteEgo(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gql: encoding request: %w", err)
 	}
-	hdrJSON, err := json.Marshal(authHeadersFor(endpoint))
+	return FetchEgo(ctx, endpoint, "POST", authHeadersFor(endpoint, req.Op.Name), payload)
+}
+
+// FetchEgo sends an exact request through the selected ego-browser app page.
+// GraphQL and browser-session REST surfaces share this transport.
+func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]string, payload []byte) (*Response, error) {
+	if _, err := exec.LookPath("ego-browser"); err != nil {
+		return nil, ErrEgoMissing
+	}
+	if endpoint == "" {
+		return nil, fmt.Errorf("browser request requires an endpoint")
+	}
+	hdrJSON, err := json.Marshal(headers)
 	if err != nil {
 		return nil, fmt.Errorf("gql: encoding headers: %w", err)
 	}
@@ -90,7 +105,7 @@ func ExecuteEgo(ctx context.Context, req Request) (*Response, error) {
 	}
 	outPath := outFile.Name()
 	_ = outFile.Close()
-	defer os.Remove(outPath)
+	defer func() { _ = os.Remove(outPath) }()
 	_ = os.Chmod(outPath, 0o600)
 
 	timeoutMs := int64(120 * time.Second / time.Millisecond)
@@ -99,16 +114,21 @@ func ExecuteEgo(ctx context.Context, req Request) (*Response, error) {
 			timeoutMs = rem.Milliseconds()
 		}
 	}
+	space := os.Getenv("QB_EGO_SPACE_ID")
+	if space == "" {
+		space = egoSpaceName
+	}
 	preamble := "process.env.QB_EGO_OUT = " + strconv.Quote(outPath) + ";\n" +
 		"process.env.QB_EGO_ENDPOINT = " + strconv.Quote(endpoint) + ";\n" +
 		"process.env.QB_EGO_HEADERS = " + strconv.Quote(string(hdrJSON)) + ";\n" +
 		"process.env.QB_EGO_BODY = " + strconv.Quote(string(payload)) + ";\n" +
 		"process.env.QB_EGO_LOGIN_URL = " + strconv.Quote(egoLoginURL) + ";\n" +
-		"process.env.QB_EGO_SPACE = " + strconv.Quote(egoSpaceName) + ";\n" +
+		"process.env.QB_EGO_METHOD = " + strconv.Quote(method) + ";\n" +
+		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
 		"process.env.QB_EGO_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), []byte(egoExecuteScript)...))
-	cmd.Env = append(os.Environ(), "QB_EGO_SPACE="+egoSpaceName)
+	cmd.Env = append(os.Environ(), "QB_EGO_SPACE="+space, "QB_EGO_OUT="+outPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// The script records its failure reason in the result file before
 		// exiting non-zero; prefer it over the bare process error.

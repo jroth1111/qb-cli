@@ -3,9 +3,9 @@ package client
 // accounting_deep.go implements the accounting-domain deep CRUD surfaces
 // discovered in the JS capture corpus (/tmp/qbo-cap, 2026-08):
 //
-//   budgeting.api.intuit.com/graphql   (qbo-workflows-taskmanager-ui chunk
-//       75d1e9) — budget reads: GetSupergraphBudgetsByIds (list) and
-//       GetBudgetsByIds (get by ids). Writes stay on the proven
+//   budgeting.api.intuit.com/graphql — budget lists: fetchAllBudgets,
+//       captured from the current budgeting UI (2026-09-12). Budget-by-ID
+//       reads use the native v3 query path. Writes stay on the proven
 //       businessPlanningCreateBudget / v3 /budget paths.
 //
 //   coa-core.api.intuit.com/graphql    (plugin.customization-ui chunk 6882,
@@ -14,10 +14,12 @@ package client
 //       customization-ui bundle carries this host literal next to those
 //       operations, so the reads route here rather than the v4 gateway.
 //
-//   deferredrecognition.api.intuit.com/graphql (uxfabric.deferral-acctng-ui
-//       chunk 9578) — deferred-recognition/prepaid schedule reads and the
-//       captured schedule write: GET_SCHEDULE,
-//       GET_SCHEDULE_PREVIEW, UpdateDeferredRecognitionScheduleOp.
+//   sbseggraphqlorch.api.intuit.com/graphql — deferred-recognition/prepaid
+//       schedule reads and the captured schedule write: GET_SCHEDULE,
+//       GET_SCHEDULE_PREVIEW, UpdateDeferredRecognitionScheduleOp. The
+//       deferral-acctng-ui's own backend (deferredrecognition.api.intuit.com)
+//       never fires in the TC2 UI; the orchestrator serves the same
+//       Accounting_DeferredRecognition* schema family live.
 //
 //   v3 /journalentry and /batch — journal CRUD plus true bulk create/delete
 //       through BatchItemRequest, and the opening-balance trial-balance
@@ -48,7 +50,7 @@ import (
 
 const (
 	coaCoreGraphQLURL     = "https://coa-core.api.intuit.com/graphql"
-	deferredRecogGraphQL  = "https://deferredrecognition.api.intuit.com/graphql"
+	deferredRecogGraphQL  = "https://sbseggraphqlorch.api.intuit.com/graphql"
 	v3CompanyBatchPathFmt = "https://qbo.intuit.com/api/v3/company/%s/batch?minorversion=73"
 
 	budgetReferer     = "https://qbo.intuit.com/app/budgets"
@@ -128,45 +130,58 @@ func decodeGQL(body []byte) (json.RawMessage, string, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Budget: list + get on budgeting.api.intuit.com/graphql.
+// Budget: current budgeting UI list query + native v3 get.
 // ---------------------------------------------------------------------------
 
-// budgetListQuery is the captured GetSupergraphBudgetsByIds document
-// (qbo-workflows-taskmanager-ui; /tmp/qbo-cap/graphql/
-// GetSupergraphBudgetsByIds.graphql).
-const budgetListQuery = `query GetSupergraphBudgetsByIds($first:PositiveInt, $filter:DataAccess_BudgetFilter) {
-  dataAccessBudgets(first: $first,filter: $filter) {
+// budgetListQuery is the current budgeting UI document captured 2026-09-12.
+// The older DataAccess_BudgetFilter is not in this host's schema.
+const budgetListQuery = `query fetchAllBudgets($first: Int, $after: String, $last: Int, $before: String, $sortBy: BusinessPlanning_SortByColumn, $sortDirection: BusinessPlanning_SortDirection, $budgetFilters: BusinessPlanning_BudgetFilters) {
+  businessPlanningBudgets(first: $first, after: $after, last: $last, before: $before, sortBy: $sortBy, sortDirection: $sortDirection, budgetFilters: $budgetFilters) {
+    pageInfo {
+      hasPreviousPage
+      hasNextPage
+      startCursor
+      endCursor
+      __typename
+    }
     edges {
+      cursor
       node {
-        id
-        name
+        budgetId
+        budgetName
         budgetType
-        subdivisionType
-        sourceEntityVersion
+        startDate
+        endDate
+        linkedEntityId
+        intervalType
+        syncToken
+        secondaryListType
+        dimensionDefId
+        budgetMetaData {
+          createdBy
+          createdAt
+          lastUpdatedBy
+          updatedAt
+          __typename
+        }
+        viewSettings {
+          archived
+          __typename
+        }
+        approvalDetails {
+          approvalStatus
+          __typename
+        }
+        __typename
       }
+      __typename
     }
+    __typename
   }
-}`
+}
+`
 
-// budgetGetQuery is the captured GetBudgetsByIds document with the captured
-// budgetAttributes fragment appended (the webpack extraction split them).
-const budgetGetQuery = `query GetBudgetsByIds($id: [String!]!) {
-    budgets(or: [{ and: [{ equalsIn: { field: ID, value: $id } }] }]) {
-      data {
-        ...budgetAttributes
-      }
-    }
-  }
-
-fragment budgetAttributes on Budget {
-  id
-  name
-  budgetType
-  subdivisionType
-  sourceEntityVersion
-}`
-
-// PlannedBudgetListURL is the budgeting.api graphql endpoint (list/get).
+// PlannedBudgetListURL is the budgeting.api graphql endpoint for lists.
 func PlannedBudgetListURL() string { return budgetGraphQLURL }
 
 // PlannedBatchURL is the v3 batch endpoint template.
@@ -183,15 +198,41 @@ var postBudgetGraphQLFn = func(ac *apiClient, ctx context.Context, body []byte) 
 	return ac.postBudgetGraphQL(ctx, body)
 }
 
-func budgetNodeToItem(node map[string]any) QueryItem {
-	return QueryItem{
-		ID:   anyString(node["id"]),
-		Name: anyString(node["name"]),
-		Type: anyString(node["budgetType"]),
-	}
+type budgetListNode struct {
+	ID           json.RawMessage `json:"budgetId"`
+	Name         string          `json:"budgetName"`
+	Type         string          `json:"budgetType"`
+	StartDate    string          `json:"startDate"`
+	ViewSettings *struct {
+		Archived *bool `json:"archived"`
+	} `json:"viewSettings"`
 }
 
-// ReplayBudgetList lists budgets via the captured supergraph query.
+func budgetNodeToItem(node *budgetListNode) (QueryItem, error) {
+	if node == nil {
+		return QueryItem{}, errors.New("missing budget node")
+	}
+	var id string
+	if err := json.Unmarshal(node.ID, &id); err != nil {
+		// Accept numeric IDs without rounding through float64.
+		var number json.Number
+		if err := json.Unmarshal(node.ID, &number); err != nil {
+			return QueryItem{}, errors.New("invalid budgetId")
+		}
+		id = number.String()
+	}
+	if strings.TrimSpace(id) == "" {
+		return QueryItem{}, errors.New("missing budgetId")
+	}
+	item := QueryItem{ID: id, Name: node.Name, Type: node.Type, Date: node.StartDate}
+	if node.ViewSettings != nil && node.ViewSettings.Archived != nil {
+		active := !*node.ViewSettings.Archived
+		item.Active = &active
+	}
+	return item, nil
+}
+
+// ReplayBudgetList lists budgets using the current UI's active-budget filter.
 func ReplayBudgetList(ctx context.Context, limit int) (*QueryResult, error) {
 	if limit < 1 {
 		limit = 20
@@ -204,9 +245,16 @@ func ReplayBudgetList(ctx context.Context, limit int) (*QueryResult, error) {
 		return nil, err
 	}
 	payload, err := json.Marshal(map[string]any{
-		"operationName": "GetSupergraphBudgetsByIds",
-		"variables":     map[string]any{"first": limit},
-		"query":         budgetListQuery,
+		"operationName": "fetchAllBudgets",
+		"variables": map[string]any{
+			"first": limit, "last": nil, "after": nil, "before": nil,
+			"sortBy": "LAST_MODIFIED", "sortDirection": "DESC",
+			"budgetFilters": map[string]any{
+				"archived":   false,
+				"budgetType": []string{"PROFIT_AND_LOSS", "BALANCE_SHEET"},
+			},
+		},
+		"query": budgetListQuery,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("budget list: %w", err)
@@ -215,7 +263,7 @@ func ReplayBudgetList(ctx context.Context, limit int) (*QueryResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("budget list: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading budget list: %w", err)
@@ -223,91 +271,58 @@ func ReplayBudgetList(ctx context.Context, limit int) (*QueryResult, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	data, gmsg, err := decodeGQL(raw)
-	if err != nil {
-		return nil, fmt.Errorf("budget list: %w", err)
+	var envelope struct {
+		Data *struct {
+			Budgets *struct {
+				Edges *[]struct {
+					Node *budgetListNode `json:"node"`
+				} `json:"edges"`
+			} `json:"businessPlanningBudgets"`
+		} `json:"data"`
+		Errors []json.RawMessage `json:"errors"`
 	}
-	var data_ struct {
-		DataAccessBudgets struct {
-			Edges []struct {
-				Node map[string]any `json:"node"`
-			} `json:"edges"`
-		} `json:"dataAccessBudgets"`
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("budget list: invalid graphql response: %w", err)
 	}
-	_ = json.Unmarshal(data, &data_)
-	items := make([]QueryItem, 0, len(data_.DataAccessBudgets.Edges))
-	for _, e := range data_.DataAccessBudgets.Edges {
-		items = append(items, budgetNodeToItem(e.Node))
+	if len(envelope.Errors) > 0 {
+		var first struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(envelope.Errors[0], &first) != nil || strings.TrimSpace(first.Message) == "" {
+			first.Message = "response contains GraphQL errors"
+		}
+		return nil, fmt.Errorf("budget list graphql: %s", first.Message)
 	}
-	note := "budgeting.api GetSupergraphBudgetsByIds"
-	if gmsg != "" {
-		note += "; gql: " + gmsg
+	if envelope.Data == nil || envelope.Data.Budgets == nil || envelope.Data.Budgets.Edges == nil {
+		return nil, errors.New("budget list: missing businessPlanningBudgets.edges collection")
+	}
+	items := make([]QueryItem, 0, len(*envelope.Data.Budgets.Edges))
+	for i, edge := range *envelope.Data.Budgets.Edges {
+		item, err := budgetNodeToItem(edge.Node)
+		if err != nil {
+			return nil, fmt.Errorf("budget list edge %d: %w", i, err)
+		}
+		items = append(items, item)
+	}
+	if len(items) > limit {
+		items = items[:limit]
 	}
 	return &QueryResult{
 		Status: resp.StatusCode,
 		Entity: "Budget",
 		Counts: map[string]int{"items": len(items)},
 		Items:  items,
-		Note:   note,
+		Note:   "budgeting.api fetchAllBudgets",
 	}, nil
 }
 
-// ReplayBudgetGet fetches one budget by id via the captured GetBudgetsByIds
-// document.
+// ReplayBudgetGet uses the proven native v3 Budget query by ID.
 func ReplayBudgetGet(ctx context.Context, id string) (*QueryResult, error) {
 	id = sanitizeToken(id)
 	if id == "" {
 		return nil, ErrEmptyBudgetID
 	}
-	ac, err := newAPIClient()
-	if err != nil {
-		return nil, err
-	}
-	payload, err := json.Marshal(map[string]any{
-		"operationName": "GetBudgetsByIds",
-		"variables":     map[string]any{"id": []string{id}},
-		"query":         budgetGetQuery,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("budget get: %w", err)
-	}
-	resp, err := postBudgetGraphQLFn(ac, ctx, payload)
-	if err != nil {
-		return nil, fmt.Errorf("budget get: %w", err)
-	}
-	defer drainAndClose(resp)
-	raw, err := readBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("reading budget get: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
-	}
-	data, gmsg, err := decodeGQL(raw)
-	if err != nil {
-		return nil, fmt.Errorf("budget get: %w", err)
-	}
-	var wrap struct {
-		Budgets struct {
-			Data []map[string]any `json:"data"`
-		} `json:"budgets"`
-	}
-	_ = json.Unmarshal(data, &wrap)
-	items := make([]QueryItem, 0, len(wrap.Budgets.Data))
-	for _, n := range wrap.Budgets.Data {
-		items = append(items, budgetNodeToItem(n))
-	}
-	note := "budgeting.api GetBudgetsByIds"
-	if gmsg != "" {
-		note += "; gql: " + gmsg
-	}
-	return &QueryResult{
-		Status: resp.StatusCode,
-		Entity: "Budget",
-		Counts: map[string]int{"items": len(items)},
-		Items:  items,
-		Note:   note,
-	}, nil
+	return ReplayQuery(ctx, "Budget", id, "", 20)
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +417,7 @@ func ReplayDimensionList(ctx context.Context, dimension string, limit int) (*Que
 	if err != nil {
 		return nil, fmt.Errorf("%s list: %w", strings.ToLower(entity), err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s list: %w", strings.ToLower(entity), err)
@@ -582,7 +597,7 @@ func postJournalBatch(ctx context.Context, ac *apiClient, batch []map[string]any
 	if err != nil {
 		return nil, fmt.Errorf("journal batch: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading journal batch: %w", err)
@@ -706,7 +721,7 @@ func postV3Journal(ctx context.Context, body map[string]any) (*MutateResult, err
 	if err != nil {
 		return nil, fmt.Errorf("v3 journalentry create: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	got, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -863,7 +878,7 @@ func ReplayDeferredScheduleGet(ctx context.Context, sourceEntityID string, prepa
 	if err != nil {
 		return nil, fmt.Errorf("deferred schedule get: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading deferred schedule get: %w", err)
@@ -875,8 +890,10 @@ func ReplayDeferredScheduleGet(ctx context.Context, sourceEntityID string, prepa
 	if err != nil {
 		return nil, fmt.Errorf("deferred schedule get: %w", err)
 	}
+	// The field is a list, not an object — unmarshalling [] into *struct
+	// allocates a zero-value struct and reads as a phantom populated item.
 	var wrap struct {
-		Schedule *struct {
+		Schedules []struct {
 			ID                   string           `json:"id"`
 			DeferralType         string           `json:"deferralType"`
 			PostingStatus        string           `json:"postingStatus"`
@@ -897,30 +914,33 @@ func ReplayDeferredScheduleGet(ctx context.Context, sourceEntityID string, prepa
 		Counts: map[string]int{"items": 0},
 		Items:  []QueryItem{},
 	}
-	if wrap.Schedule == nil {
+	if len(wrap.Schedules) == 0 {
 		res.Note = "deferredrecognition GET_SCHEDULE: no schedule for source entity"
 		if gmsg != "" {
 			res.Note += "; gql: " + gmsg
 		}
 		return res, nil
 	}
-	amt := 0.0
-	cur := ""
-	if wrap.Schedule.RemainingAmount != nil {
-		amt = acctAnyFloat(wrap.Schedule.RemainingAmount["value"])
-		cur = anyString(wrap.Schedule.RemainingAmount["currency"])
+	totalLines := 0
+	for _, sched := range wrap.Schedules {
+		amt := 0.0
+		cur := ""
+		if sched.RemainingAmount != nil {
+			amt = acctAnyFloat(sched.RemainingAmount["value"])
+			cur = anyString(sched.RemainingAmount["currency"])
+		}
+		res.Items = append(res.Items, QueryItem{
+			ID:      sched.ID,
+			Name:    sched.DeferralType,
+			Date:    sched.ServiceStartDate,
+			Amount:  amt,
+			Account: cur,
+			Type:    sched.PostingStatus,
+		})
+		totalLines += len(sched.ScheduleLines)
 	}
-	item := QueryItem{
-		ID:      wrap.Schedule.ID,
-		Name:    wrap.Schedule.DeferralType,
-		Date:    wrap.Schedule.ServiceStartDate,
-		Amount:  amt,
-		Account: cur,
-		Type:    wrap.Schedule.PostingStatus,
-	}
-	res.Items = []QueryItem{item}
-	res.Counts["items"] = 1
-	res.Counts["scheduleLines"] = len(wrap.Schedule.ScheduleLines)
+	res.Counts["items"] = len(res.Items)
+	res.Counts["scheduleLines"] = totalLines
 	res.Note = "deferredrecognition GET_SCHEDULE"
 	if gmsg != "" {
 		res.Note += "; gql: " + gmsg
@@ -961,7 +981,7 @@ func ReplayDeferredSchedulePreview(ctx context.Context, input map[string]any, pr
 	if err != nil {
 		return nil, fmt.Errorf("deferred schedule preview: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading deferred schedule preview: %w", err)
@@ -1020,7 +1040,7 @@ func ReplayDeferredScheduleCreate(ctx context.Context, input map[string]any, pre
 	if err != nil {
 		return nil, fmt.Errorf("deferred schedule create: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading deferred schedule create: %w", err)

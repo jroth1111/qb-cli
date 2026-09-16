@@ -15,10 +15,11 @@ import (
 // group. RunE is only exercised through --dry-run or the credentials guard,
 // so nothing dials.
 //
-// Kill denominator: 7. Rejects a domain that (1) drops verbs, (2) leaks the
+// Kill denominator: 8. Rejects a domain that (1) drops verbs, (2) leaks the
 // live realm into plans, (3) sends dry-run requests, (4) lets writes run
 // without creds, (5) maps entities to the wrong v3 path, (6) skips plan
-// validation for gst file / bas lodge, (7) claims tpar generate is wired.
+// validation for gst file / bas lodge, (7) claims tpar generate is wired,
+// (8) dials the captured-invalid DelayedCharge v3 query context.
 
 func TestSalestxSurface(t *testing.T) {
 	root := NewRootCommand()
@@ -92,7 +93,7 @@ func TestSalestxDryRunPlansAreSecretFreeAndCorrect(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
-			stdout, err, elapsed := runQB(t, append(tc.args, "--dry-run", "--json")...)
+			stdout, elapsed, err := runQB(t, append(tc.args, "--dry-run", "--json")...)
 			if elapsed > 2*1e9 {
 				t.Fatalf("dry-run took %s — likely dialed", elapsed)
 			}
@@ -142,7 +143,7 @@ func TestSalestxTaxReadersDryRunCarryCapturedOps(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
-			stdout, err, _ := runQB(t, append(tc.args, "--dry-run", "--json")...)
+			stdout, _, err := runQB(t, append(tc.args, "--dry-run", "--json")...)
 			if err != nil {
 				t.Fatalf("execute: %v; stdout=%q", err, stdout)
 			}
@@ -199,10 +200,42 @@ func TestSalestxWritesFailFastWithoutCreds(t *testing.T) {
 	}
 }
 
+func TestSalestxDelayedChargeListUnsupportedContract(t *testing.T) {
+	stdout, elapsed, err := runQB(t, "salestx", "delayedcharge", "list", "--dry-run", "--json")
+	if elapsed > 2*1e9 {
+		t.Fatalf("dry-run took %s — likely dialed", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("dry-run: %v; stdout=%q", err, stdout)
+	}
+	env := decodePlan(t, stdout)
+	if env.Dial || !env.DryRun || env.Method != "" || env.URL != "" {
+		t.Fatalf("plan must carry no sendable request: %+v", env)
+	}
+	if !strings.Contains(env.Note, "unsupported") {
+		t.Fatalf("note = %q, want unsupported-contract reason", env.Note)
+	}
+
+	for _, extra := range [][]string{{"--limit", "5"}, {"--id", "41"}, {"--query", "DC-9"}} {
+		args := append(append([]string{"salestx", "delayedcharge", "list"}, extra...), "--json")
+		_, elapsed, err := runQB(t, args...)
+		if elapsed > 2*1e9 {
+			t.Fatalf("%v took %s — likely dialed", args, elapsed)
+		}
+		if !errors.Is(err, client.ErrUnsupportedQueryContext) {
+			t.Fatalf("%v: err = %v, want ErrUnsupportedQueryContext", args, err)
+		}
+		var exitErr *ExitError
+		if !errors.As(err, &exitErr) || exitErr.Code != ExitInputError {
+			t.Fatalf("%v: err = %v, want ExitInputError", args, err)
+		}
+	}
+}
+
 func TestSalestxTPARGenerateStaysNotWired(t *testing.T) {
 	// Dry-run plans honestly ("no captured API"), live run fails with the
 	// documented sentinel after the session check.
-	stdout, err, _ := runQB(t, "salestx", "tpar", "generate", "--dry-run", "--json")
+	stdout, _, err := runQB(t, "salestx", "tpar", "generate", "--dry-run", "--json")
 	if err != nil {
 		t.Fatalf("dry-run: %v; stdout=%q", err, stdout)
 	}
@@ -211,7 +244,7 @@ func TestSalestxTPARGenerateStaysNotWired(t *testing.T) {
 		t.Fatalf("envelope = %+v", env)
 	}
 
-	_, err, _ = runQB(t, "salestx", "tpar", "generate", "--home", t.TempDir())
+	_, _, err = runQB(t, "salestx", "tpar", "generate", "--home", t.TempDir())
 	if err == nil {
 		t.Fatal("tpar generate without creds must fail (auth first)")
 	}

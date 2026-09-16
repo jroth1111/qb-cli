@@ -42,6 +42,43 @@ func TestPlanUndoEmptyIDs(t *testing.T) {
 	}
 }
 
+func TestFeedMutationPlansMatchLiveUIExcludeUndoContract(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		plan   func() (*RequestPlan, error)
+		review string
+	}{
+		{"exclude", func() (*RequestPlan, error) { return PlanExclude("44", []string{"2"}) }, "PENDING"},
+		{"undo", func() (*RequestPlan, error) { return PlanUndo("44", []string{"3"}) }, "EXCLUDED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := tc.plan()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body struct {
+				NextTxnInfo struct {
+					AccountID string `json:"accountId"`
+					Index     int    `json:"nextTransactionIndex"`
+					Review    string `json:"reviewState"`
+				} `json:"nextTxnInfo"`
+				TxnIDList struct {
+					Pairs []any `json:"txnIdPairs"`
+				} `json:"txnIdList"`
+			}
+			if err := json.Unmarshal(plan.Body, &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.NextTxnInfo.AccountID != "44" || body.NextTxnInfo.Index != -1 || body.NextTxnInfo.Review != tc.review {
+				t.Fatalf("nextTxnInfo=%+v", body.NextTxnInfo)
+			}
+			if body.TxnIDList.Pairs == nil || len(body.TxnIDList.Pairs) != 0 {
+				t.Fatalf("txnIdPairs=%v, want an explicit empty array", body.TxnIDList.Pairs)
+			}
+		})
+	}
+}
+
 func TestPlanImportBlockedLiveAccounts(t *testing.T) {
 	for _, id := range []string{"204", "93"} {
 		_, _, err := PlanImportCSV(id, "17/08/2026", "QB-CLI-TEST", "0.01")

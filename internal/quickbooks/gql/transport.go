@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -92,59 +92,70 @@ func RelayURL() string {
 	return auth.DefaultRelayURL
 }
 
-type relayPage struct {
-	ID   string `json:"id"`
-	URL  string `json:"url"`
-	Type string `json:"type"`
-}
-
-// listRelayPages fetches /json/list from the relay. It is duplicated here
-// rather than imported because auth keeps these helpers unexported and gql
-// must not reach into its internals.
-func listRelayPages(ctx context.Context, relayURL string) ([]relayPage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, relayURL+"/json/list", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("relay /json/list returned %s", resp.Status)
-	}
-	var tabs []relayPage
-	if err := json.NewDecoder(resp.Body).Decode(&tabs); err != nil {
-		return nil, err
-	}
-	return tabs, nil
-}
-
-// findAuthTab picks the first page target on an authenticated QBO app URL,
-// mirroring auth's classification.
-func findAuthTab(tabs []relayPage) *relayPage {
-	for i := range tabs {
-		t := &tabs[i]
-		if t.Type != "" && t.Type != "page" {
-			continue
-		}
-		if auth.AuthenticatedURL(t.URL) {
-			return t
-		}
-	}
-	return nil
-}
-
 // authHeadersFor returns the per-host auth headers observed on live browser
 // traffic. Cookies travel automatically via credentials:'include'; these are
 // the additional headers the SPA's clients attach.
-func authHeadersFor(endpoint string) map[string]string {
+func authHeadersFor(endpoint string, operations ...string) map[string]string {
 	tok, err := auth.Load()
 	if err != nil || tok == nil {
 		return nil
 	}
 	h := map[string]string{}
+	if u, err := url.Parse(endpoint); err == nil {
+		if captured := tok.URIHostHeaders[u.Hostname()]; len(captured) > 0 {
+			// A captured service request defines its own CORS/auth surface.
+			// Do not carry banking-only headers into a different service.
+			for key, value := range captured {
+				switch name := strings.ToLower(key); name {
+				case "authorization", "apikey", "authtype", "csrftoken", "x-csrf-token", "intuit_appid":
+					if value != "" {
+						h[name] = value
+					}
+				}
+			}
+			if len(operations) > 0 && operations[0] == "TaskManagementTasks" {
+				for _, key := range []string{"intuit_target_domain", "intuit_target_usecase", "intuit_originating_assetalias", "intuit-plugin-id"} {
+					if value := captured[key]; value != "" {
+						h[key] = value
+					}
+				}
+			}
+			if tok.RealmID != "" {
+				h["intuit-company-id"] = tok.RealmID
+			}
+			return h
+		}
+	}
+	// Proven service hosts authenticate with the secondary `apikey`
+	// credential as an Intuit_APIKey Authorization header — NOT the
+	// first-party banking key — and reject apikey/authtype/csrftoken headers
+	// at CORS preflight (verified live 2026-09-16 on both hosts).
+	// x-supergraph-version pins the v2 result shape the SPA reads on
+	// commercecontrol; smallbusiness answers without it.
+	serviceHosts := map[string]bool{
+		"commercecontrol.api.intuit.com": true,
+		"smallbusiness.api.intuit.com":   true,
+	}
+	if u, err := url.Parse(endpoint); err == nil && serviceHosts[u.Hostname()] {
+		if tok.APIKey != "" {
+			h["authorization"] = "Intuit_APIKey intuit_apikey=" + tok.APIKey + ",intuit_apikey_version=1.0"
+		}
+		if tok.RealmID != "" {
+			h["intuit-company-id"] = tok.RealmID
+		}
+		if csrf := csrfFromToken(tok); csrf != "" {
+			h["x-csrf-token"] = csrf
+		}
+		if u.Hostname() == "commercecontrol.api.intuit.com" {
+			h["x-supergraph-version"] = "2"
+		}
+		if len(operations) > 0 {
+			if op, lerr := Lookup(operations[0]); lerr == nil && op.Module != "" {
+				h["intuit-plugin-id"] = op.Module
+			}
+		}
+		return h
+	}
 	// warehouse-management-svc rejects apikey/authtype/csrftoken at CORS
 	// preflight (proven TC2 2026-09-08: TypeError with them, HTTP reach
 	// without); the v4 gateway and cost-group-svc accept the full set.
@@ -169,6 +180,7 @@ func authHeadersFor(endpoint string) map[string]string {
 			h["csrftoken"] = csrf
 		}
 	}
+
 	return h
 }
 

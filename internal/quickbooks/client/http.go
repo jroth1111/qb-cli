@@ -1,17 +1,5 @@
-// http.go provides the in-process HTTP transport for QBO frontend banking
-// API replays. It replaces the former replay.py (curl_cffi) helper.
-//
-// Transport ladder (evidence 2026-08-17, /tmp/qb-transport-probe):
-//   - stdlib net/http succeeds (200) on both getInitialData and
-//     getTransactions with the full captured header set, so it is the
-//     default.
-//   - On a 403 only, a single retry is issued through a surf
-//     Impersonate().Chrome() client (no ForceHTTP3; HTTP/3 measured at
-//     ~11s and rejected). surf is pinned at v1.0.199 in go.mod.
-//
-// No secrets are ever printed or logged: headers carry Authorization,
-// apikey, csrf, and cookie values, and this file never writes any of them
-// to an output stream.
+// http.go applies captured QBO headers and bounded credential renewal.
+// Every API request uses the shared Chrome-impersonating transport.
 package client
 
 import (
@@ -22,8 +10,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/enetx/surf"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
@@ -83,6 +69,11 @@ func newAPIClient() (*apiClient, error) {
 // baseURL returns the realm-scoped banking API root.
 func (c *apiClient) baseURL() string {
 	return fmt.Sprintf(bankingBaseURL, c.realm)
+}
+
+// neoFeedURL is the first-party banking surface used by the current QBO SPA.
+func (c *apiClient) neoFeedURL() string {
+	return fmt.Sprintf("https://qbo.intuit.com/api/neo/v1/company/%s/olb/ng", c.realm)
 }
 
 // applyHeaders sets the full captured header set on req. The headers carry
@@ -158,6 +149,9 @@ func (c *apiClient) applyHeaders(req *http.Request, xRange string) {
 // copied from a captured Chrome request. Accept-Encoding in particular
 // disables net/http's automatic decompression.
 func skipReplayHeader(name string) bool {
+	if strings.HasPrefix(name, ":") {
+		return true // HTTP/2 pseudo-headers are owned by the transport.
+	}
 	switch strings.ToLower(name) {
 	case "cookie", "accept-encoding", "content-length", "host",
 		"connection", "transfer-encoding", "keep-alive", "upgrade":
@@ -167,11 +161,8 @@ func skipReplayHeader(name string) bool {
 	}
 }
 
-// get performs a GET against url with the captured headers, applying the
-// transport ladder: stdlib first, and on a 403 a single retry through a
-// surf Chrome-impersonating client. A non-403 error or status is returned
-// immediately (no further rungs). The response body is the caller's to
-// close.
+// get performs an impersonated GET with captured headers and one bounded
+// credential renewal on 401. The caller owns the response body.
 func (c *apiClient) get(ctx context.Context, url, xRange string) (*http.Response, error) {
 	resp, err := c.doStdlib(ctx, http.MethodGet, url, nil, xRange)
 
@@ -194,11 +185,7 @@ func (c *apiClient) get(ctx context.Context, url, xRange string) (*http.Response
 		next.skipRemint = true
 		return next.get(ctx, url, xRange)
 	}
-	if resp.StatusCode != http.StatusForbidden {
-		return resp, nil
-	}
-	_ = drainAndClose(resp)
-	return c.doSurf(ctx, url, xRange)
+	return resp, nil
 }
 
 // getJSON is get with Accept: application/json overlaid after captured headers.
@@ -222,11 +209,7 @@ func (c *apiClient) getJSON(ctx context.Context, url, xRange string) (*http.Resp
 		next.skipRemint = true
 		return next.getJSON(ctx, url, xRange)
 	}
-	if resp.StatusCode != http.StatusForbidden {
-		return resp, nil
-	}
-	_ = drainAndClose(resp)
-	return c.doSurf(ctx, url, xRange)
+	return resp, nil
 }
 
 func (c *apiClient) postJSON(ctx context.Context, rawURL string, body []byte) (*http.Response, error) {
@@ -243,6 +226,12 @@ func (c *apiClient) postJSONExtra(ctx context.Context, rawURL string, body []byt
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 	c.applyHeaders(req, "")
+	// Pagination and B3 tracing headers belong to the captured read request.
+	// Browser mutation POSTs omit them; replaying stale request-scoped values
+	// makes the banking mutation contract reject an otherwise valid request.
+	for _, name := range []string{"x-range", "x-b3-sampled", "x-b3-spanid", "x-b3-traceid"} {
+		req.Header.Del(name)
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range extra {
@@ -250,8 +239,7 @@ func (c *apiClient) postJSONExtra(ctx context.Context, rawURL string, body []byt
 			req.Header.Set(k, v)
 		}
 	}
-	cli := &http.Client{Timeout: httpTimeout}
-	resp, err := cli.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, err
 	}
@@ -285,8 +273,7 @@ func (c *apiClient) doStdlibJSON(ctx context.Context, method, rawURL string, bod
 	}
 	c.applyHeaders(req, xRange)
 	req.Header.Set("Accept", "application/json")
-	cli := &http.Client{Timeout: httpTimeout}
-	return cli.Do(req)
+	return impersonatedDo(req)
 }
 
 func (c *apiClient) doStdlib(ctx context.Context, method, url string, body []byte, xRange string) (*http.Response, error) {
@@ -299,8 +286,16 @@ func (c *apiClient) doStdlib(ctx context.Context, method, url string, body []byt
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 	c.applyHeaders(req, xRange)
-	cli := &http.Client{Timeout: httpTimeout}
-	return cli.Do(req)
+	if method == http.MethodPost && len(body) > 0 {
+		// Captured banking reads carry pagination/tracing headers, while the
+		// browser's mutation POST carries JSON content type without those
+		// read-only values.
+		for _, name := range []string{"x-range", "x-b3-sampled", "x-b3-spanid", "x-b3-traceid"} {
+			req.Header.Del(name)
+		}
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return impersonatedDo(req)
 }
 
 func (c *apiClient) post(ctx context.Context, url string, body []byte) (*http.Response, error) {
@@ -323,34 +318,7 @@ func (c *apiClient) post(ctx context.Context, url string, body []byte) (*http.Re
 		next.skipRemint = true
 		return next.post(ctx, url, body)
 	}
-	if resp.StatusCode != http.StatusForbidden {
-		return resp, nil
-	}
-	_ = drainAndClose(resp)
-	return c.doSurf(ctx, url, "")
-}
-
-// doSurf issues the request via a surf Impersonate().Chrome() client with
-// a 30s timeout and no ForceHTTP3.
-func (c *apiClient) doSurf(ctx context.Context, url, xRange string) (*http.Response, error) {
-	builder := surf.NewClient().
-		Builder().
-		Impersonate().
-		Chrome().
-		Timeout(httpTimeout)
-	sc, err := builder.Build().Result()
-	if err != nil {
-		return nil, fmt.Errorf("building surf client: %w", err)
-	}
-	std := sc.Std()
-	std.Timeout = httpTimeout
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("building surf request: %w", err)
-	}
-	c.applyHeaders(req, xRange)
-	return std.Do(req)
+	return resp, nil
 }
 
 // qboQueryCookieCap is the qbo.intuit.com v3 /query WAF limit.
@@ -405,7 +373,7 @@ func drainAndClose(resp *http.Response) error {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Read a bounded amount; we only need to drain for pool reuse.
 	const drainLimit = 1 << 16
 	_, _ = readBounded(resp.Body, drainLimit)
@@ -417,10 +385,7 @@ func readBounded(r interface{ Read([]byte) (int, error) }, n int) (int, error) {
 	buf := make([]byte, 4096)
 	var total int
 	for total < n {
-		max := n - total
-		if max > len(buf) {
-			max = len(buf)
-		}
+		max := min(n-total, len(buf))
 		m, err := r.Read(buf[:max])
 		total += m
 		if err != nil {

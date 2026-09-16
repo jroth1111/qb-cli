@@ -118,7 +118,7 @@ func postCustomersOverviewGQL(ctx context.Context, ac *apiClient, extra map[stri
 	if err != nil {
 		return nil, fmt.Errorf("customers-overview: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading customers-overview: %w", err)

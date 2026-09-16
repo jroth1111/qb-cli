@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/fetch"
@@ -77,7 +78,7 @@ func captureManaged(ctx context.Context, loginURL, bankingURL string, headless b
 		return nil, err
 	}
 
-	headers, err := interceptManagedATS(browserCtx, bankingURL)
+	headers, apiHeaders, hostHeaders, err := interceptManagedATS(browserCtx, bankingURL)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +90,7 @@ func captureManaged(ctx context.Context, loginURL, bankingURL string, headless b
 	if err != nil {
 		return nil, fmt.Errorf("managed cookie snapshot: %w", err)
 	}
-	return &ATSCapture{Headers: headers, Cookies: cookies, Identity: identity}, nil
+	return &ATSCapture{Headers: headers, SecondaryHeaders: apiHeaders, HostHeaders: hostHeaders, Cookies: cookies, Identity: identity}, nil
 }
 
 // waitManagedAuth polls location.href until the tab leaves the sign-in wall
@@ -114,13 +115,16 @@ func waitManagedAuth(ctx context.Context) error {
 	}
 }
 
-// interceptManagedATS enables Fetch on ATS URLs, navigates to banking, and
-// returns the first Intuit_APIKey Authorization header map observed. Every
-// paused request is continued so the page never hangs.
-func interceptManagedATS(ctx context.Context, bankingURL string) (map[string]string, error) {
-	pattern := "*://qbo.intuit.com/ats/*"
+// interceptManagedATS enables Fetch on qbo.intuit.com, navigates to banking,
+// and returns the first request carrying the first-party Intuit_APIKey
+// credential plus the first apikey-bearing request (the secondary credential
+// trio the split SPA emits on /olb/ and /api/v4/graphql). Every paused
+// request is continued so the page never hangs.
+func interceptManagedATS(ctx context.Context, bankingURL string) (map[string]string, map[string]string, map[string]map[string]string, error) {
 	stage := fetch.RequestStageRequest
 	found := make(chan map[string]string, 1)
+	foundAPI := make(chan map[string]string, 1)
+	var hostHeadersSeen sync.Map
 	chromedp.ListenTarget(ctx, func(ev any) {
 		paused, ok := ev.(*fetch.EventRequestPaused)
 		if !ok || paused.Request == nil {
@@ -129,34 +133,54 @@ func interceptManagedATS(ctx context.Context, bankingURL string) (map[string]str
 		go func() {
 			_ = fetch.ContinueRequest(paused.RequestID).Do(ctx)
 		}()
-		if !strings.Contains(paused.Request.URL, "/ats/v1/") {
-			return
+		headers := headerMap(paused.Request.Headers)
+		if host := ServiceHost(paused.Request.URL, headers); host != "" {
+			hostHeadersSeen.Store(host, headers)
 		}
-		for name, value := range paused.Request.Headers {
-			if strings.EqualFold(name, "authorization") && isIntuitAPIKey(fmt.Sprint(value)) {
-				select {
-				case found <- headerMap(paused.Request.Headers):
-				default:
-				}
-				return
+		if isAPIKeyHeaderRequest(paused.Request.URL, headers) {
+			select {
+			case foundAPI <- headers:
+			default:
+			}
+		}
+		if isATSCredentialRequest(paused.Request.URL, headers) {
+			select {
+			case found <- headers:
+			default:
 			}
 		}
 	})
 	enable := chromedp.ActionFunc(func(ctx context.Context) error {
-		return fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
-			URLPattern:   pattern,
-			RequestStage: stage,
-		}}).Do(ctx)
+		return fetch.Enable().WithPatterns([]*fetch.RequestPattern{
+			{URLPattern: "*://qbo.intuit.com/*", RequestStage: stage},
+			{URLPattern: "*://*.api.intuit.com/*", RequestStage: stage},
+		}).Do(ctx)
 	})
 	if err := chromedp.Run(ctx, enable, chromedp.Navigate(bankingURL)); err != nil {
-		return nil, fmt.Errorf("managed banking navigate: %w", err)
+		return nil, nil, nil, fmt.Errorf("managed banking navigate: %w", err)
 	}
+	var headers map[string]string
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("%w: managed ATS intercept timed out", ErrNoATSAuthorization)
-	case headers := <-found:
-		return headers, nil
+		return nil, nil, nil, fmt.Errorf("%w: managed ATS intercept timed out", ErrNoATSAuthorization)
+	case headers = <-found:
 	}
+	// Brief grace for the apikey sibling and service-host traffic; absence
+	// is non-fatal.
+	var apiHeaders map[string]string
+	select {
+	case apiHeaders = <-foundAPI:
+	case <-time.After(8 * time.Second):
+	case <-ctx.Done():
+	}
+	hostHeaders := map[string]map[string]string{}
+	hostHeadersSeen.Range(func(k, v any) bool {
+		if hs, ok := v.(map[string]string); ok {
+			hostHeaders[k.(string)] = hs
+		}
+		return true
+	})
+	return headers, apiHeaders, hostHeaders, nil
 }
 
 // headerMap flattens CDP header storage into the plain map the capture

@@ -193,7 +193,7 @@ func aiListRead(ctx context.Context, rawURL, label string) (*AIListResult, error
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", label, err)

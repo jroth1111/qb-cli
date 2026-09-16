@@ -86,8 +86,7 @@ func replayRegisterOnce(ctx context.Context, accountID string, limit int) (*Regi
 	if err != nil {
 		return nil, fmt.Errorf("register transactions: %w", err)
 	}
-	defer drainAndClose(resp)
-
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading register transactions: %w", err)

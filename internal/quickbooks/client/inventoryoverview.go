@@ -90,7 +90,7 @@ func replayGetAllListViewEntities(ctx context.Context, _, _ string, limit int) (
 	if err != nil {
 		return nil, fmt.Errorf("inventory-overview GetAllListViewEntities: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading inventory-overview GetAllListViewEntities: %w", err)
@@ -143,7 +143,7 @@ func replaySearchAllListViewEntities(ctx context.Context, _, query string, limit
 	if err != nil {
 		return nil, fmt.Errorf("inventory-overview SearchAllListViewEntities: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading inventory-overview SearchAllListViewEntities: %w", err)

@@ -35,17 +35,6 @@ type coFlags struct {
 	activate    bool
 }
 
-func (f *coFlags) bind(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&f.id, "id", "", "record id")
-	cmd.Flags().StringVar(&f.name, "name", "", "name")
-	cmd.Flags().StringVar(&f.description, "description", "", "description")
-	cmd.Flags().StringVar(&f.typ, "type", "", "cost group type (default ITEM)")
-	cmd.Flags().IntVar(&f.version, "version", 0, "optimistic-concurrency version of the row being changed")
-	cmd.Flags().StringVar(&f.status, "status", "active", "list filter: active|inactive|all")
-	cmd.Flags().IntVar(&f.limit, "limit", 25, "max rows (1-100)")
-	cmd.Flags().BoolVar(&f.activate, "activate", false, "with costgroups delete: re-activate instead of deleting")
-}
-
 // newCustomObjectsCmd builds the `qb customobjects` domain group.
 func newCustomObjectsCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{

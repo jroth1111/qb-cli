@@ -31,7 +31,7 @@ func listRelayPages(ctx context.Context, relayURL string) ([]relayPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("relay /json/list returned %s", resp.Status)
 	}

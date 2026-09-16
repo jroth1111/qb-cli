@@ -209,8 +209,15 @@ func TestMileageCreateAcceptsEmployeeFlag(t *testing.T) {
 	if create == nil {
 		t.Fatal("expenses mileage create missing")
 	}
-	if err := create.ParseFlags([]string{"--employee", "11", "--customer", "1", "--hours", "1"}); err != nil {
-		t.Fatalf("mileage create --employee should parse: %v", err)
+	// wired-alias-block-09: mileage create is a blocked stand-in (the
+	// TimeActivity dispatch was wrong-entity), so the not-wired stub exposes
+	// only the catalog params; the alias-only --customer/--hours flags are
+	// gone with the dispatch.
+	if err := create.ParseFlags([]string{"--employee", "11", "--vehicle", "9", "--date", "01/09/2026", "--distance-km", "5"}); err != nil {
+		t.Fatalf("mileage create catalog params should parse: %v", err)
+	}
+	if err := create.ParseFlags([]string{"--customer", "1"}); err == nil {
+		t.Fatal("mileage create --customer should be unknown after the stand-in block")
 	}
 	ts := findSub(findSub(findSub(root, "payroll"), "timesheet"), "update")
 	if ts == nil {

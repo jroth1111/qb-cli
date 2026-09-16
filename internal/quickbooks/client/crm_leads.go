@@ -18,13 +18,21 @@
 // APIs, the URL carries no realm segment; plans embed nothing
 // session-specific.
 //
-// Response shapes are only partially observed (Spring page envelopes with
-// content/totalElements, bare-number count bodies, 204 for empty lists),
-// so every projection below is deliberately tolerant: unknown fields are
-// ignored and several known aliases are tried per field.
+// Live leads-tab capture (2026-09-12, Test Company 2): the Customers &
+// leads list reads through the DataAccessLeads query on
+// sbseggraphqlorch.api.intuit.com/graphql — dataAccessLeads edges/node,
+// totalCount and pageInfo — not the mccrmmessaging /v3/api/leads route.
+// The stale REST list route is never used as a fallback. /leads/search
+// remains on its captured REST plan and is separately unproved (no live
+// search capture exists); no GraphQL search filter is invented.
+//
+// Response projections accept known envelopes and field aliases, but reject
+// HTTP failures, malformed payloads, and missing acknowledgements. HTTP 204
+// represents an empty list or a completed delete, not a fabricated record.
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -52,6 +60,73 @@ const (
 // crmDefaultSort is the sort the SPA appends to every list call
 // (module 46136.js: sort=updateDate,desc).
 const crmDefaultSort = "updateDate,desc"
+
+// crmLeadsGraphQLURL serves the captured leads-tab DataAccessLeads query
+// (POST {"query","variables"}; the captured payload carries no
+// operationName field).
+const crmLeadsGraphQLURL = "https://sbseggraphqlorch.api.intuit.com/graphql"
+
+const (
+	// crmLeadsDefaultPageSize is the captured page size (variables first:20).
+	crmLeadsDefaultPageSize = 20
+	// crmLeadsMaxPageSize bounds the $first variable (declared PositiveInt!)
+	// so pagination input stays deterministic.
+	crmLeadsMaxPageSize = 100
+)
+
+// crmDataAccessLeadsQuery is the exact document the SPA POSTs for the
+// leads tab (capture 2026-09-12), including the pipeline and meta fields.
+const crmDataAccessLeadsQuery = `
+  query DataAccessLeads(
+    $filter: DataAccess_LeadFilter
+    $orderBy: [DataAccess_LeadSort!]
+    $first: PositiveInt!
+    $offset: Int
+  ) {
+    dataAccessLeads(
+      filter: $filter
+      orderBy: $orderBy
+      first: $first
+      offset: $offset
+    ) {
+      edges {
+        node {
+          id
+          active
+          displayName
+          organizationName
+          emails {
+            emailAddress
+          }
+          emailDirectory {
+            primary {
+              id
+              address
+            }
+          }
+          phoneDirectory {
+            primary {
+              id
+              number
+            }
+          }
+          pipelineId
+          pipelineStageId
+          pipelineStageReason
+          meta {
+            createdAt
+            updatedAt
+          }
+        }
+      }
+      totalCount
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`
 
 // crmNote is stamped on every CRM plan; writePlan prints it on --dry-run.
 const crmNote = "crm-leads-ui api/core; not sent"
@@ -116,8 +191,8 @@ type CrmBulkResult struct {
 }
 
 // CrmConvertResult mirrors the convert-to-customer acknowledgement
-// ({status: "CONVERTED", nameId}) observed in module 46136.js. A 204/empty
-// body is treated as CONVERTED, matching the SPA's own interpretation.
+// ({status: "CONVERTED", nameId}) observed in module 46136.js. State and
+// customer identity are populated only from an explicit acknowledgement.
 type CrmConvertResult struct {
 	Status     int    `json:"status"`
 	State      string `json:"state,omitempty"`
@@ -159,11 +234,18 @@ type CrmOpportunityListResult struct {
 
 // crmNewPlan stamps a secret-free RequestPlan for one api/core call.
 func crmNewPlan(method, pathWithQuery, op string, body []byte) *RequestPlan {
+	base := crmCoreBaseURL
+	switch op {
+	case "crm.leads.list":
+		base = crmLeadsGraphQLURL
+	case "crm.leads.get", "crm.leads.create", "crm.leads.update", "crm.leads.delete", "crm.leads.count":
+		base = "https://mccrmmessaging.api.intuit.com/v1/api"
+	}
 	return &RequestPlan{
 		DryRun: true,
 		Dial:   false,
 		Method: method,
-		URL:    crmCoreBaseURL + pathWithQuery,
+		URL:    base + pathWithQuery,
 		Body:   json.RawMessage(body),
 		Note:   crmNote,
 		op:     op,
@@ -180,27 +262,51 @@ func crmLeadID(id string) (string, error) {
 	return id, nil
 }
 
-// crmOpportunityID sanitizes and validates an opportunity id.
-func crmOpportunityID(id string) (string, error) {
-	id = sanitizeToken(id)
-	if id == "" {
-		return "", ErrEmptyOpportunityID
-	}
-	return id, nil
-}
-
 // --- plans -----------------------------------------------------------------
 
-// PlanLeadList builds the GET /api/core/leads page request.
-func PlanLeadList(page, size int, inactive bool) *RequestPlan {
-	v := url.Values{}
-	v.Set("page", strconv.Itoa(page))
-	v.Set("size", strconv.Itoa(size))
-	v.Set("sort", crmDefaultSort)
-	if inactive {
-		v.Set("inactive", "true")
+// crmLeadPageBounds clamps page/size to the captured contract: $first is a
+// PositiveInt bounded at crmLeadsMaxPageSize and $offset never negative.
+func crmLeadPageBounds(page, size int) (clampedPage, first, offset int) {
+	if page < 0 {
+		page = 0
 	}
-	return crmNewPlan(http.MethodGet, crmLeadsPath+"?"+v.Encode(), "crm.leads.list", nil)
+	if size < 1 {
+		size = crmLeadsDefaultPageSize
+	}
+	if size > crmLeadsMaxPageSize {
+		size = crmLeadsMaxPageSize
+	}
+	return page, size, page * size
+}
+
+// PlanLeadList builds the leads-tab DataAccessLeads POST. The captured
+// variables filter to active leads not yet linked to a customer
+// (active.equals true, customerIdExists false) ordered DISPLAY_NAME_ASC;
+// the inactive flag flips the captured active.equals literal — the only
+// activity axis the observed contract carries.
+func PlanLeadList(page, size int, inactive bool) *RequestPlan {
+	_, first, offset := crmLeadPageBounds(page, size)
+	variables := map[string]any{
+		"filter": map[string]any{
+			"or": []any{map[string]any{
+				"and": []any{map[string]any{
+					"active":           map[string]any{"equals": !inactive},
+					"customerIdExists": false,
+				}},
+			}},
+		},
+		"orderBy": []any{"DISPLAY_NAME_ASC"},
+		"first":   first,
+		"offset":  offset,
+	}
+	// The body is built from static types only; marshal cannot fail.
+	body, _ := json.Marshal(map[string]any{
+		"query":     crmDataAccessLeadsQuery,
+		"variables": variables,
+	})
+	plan := crmNewPlan(http.MethodPost, "", "crm.leads.list", body)
+	plan.Note = "crm-leads-ui DataAccessLeads POST; not sent"
+	return plan
 }
 
 // PlanLeadGet builds the GET /api/core/leads/{id} request.
@@ -213,25 +319,51 @@ func PlanLeadGet(id string) (*RequestPlan, error) {
 }
 
 // PlanLeadCreate builds the POST /api/core/leads request.
-func PlanLeadCreate(in CrmLeadInput) (*RequestPlan, error) {
-	body, err := json.Marshal(in)
-	if err != nil {
-		return nil, fmt.Errorf("encoding lead: %w", err)
+func crmLeadBody(in CrmLeadInput) map[string]any {
+	body := map[string]any{}
+	if in.DisplayName != "" {
+		body["displayName"] = in.DisplayName
 	}
-	return crmNewPlan(http.MethodPost, crmLeadsPath, "crm.leads.create", body), nil
+	if in.OrganizationName != "" {
+		body["organizationName"] = in.OrganizationName
+	}
+	if in.Email != "" {
+		body["emails"] = []any{map[string]any{"email": in.Email, "variation": map[string]any{"ordinal": "PRIMARY"}}}
+	}
+	if in.Phone != "" {
+		body["phones"] = []any{map[string]any{"originalNumber": in.Phone, "kind": "UNKNOWN", "variation": map[string]any{"ordinal": "PRIMARY"}}}
+	}
+	if in.Status != "" {
+		body["leadStatus"] = in.Status
+	}
+	if in.Notes != "" {
+		body["leadSummary"] = in.Notes
+	}
+	return body
 }
 
-// PlanLeadUpdate builds the PUT /api/core/leads/{id} request.
+func PlanLeadCreate(in CrmLeadInput) (*RequestPlan, error) {
+	body := crmLeadBody(in)
+	body["source"] = map[string]any{"integrationPlatform": "CRM", "platformSourceId": "QBO", "sourceType": "MANUAL"}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return crmNewPlan(http.MethodPut, crmLeadsPath, "crm.leads.create", raw), nil
+}
+
 func PlanLeadUpdate(id string, in CrmLeadInput) (*RequestPlan, error) {
 	id, err := crmLeadID(id)
 	if err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(in)
+	body := crmLeadBody(in)
+	body["id"] = id
+	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("encoding lead: %w", err)
+		return nil, err
 	}
-	return crmNewPlan(http.MethodPut, crmLeadsPath+"/"+id, "crm.leads.update", body), nil
+	return crmNewPlan(http.MethodPatch, crmLeadsPath, "crm.leads.update", raw), nil
 }
 
 // PlanLeadDelete builds the DELETE /api/core/leads/{id} request.
@@ -263,7 +395,7 @@ func PlanLeadCount(sourceType string) *RequestPlan {
 	path := crmLeadsCountPath
 	if st := strings.TrimSpace(sourceType); st != "" {
 		v := url.Values{}
-		v.Set("sourceTypes", st)
+		v.Set("sourceType", st)
 		path += "?" + v.Encode()
 	}
 	return crmNewPlan(http.MethodGet, path, "crm.leads.count", nil)
@@ -337,32 +469,225 @@ func PlanOpportunityCreate(in CrmOpportunityInput) (*RequestPlan, error) {
 	return crmNewPlan(http.MethodPost, crmOpportunitiesPath, "crm.opportunities.create", body), nil
 }
 
-// --- executors --------------------------------------------------------------
+// executeCRM is the domain-test seam; the transport remains owned by crmExecute.
+var executeCRM = crmExecute
 
-// ErrCrmNeedsRelayTab and the crmExecute transport live in crm_cdp.go:
-// every CRM api/core call runs as an in-page fetch inside an
-// authenticated qbo.intuit.com relay tab (Runtime.evaluate over CDP),
-// because mccrmmessaging.api.intuit.com is cookie-only and rejects
-// direct replay.
+// crmResponse validates HTTP and error envelopes before any domain projection.
+// Error messages deliberately omit raw server bodies and request credentials.
+func crmResponse(ctx context.Context, plan *RequestPlan) ([]byte, int, error) {
+	raw, status, err := executeCRM(ctx, plan)
+	if err != nil {
+		return nil, status, err
+	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return nil, status, &ReplayError{Status: status, Message: "CRM request failed"}
+	}
+	raw = bytes.TrimSpace(raw)
+	if status == http.StatusNoContent {
+		if len(raw) != 0 {
+			return nil, status, fmt.Errorf("%s: unexpected body for HTTP 204", plan.op)
+		}
+		return nil, status, nil
+	}
+	if !json.Valid(raw) || bytes.Equal(raw, []byte("null")) {
+		return nil, status, fmt.Errorf("%s: missing or malformed CRM response", plan.op)
+	}
+	if err := crmErrorEnvelope(raw); err != nil {
+		return nil, status, fmt.Errorf("%s: %w", plan.op, err)
+	}
+	return raw, status, nil
+}
 
-// --- replays ----------------------------------------------------------------
+func crmErrorEnvelope(raw []byte) error {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return nil // Arrays and scalar count responses are validated by their reader.
+	}
+	for _, key := range []string{"error", "errors", "fault", "Fault"} {
+		var compact bytes.Buffer
+		_ = json.Compact(&compact, m[key])
+		switch compact.String() {
+		case "", "null", "false", `""`, "[]", "{}":
+		default:
+			return errors.New("CRM returned an error envelope")
+		}
+	}
+	for _, key := range []string{"ok", "success"} {
+		if bytes.Equal(bytes.TrimSpace(m[key]), []byte("false")) {
+			return errors.New("CRM did not acknowledge success")
+		}
+	}
+	var status int
+	if json.Unmarshal(m["status"], &status) == nil && status >= 400 {
+		return errors.New("CRM returned a failing application status")
+	}
+	var state string
+	if json.Unmarshal(m["status"], &state) == nil {
+		switch strings.ToUpper(strings.TrimSpace(state)) {
+		case "ERROR", "FAILED", "FAILURE":
+			return errors.New("CRM returned a failing application status")
+		}
+	}
+	return nil
+}
 
-// ReplayLeadList GETs /api/core/leads. Read-only.
+// ReplayLeadList runs the leads-tab DataAccessLeads query. Read-only.
+// The stale /v3/api/leads list route is not a fallback.
 func ReplayLeadList(ctx context.Context, page, size int, inactive bool) (*CrmLeadListResult, error) {
-	raw, status, err := crmExecute(ctx, PlanLeadList(page, size, inactive))
+	page, first, _ := crmLeadPageBounds(page, size)
+	raw, status, err := crmResponse(ctx, PlanLeadList(page, size, inactive))
 	if err != nil {
 		return nil, err
 	}
-	res := &CrmLeadListResult{Status: status, Page: page, Size: size, Leads: []CrmLead{}}
-	rows, total := crmRows(raw)
-	if total == 0 {
-		total = len(rows)
+	leads, total, err := crmDataAccessLeadPage(raw)
+	if err != nil {
+		return nil, err
 	}
-	res.Total = total
-	for _, r := range rows {
-		if l := projectCrmLead(r); l.ID != "" || l.DisplayName != "" {
-			res.Leads = append(res.Leads, l)
+	return &CrmLeadListResult{Status: status, Page: page, Size: first, Total: total, Count: len(leads), Leads: leads}, nil
+}
+
+// crmDataAccessLeadPage validates the typed GraphQL envelope
+// {data:{dataAccessLeads:{edges,totalCount,pageInfo}}} and projects every
+// edge.node. An empty raw body is possible only after crmResponse has
+// validated HTTP 204. A missing or mis-typed collection is an error —
+// never an implied empty page and never a legacy REST envelope.
+func crmDataAccessLeadPage(raw []byte) ([]CrmLead, int, error) {
+	leads := []CrmLead{}
+	if len(raw) == 0 {
+		return leads, 0, nil
+	}
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil, 0, errors.New("CRM leads response has no data envelope")
+	}
+	data := bytes.TrimSpace(envelope.Data)
+	if len(data) == 0 || data[0] != '{' {
+		return nil, 0, errors.New("CRM leads response has no data envelope")
+	}
+	var coll struct {
+		DataAccessLeads json.RawMessage `json:"dataAccessLeads"`
+	}
+	var collection json.RawMessage
+	if json.Unmarshal(data, &coll) == nil {
+		collection = bytes.TrimSpace(coll.DataAccessLeads)
+	}
+	if len(collection) == 0 || bytes.Equal(collection, []byte("null")) || collection[0] != '{' {
+		return nil, 0, errors.New("CRM leads response has no dataAccessLeads collection")
+	}
+	var page struct {
+		Edges      json.RawMessage `json:"edges"`
+		TotalCount *int            `json:"totalCount"`
+	}
+	if json.Unmarshal(collection, &page) != nil {
+		return nil, 0, errors.New("CRM leads collection has invalid fields")
+	}
+	edges := bytes.TrimSpace(page.Edges)
+	if len(edges) == 0 || edges[0] != '[' {
+		return nil, 0, errors.New("CRM leads collection has no edges array")
+	}
+	var edgeList []struct {
+		Node json.RawMessage `json:"node"`
+	}
+	if json.Unmarshal(edges, &edgeList) != nil {
+		return nil, 0, errors.New("CRM leads collection has an invalid edges array")
+	}
+	total := len(edgeList)
+	if page.TotalCount != nil {
+		if *page.TotalCount < 0 {
+			return nil, 0, errors.New("CRM leads collection has an invalid totalCount")
 		}
+		total = *page.TotalCount
+	}
+	for _, edge := range edgeList {
+		lead, err := projectDataAccessLead(edge.Node)
+		if err != nil {
+			return nil, 0, err
+		}
+		leads = append(leads, lead)
+	}
+	return leads, total, nil
+}
+
+// projectDataAccessLead maps one dataAccessLeads edge.node onto CrmLead.
+// Only native node fields populate the projection; a node without either
+// id or displayName is not a lead acknowledgement.
+func projectDataAccessLead(raw json.RawMessage) (CrmLead, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' {
+		return CrmLead{}, errors.New("CRM leads edge has no node object")
+	}
+	var node struct {
+		ID               string `json:"id"`
+		DisplayName      string `json:"displayName"`
+		OrganizationName string `json:"organizationName"`
+		Emails           []struct {
+			EmailAddress string `json:"emailAddress"`
+		} `json:"emails"`
+		EmailDirectory *struct {
+			Primary *struct {
+				Address string `json:"address"`
+			} `json:"primary"`
+		} `json:"emailDirectory"`
+		PhoneDirectory *struct {
+			Primary *struct {
+				Number string `json:"number"`
+			} `json:"primary"`
+		} `json:"phoneDirectory"`
+		PipelineStageID string `json:"pipelineStageId"`
+		Meta            *struct {
+			CreatedAt string `json:"createdAt"`
+			UpdatedAt string `json:"updatedAt"`
+		} `json:"meta"`
+	}
+	if json.Unmarshal(raw, &node) != nil {
+		return CrmLead{}, errors.New("CRM leads node has invalid fields")
+	}
+	lead := CrmLead{
+		ID:               node.ID,
+		DisplayName:      node.DisplayName,
+		OrganizationName: node.OrganizationName,
+		Status:           node.PipelineStageID,
+	}
+	for _, e := range node.Emails {
+		if lead.Email == "" {
+			lead.Email = e.EmailAddress
+		}
+	}
+	if lead.Email == "" && node.EmailDirectory != nil && node.EmailDirectory.Primary != nil {
+		lead.Email = node.EmailDirectory.Primary.Address
+	}
+	if node.PhoneDirectory != nil && node.PhoneDirectory.Primary != nil {
+		lead.Phone = node.PhoneDirectory.Primary.Number
+	}
+	if node.Meta != nil {
+		lead.CreatedAt = node.Meta.CreatedAt
+		lead.UpdatedAt = node.Meta.UpdatedAt
+	}
+	if lead.ID == "" && lead.DisplayName == "" {
+		return CrmLead{}, errors.New("CRM leads node has no lead acknowledgement")
+	}
+	return lead, nil
+}
+
+// crmLeadList reads the REST page envelopes still used by the search route.
+func crmLeadList(ctx context.Context, plan *RequestPlan, page, size int) (*CrmLeadListResult, error) {
+	raw, status, err := crmResponse(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	rows, total, err := crmRows(raw)
+	if err != nil {
+		return nil, err
+	}
+	res := &CrmLeadListResult{Status: status, Page: page, Size: size, Total: total, Leads: []CrmLead{}}
+	for _, row := range rows {
+		lead, err := projectCrmLead(row)
+		if err != nil {
+			return nil, err
+		}
+		res.Leads = append(res.Leads, lead)
 	}
 	res.Count = len(res.Leads)
 	return res, nil
@@ -374,147 +699,150 @@ func ReplayLeadGet(ctx context.Context, id string) (*CrmLead, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, _, err := crmExecute(ctx, plan)
+	return crmLeadRecord(ctx, plan)
+}
+
+func crmLeadRecord(ctx context.Context, plan *RequestPlan) (*CrmLead, error) {
+	raw, _, err := crmResponse(ctx, plan)
 	if err != nil {
 		return nil, err
 	}
-	l := projectCrmLead(raw)
-	return &l, nil
+	lead, err := projectCrmLead(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &lead, nil
 }
 
-// ReplayLeadCreate POSTs /api/core/leads and projects the created lead.
+// ReplayLeadCreate POSTs /api/core/leads and projects the acknowledged lead.
 func ReplayLeadCreate(ctx context.Context, in CrmLeadInput) (*CrmLead, error) {
 	plan, err := PlanLeadCreate(in)
 	if err != nil {
 		return nil, err
 	}
-	raw, _, err := crmExecute(ctx, plan)
-	if err != nil {
-		return nil, err
-	}
-	l := projectCrmLead(raw)
-	return &l, nil
+	return crmLeadRecord(ctx, plan)
 }
 
-// ReplayLeadUpdate PUTs /api/core/leads/{id} and projects the updated lead.
+// ReplayLeadUpdate PUTs /api/core/leads/{id} and projects the acknowledged lead.
 func ReplayLeadUpdate(ctx context.Context, id string, in CrmLeadInput) (*CrmLead, error) {
 	plan, err := PlanLeadUpdate(id, in)
 	if err != nil {
 		return nil, err
 	}
-	raw, _, err := crmExecute(ctx, plan)
-	if err != nil {
-		return nil, err
-	}
-	l := projectCrmLead(raw)
-	return &l, nil
+	return crmLeadRecord(ctx, plan)
 }
 
-// ReplayLeadDelete DELETEs /api/core/leads/{id} and returns the HTTP status.
+// ReplayLeadDelete DELETEs /api/core/leads/{id}. HTTP 204 needs no body.
 func ReplayLeadDelete(ctx context.Context, id string) (int, error) {
 	plan, err := PlanLeadDelete(id)
 	if err != nil {
 		return 0, err
 	}
-	_, status, err := crmExecute(ctx, plan)
+	_, status, err := crmResponse(ctx, plan)
 	return status, err
 }
 
-// ReplayLeadSearch GETs /api/core/leads/search?q=…. Read-only.
+// ReplayLeadSearch GETs /api/core/leads/search?q=…. Read-only. The REST
+// search route is separately unproved — no live search capture exists —
+// and no GraphQL search filter is invented for it.
 func ReplayLeadSearch(ctx context.Context, query string, page, size int) (*CrmLeadListResult, error) {
 	plan, err := PlanLeadSearch(query, page, size)
 	if err != nil {
 		return nil, err
 	}
-	raw, status, err := crmExecute(ctx, plan)
-	if err != nil {
-		return nil, err
-	}
-	res := &CrmLeadListResult{Status: status, Page: page, Size: size, Leads: []CrmLead{}}
-	rows, total := crmRows(raw)
-	if total == 0 {
-		total = len(rows)
-	}
-	res.Total = total
-	for _, r := range rows {
-		if l := projectCrmLead(r); l.ID != "" || l.DisplayName != "" {
-			res.Leads = append(res.Leads, l)
-		}
-	}
-	res.Count = len(res.Leads)
-	return res, nil
+	return crmLeadList(ctx, plan, page, size)
 }
 
-// ReplayLeadCount GETs /api/core/leads/count. The body is a bare number in
-// the SPA flow (module 46136.js wraps it in Number()); anything unparsable
-// counts as zero rather than inventing a figure.
+// ReplayLeadCount requires a nonnegative integer count acknowledgement.
 func ReplayLeadCount(ctx context.Context, sourceType string) (int, error) {
-	raw, _, err := crmExecute(ctx, PlanLeadCount(sourceType))
+	raw, _, err := crmResponse(ctx, PlanLeadCount(sourceType))
 	if err != nil {
 		return 0, err
 	}
-	return crmCountValue(raw), nil
+	return crmCountValue(raw)
 }
 
-// ReplayLeadBulk POSTs /api/core/leads/bulk.
+// ReplayLeadBulk counts only lead rows actually acknowledged by /leads/bulk.
 func ReplayLeadBulk(ctx context.Context, sourceType string, leads []CrmLeadInput) (*CrmBulkResult, error) {
 	plan, err := PlanLeadBulk(sourceType, leads)
 	if err != nil {
 		return nil, err
 	}
+	raw, status, err := crmResponse(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, errors.New("CRM bulk response has no acknowledged rows")
+	}
+	rows, _, err := crmRows(raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if _, err := projectCrmLead(row); err != nil {
+			return nil, err
+		}
+	}
 	st := strings.TrimSpace(sourceType)
 	if st == "" {
 		st = "CSV"
 	}
-	raw, status, err := crmExecute(ctx, plan)
-	if err != nil {
-		return nil, err
-	}
-	rows, _ := crmRows(raw)
 	return &CrmBulkResult{Status: status, SourceType: st, Created: len(rows)}, nil
 }
 
-// ReplayLeadConvert POSTs /api/core/leads/convert-to-customer.
+// ReplayLeadConvert never infers conversion from an empty response.
 func ReplayLeadConvert(ctx context.Context, id string) (*CrmConvertResult, error) {
 	plan, err := PlanLeadConvert(id)
 	if err != nil {
 		return nil, err
 	}
-	raw, status, err := crmExecute(ctx, plan)
+	raw, status, err := crmResponse(ctx, plan)
 	if err != nil {
 		return nil, err
 	}
-	res := &CrmConvertResult{Status: status, State: "CONVERTED"}
-	var m map[string]any
-	if json.Unmarshal(raw, &m) == nil && m != nil {
-		if s := crmStr(m, "status", "state"); s != "" {
-			res.State = s
-		}
-		res.CustomerID = crmStr(m, "nameId", "customerId", "customerID")
+	if err := crmObject(raw); err != nil {
+		return nil, err
 	}
-	return res, nil
+	var ack struct {
+		Status          string `json:"status"`
+		State           string `json:"state"`
+		NameID          string `json:"nameId"`
+		CustomerID      string `json:"customerId"`
+		CustomerIDAlias string `json:"customerID"`
+	}
+	if json.Unmarshal(raw, &ack) != nil {
+		return nil, errors.New("CRM conversion acknowledgement has invalid fields")
+	}
+	state := firstNonEmpty(ack.Status, ack.State)
+	customerID := firstNonEmpty(ack.NameID, ack.CustomerID, ack.CustomerIDAlias)
+	if (state == "" && customerID == "") || (state != "" && !strings.EqualFold(state, "CONVERTED")) {
+		return nil, errors.New("CRM response did not acknowledge conversion")
+	}
+	return &CrmConvertResult{Status: status, State: state, CustomerID: customerID}, nil
 }
 
 // ReplayAssociationList GETs /api/core/lead-customer-associations. Read-only.
 func ReplayAssociationList(ctx context.Context, customerID string) (*CrmAssociationResult, error) {
-	raw, status, err := crmExecute(ctx, PlanAssociationList(customerID))
+	raw, status, err := crmResponse(ctx, PlanAssociationList(customerID))
+	if err != nil {
+		return nil, err
+	}
+	rows, _, err := crmRows(raw)
 	if err != nil {
 		return nil, err
 	}
 	res := &CrmAssociationResult{Status: status, Associations: []CrmAssociation{}}
-	rows, _ := crmRows(raw)
-	for _, r := range rows {
-		var m map[string]any
-		if json.Unmarshal(r, &m) != nil {
-			continue
+	for _, row := range rows {
+		if err := crmObject(row); err != nil {
+			return nil, err
 		}
-		a := CrmAssociation{
-			LeadID:     crmStr(m, "leadId", "leadID"),
-			CustomerID: crmStr(m, "customerId", "customerID"),
+		var a CrmAssociation
+		// encoding/json accepts the existing leadID/customerID case aliases.
+		if json.Unmarshal(row, &a) != nil || (a.LeadID == "" && a.CustomerID == "") {
+			return nil, errors.New("CRM association response has no valid association")
 		}
-		if a.LeadID != "" || a.CustomerID != "" {
-			res.Associations = append(res.Associations, a)
-		}
+		res.Associations = append(res.Associations, a)
 	}
 	res.Count = len(res.Associations)
 	return res, nil
@@ -522,125 +850,161 @@ func ReplayAssociationList(ctx context.Context, customerID string) (*CrmAssociat
 
 // ReplayOpportunityList GETs /api/core/opportunities. Read-only.
 func ReplayOpportunityList(ctx context.Context, page, size int) (*CrmOpportunityListResult, error) {
-	raw, status, err := crmExecute(ctx, PlanOpportunityList(page, size))
+	raw, status, err := crmResponse(ctx, PlanOpportunityList(page, size))
 	if err != nil {
 		return nil, err
 	}
-	res := &CrmOpportunityListResult{Status: status, Page: page, Size: size, Items: []CrmOpportunity{}}
-	rows, total := crmRows(raw)
-	if total == 0 {
-		total = len(rows)
+	rows, total, err := crmRows(raw)
+	if err != nil {
+		return nil, err
 	}
-	res.Total = total
-	for _, r := range rows {
-		if o := projectCrmOpportunity(r); o.ID != "" || o.Name != "" {
-			res.Items = append(res.Items, o)
+	res := &CrmOpportunityListResult{Status: status, Page: page, Size: size, Total: total, Items: []CrmOpportunity{}}
+	for _, row := range rows {
+		opportunity, err := projectCrmOpportunity(row)
+		if err != nil {
+			return nil, err
 		}
+		res.Items = append(res.Items, opportunity)
 	}
 	res.Count = len(res.Items)
 	return res, nil
 }
 
-// ReplayOpportunityCreate POSTs /api/core/opportunities.
+// ReplayOpportunityCreate projects only the returned opportunity acknowledgement.
 func ReplayOpportunityCreate(ctx context.Context, in CrmOpportunityInput) (*CrmOpportunity, error) {
 	plan, err := PlanOpportunityCreate(in)
 	if err != nil {
 		return nil, err
 	}
-	raw, _, err := crmExecute(ctx, plan)
+	raw, _, err := crmResponse(ctx, plan)
 	if err != nil {
 		return nil, err
 	}
-	o := projectCrmOpportunity(raw)
-	return &o, nil
+	opportunity, err := projectCrmOpportunity(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &opportunity, nil
 }
 
-// --- projection helpers -----------------------------------------------------
-
-// crmEnvelope is the Spring page shape the SPA consumes (content,
-// totalElements); items/data cover alternate envelopes defensively.
-type crmEnvelope struct {
-	Content       []json.RawMessage `json:"content"`
-	Items         []json.RawMessage `json:"items"`
-	Data          []json.RawMessage `json:"data"`
-	TotalElements int               `json:"totalElements"`
+// crmRows accepts the observed page aliases or a bare array. An empty raw
+// body is possible only after crmResponse has validated HTTP 204.
+func crmRows(raw []byte) ([]json.RawMessage, int, error) {
+	if len(raw) == 0 {
+		return nil, 0, nil
+	}
+	var rows []json.RawMessage
+	if len(raw) > 0 && raw[0] == '[' && json.Unmarshal(raw, &rows) == nil {
+		return rows, len(rows), nil
+	}
+	if err := crmObject(raw); err != nil {
+		return nil, 0, err
+	}
+	var envelope map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &envelope)
+	found := false
+	for _, key := range []string{"content", "items", "data"} {
+		value, ok := envelope[key]
+		if !ok {
+			continue
+		}
+		value = bytes.TrimSpace(value)
+		if len(value) == 0 || value[0] != '[' || json.Unmarshal(value, &rows) != nil {
+			return nil, 0, errors.New("CRM list response has an invalid row array")
+		}
+		found = true
+		if len(rows) > 0 {
+			break
+		}
+	}
+	if !found {
+		return nil, 0, errors.New("CRM list response has no recognized row array")
+	}
+	total := len(rows)
+	if v, ok := envelope["totalElements"]; ok {
+		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) || json.Unmarshal(v, &total) != nil || total < 0 {
+			return nil, 0, errors.New("CRM list response has an invalid total")
+		}
+	}
+	return rows, total, nil
 }
 
-// crmRows extracts row payloads from a list body: a recognised envelope, or
-// a bare JSON array. total prefers the envelope's totalElements.
+func crmObject(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' || !json.Valid(raw) {
+		return errors.New("CRM response has no record acknowledgement")
+	}
+	return crmErrorEnvelope(raw)
+}
 
-// --- CRM response projection helpers (pure functions, testable offline) ---
+func projectCrmLead(raw json.RawMessage) (CrmLead, error) {
+	if err := crmObject(raw); err != nil {
+		return CrmLead{}, err
+	}
+	var row struct {
+		CrmLead
+		NameID      string `json:"nameId"`
+		CustomerID  string `json:"customerId"`
+		Name        string `json:"name"`
+		CompanyName string `json:"companyName"`
+		Emails      []struct {
+			Email string `json:"email"`
+		} `json:"emails"`
+		Phones []struct {
+			OriginalNumber string `json:"originalNumber"`
+		} `json:"phones"`
+		LeadStatus string `json:"leadStatus"`
+		CreateDate string `json:"createDate"`
+		UpdateDate string `json:"updateDate"`
+	}
+	if json.Unmarshal(raw, &row) != nil {
+		return CrmLead{}, errors.New("CRM lead response has invalid fields")
+	}
+	row.ID = firstNonEmpty(row.ID, row.NameID, row.CustomerID)
+	row.DisplayName = firstNonEmpty(row.DisplayName, row.Name, row.OrganizationName, row.CompanyName)
+	if row.Email == "" && len(row.Emails) > 0 {
+		row.Email = row.Emails[0].Email
+	}
+	if row.Phone == "" && len(row.Phones) > 0 {
+		row.Phone = row.Phones[0].OriginalNumber
+	}
+	row.Status = firstNonEmpty(row.Status, row.LeadStatus)
+	row.CreatedAt = firstNonEmpty(row.CreatedAt, row.CreateDate)
+	row.UpdatedAt = firstNonEmpty(row.UpdatedAt, row.UpdateDate)
+	if row.ID == "" && row.DisplayName == "" {
+		return CrmLead{}, errors.New("CRM response has no lead acknowledgement")
+	}
+	return row.CrmLead, nil
+}
 
-func crmRows(raw []byte) ([]json.RawMessage, int) {
+func projectCrmOpportunity(raw json.RawMessage) (CrmOpportunity, error) {
+	if err := crmObject(raw); err != nil {
+		return CrmOpportunity{}, err
+	}
+	var row struct {
+		CrmOpportunity
+		DisplayName string `json:"displayName"`
+	}
+	if json.Unmarshal(raw, &row) != nil {
+		return CrmOpportunity{}, errors.New("CRM opportunity response has invalid fields")
+	}
+	row.Name = firstNonEmpty(row.DisplayName, row.Name)
+	if row.ID == "" && row.Name == "" {
+		return CrmOpportunity{}, errors.New("CRM response has no opportunity acknowledgement")
+	}
+	return row.CrmOpportunity, nil
+}
+
+func crmCountValue(raw []byte) (int, error) {
+	var count int
+	if len(raw) > 0 && raw[0] != '{' && !bytes.Equal(raw, []byte("null")) && json.Unmarshal(raw, &count) == nil && count >= 0 {
+		return count, nil
+	}
 	var envelope struct {
-		Content       []json.RawMessage `json:"content"`
-		Items         []json.RawMessage `json:"items"`
-		Data          []json.RawMessage `json:"data"`
-		TotalElements *int              `json:"totalElements"`
+		Count *int `json:"count"`
 	}
-	if json.Unmarshal(raw, &envelope) == nil {
-		rows := envelope.Content
-		if len(rows) == 0 {
-			rows = envelope.Items
-		}
-		if len(rows) == 0 {
-			rows = envelope.Data
-		}
-		total := len(rows)
-		if envelope.TotalElements != nil {
-			total = *envelope.TotalElements
-		}
-		return rows, total
+	if json.Unmarshal(raw, &envelope) == nil && envelope.Count != nil && *envelope.Count >= 0 {
+		return *envelope.Count, nil
 	}
-	var arr []json.RawMessage
-	if json.Unmarshal(raw, &arr) == nil {
-		return arr, len(arr)
-	}
-	return nil, 0
-}
-
-func crmStr(m map[string]any, keys ...string) string {
-	for _, k := range keys {
-		if v, ok := m[k].(string); ok && v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func crmNum(m map[string]any, keys ...string) float64 {
-	for _, k := range keys {
-		if v, ok := m[k].(float64); ok {
-			return v
-		}
-	}
-	return 0
-}
-
-func projectCrmLead(raw json.RawMessage) CrmLead {
-	var m map[string]any
-	json.Unmarshal(raw, &m)
-	name := crmStr(m, "displayName", "name", "organizationName", "companyName")
-	id := crmStr(m, "nameId", "customerId", "id")
-	return CrmLead{ID: id, DisplayName: name}
-}
-
-func projectCrmOpportunity(raw json.RawMessage) CrmOpportunity {
-	var m map[string]any
-	json.Unmarshal(raw, &m)
-	return CrmOpportunity{ID: crmStr(m, "id"), Name: crmStr(m, "displayName")}
-}
-
-func crmCountValue(raw []byte) int {
-	var n float64
-	if json.Unmarshal(raw, &n) == nil {
-		return int(n)
-	}
-	var m map[string]any
-	if json.Unmarshal(raw, &m) == nil {
-		if c, ok := m["count"].(float64); ok {
-			return int(c)
-		}
-	}
-	return 0
+	return 0, errors.New("CRM count response has no valid count")
 }

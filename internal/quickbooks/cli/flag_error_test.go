@@ -52,7 +52,7 @@ func TestShouldSuppressHonorsSilentFlag(t *testing.T) {
 // end: CSV rows were dropped and a $1 default line recorded instead. The
 // rejection must fire before any plan is emitted, even under --dry-run.
 func TestCSVLineItemsRejectedBeforePlan(t *testing.T) {
-	_, err, _ := runQB(t, "sales", "invoice", "create",
+	_, _, err := runQB(t, "sales", "invoice", "create",
 		"--customer", "1", "--invoice-date", "08/09/2026",
 		"--line-items", "Services,1,7.77,GST", "--dry-run")
 	if err == nil {
@@ -70,7 +70,7 @@ func TestCSVLineItemsRejectedBeforePlan(t *testing.T) {
 // the omission side: creates whose catalog marks line-items required must
 // refuse when lines are absent, instead of recording a $1 default line.
 func TestCreateWithoutRequiredLinesRejected(t *testing.T) {
-	_, err, _ := runQB(t, "sales", "invoice", "create",
+	_, _, err := runQB(t, "sales", "invoice", "create",
 		"--customer", "1", "--invoice-date", "08/09/2026", "--dry-run")
 	if err == nil {
 		t.Fatal("expected missing-lines rejection, got nil error")

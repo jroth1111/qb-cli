@@ -425,7 +425,7 @@ var postCostGroupGraphQLFn = func(ctx context.Context, ac *apiClient, plan *Requ
 	if err != nil {
 		return nil, 0, err
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: %w", plan.op, err)
@@ -456,7 +456,7 @@ func execPlannedGraphQL(ctx context.Context, plan *RequestPlan, referer string, 
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: %w", plan.op, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: %w", plan.op, err)

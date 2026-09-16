@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,7 +36,7 @@ func ReplayCDC(ctx context.Context, entities, since string, limit int) (map[stri
 	if err != nil {
 		return nil, fmt.Errorf("v3 cdc: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -89,11 +88,11 @@ func SendSalesForm(ctx context.Context, entity, id, sendTo string) (map[string]a
 	ac.applyHeaders(req, "")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("sales send: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -115,7 +114,7 @@ var pdfableForms = map[string]string{
 }
 
 // ReplaySalesFormPDF downloads any sendable sales form as PDF to outPath.
-// Invoice keeps its dedicated ReplayInvoicePDF; the others share this path
+// ReplayInvoicePDF shares this implementation; all forms use the same path
 // (verified live TC2: creditmemo/11/pdf returns %PDF bytes).
 func ReplaySalesFormPDF(ctx context.Context, entity, id, outPath string) (*InvoicePDFResult, error) {
 	lower, ok := pdfableForms[entity]
@@ -140,11 +139,11 @@ func ReplaySalesFormPDF(ctx context.Context, entity, id, outPath string) (*Invoi
 	}
 	ac.applyHeaders(req, "")
 	req.Header.Set("Accept", "application/pdf")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("form pdf: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	if resp.StatusCode != http.StatusOK {
 		raw, err := readBody(resp)
 		if err != nil {
@@ -152,20 +151,14 @@ func ReplaySalesFormPDF(ctx context.Context, entity, id, outPath string) (*Invoi
 		}
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	pdf, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	n, err := writeDownload(resp.Body, outPath, maxPDFBytes, true)
 	if err != nil {
-		return nil, fmt.Errorf("reading pdf: %w", err)
-	}
-	if len(pdf) == 0 || !strings.HasPrefix(string(pdf[:5]), "%PDF") {
-		return nil, fmt.Errorf("form pdf: response is not a PDF (%d bytes)", len(pdf))
-	}
-	if err := os.WriteFile(outPath, pdf, 0o644); err != nil {
-		return nil, fmt.Errorf("writing pdf: %w", err)
+		return nil, fmt.Errorf("form pdf: %w", err)
 	}
 	return &InvoicePDFResult{
 		Status:      resp.StatusCode,
 		Path:        outPath,
-		Bytes:       len(pdf),
+		Bytes:       n,
 		ContentType: resp.Header.Get("Content-Type"),
 	}, nil
 }
@@ -200,8 +193,8 @@ func CreateTaxCode(ctx context.Context, name, ratesJSON string) (map[string]any,
 		return nil, fmt.Errorf("tax-code create requires --name")
 	}
 	trimmed := strings.TrimSpace(ratesJSON)
-	if strings.HasPrefix(trimmed, "@") {
-		raw, err := os.ReadFile(strings.TrimPrefix(trimmed, "@"))
+	if after, ok := strings.CutPrefix(trimmed, "@"); ok {
+		raw, err := os.ReadFile(after)
 		if err != nil {
 			return nil, fmt.Errorf("reading --rates-json: %w", err)
 		}
@@ -229,11 +222,11 @@ func CreateTaxCode(ctx context.Context, name, ratesJSON string) (map[string]any,
 	ac.applyHeaders(req, "")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("tax-code create: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -256,8 +249,8 @@ func CreateTaxCode(ctx context.Context, name, ratesJSON string) (map[string]any,
 // layer; callers inspect items.
 func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	trimmed := strings.TrimSpace(itemsJSON)
-	if strings.HasPrefix(trimmed, "@") {
-		raw, err := os.ReadFile(strings.TrimPrefix(trimmed, "@"))
+	if after, ok := strings.CutPrefix(trimmed, "@"); ok {
+		raw, err := os.ReadFile(after)
 		if err != nil {
 			return nil, fmt.Errorf("reading batch file: %w", err)
 		}
@@ -289,11 +282,11 @@ func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	ac.applyHeaders(req, "")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("batch: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err

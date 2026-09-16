@@ -51,7 +51,7 @@ func FetchTabIdentity(ctx context.Context, relayURL, targetID string) (Identity,
 		"returnByValue": true,
 	}, sid)
 	if err != nil {
-		return Identity{}, fmt.Errorf("Runtime.evaluate: %w", err)
+		return Identity{}, fmt.Errorf("runtime.evaluate: %w", err)
 	}
 	id := parseEvalIdentity(evalRaw)
 	if id == (Identity{}) {

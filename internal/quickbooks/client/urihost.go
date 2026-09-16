@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/enetx/surf"
 )
 
 // doURIHost sends reminted cookies plus the leftover host's own request
@@ -19,7 +17,7 @@ import (
 // DefaultTransport intercept. Production code never sets it.
 var uriHostTransport func(req *http.Request) (*http.Response, error)
 
-func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, body []byte) (*http.Response, error) {
+func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, body []byte, overrides ...map[string]string) (*http.Response, error) {
 	if c.tok == nil {
 		return nil, fmt.Errorf("uri-host %s: missing credentials", host)
 	}
@@ -66,6 +64,17 @@ func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, 
 		}
 		req.Header.Set(k, v)
 	}
+	// A host may serve several schemas. Apply operation-specific routing to
+	// this request only; an empty value removes a captured header.
+	for _, headers := range overrides {
+		for key, value := range headers {
+			if value == "" {
+				req.Header.Del(key)
+			} else {
+				req.Header.Set(key, value)
+			}
+		}
+	}
 	if req.Header.Get("Origin") == "" {
 		req.Header.Set("Origin", "https://qbo.intuit.com")
 	}
@@ -78,14 +87,7 @@ func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, 
 	if uriHostTransport != nil {
 		return uriHostTransport(req)
 	}
-	builder := surf.NewClient().Builder().Impersonate().Chrome().Timeout(httpTimeout)
-	sc, err := builder.Build().Result()
-	if err != nil {
-		return nil, fmt.Errorf("uri-host %s: building surf client: %w", host, err)
-	}
-	std := sc.Std()
-	std.Timeout = httpTimeout
-	return std.Do(req)
+	return impersonatedDo(req)
 }
 
 func headerGetFold(h map[string]string, name string) string {

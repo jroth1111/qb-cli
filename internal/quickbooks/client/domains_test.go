@@ -92,7 +92,7 @@ func newDomServer(t *testing.T, status int, respBody string) *domServer {
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(respBody))
 	}))
-	t.Cleanup(s.Server.Close)
+	t.Cleanup(s.Close)
 	return s
 }
 
@@ -164,7 +164,6 @@ func TestCompanyDomainReadsRouteToCapturedBackends(t *testing.T) {
 			row = `{"Id":"4","Name":"AUD"}`
 			name = "AUD"
 		case "Class":
-			row = `{"Id":"61","Name:"missing-quote"}` // replaced below; keep JSON valid
 			row = `{"Id":"61","Name":"NSW"}`
 			name = "NSW"
 		}
@@ -399,17 +398,6 @@ func TestCompanyDomainMutationsPostV3Bodies(t *testing.T) {
 			t.Fatalf("currency delete result = %+v", res)
 		}
 	})
-}
-
-// postURLQuery returns the raw query of the last request recorded by srv.
-func postURLQuery(t *testing.T, srv *domServer) string {
-	t.Helper()
-	_, _, path, _ := srv.snap()
-	// domServer records only Path; re-read the full URL from the last snap
-	// is not possible, so assert on Server-side URL instead via a second hit
-	// is overkill — parse from recorded path is enough for suffix checks.
-	_ = path
-	return "" // replaced below
 }
 
 // --- customers ---------------------------------------------------------------

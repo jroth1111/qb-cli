@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -38,17 +39,71 @@ func p(name, typ, help string, req bool, def string) paramDoc {
 // these; blocked stubs register them so --help is complete, then still return
 // ErrMutationNotWired. Stub flags come from AU learn-support extracts when present.
 func paramsFor(id string) []paramDoc {
+	if ps, ok := salesOrderParamDocs(id); ok {
+		return ps
+	}
+	if spec, ok := v3ByID[id]; ok && spec.Report != "" {
+		// UI catalog help has required flags and dimensions that the report
+		// reader does not implement. Keep the executable contract authoritative.
+		return reportParamDocs(id, spec.Report)
+	}
 	var out []paramDoc
 	if w, ok := wiredParams(id); ok {
 		out = mergeParamHelp(w, firstParams(id))
 	} else if v, ok := v3UniformParams(id); ok {
 		out = mergeParamHelp(v, firstParams(id))
 	} else if au := firstParams(id); len(au) > 0 {
-		out = au
+		// The catalog owns these slices; help normalization must not mutate
+		// shared entries while other command trees are being constructed.
+		out = slices.Clone(au)
 	} else {
 		out = inferredParams(id)
 	}
-	return canonicalFileHelp(canonicalLineItemsHelp(out, id))
+	return canonicalTimeHelp(canonicalFileHelp(canonicalLineItemsHelp(out, id), id), id)
+}
+
+func canonicalTimeHelp(ps []paramDoc, id string) []paramDoc {
+	if id != "QBO.EXPENSES.TIME_ACTIVITY_CREATE" && id != "QBO.EXPENSES.TIME_ACTIVITY_EDIT" && id != "QBO.PAYROLL.TIMESHEET_CREATE" && id != "QBO.PAYROLL.TIMESHEET_EDIT" {
+		return ps
+	}
+	for _, field := range []paramDoc{
+		p("hours", "string", "non-negative whole hours; explicit zero is preserved", false, ""),
+		p("minutes", "string", "separate native minutes, 0 through 59; explicit zero is preserved", false, ""),
+		p("rate", "string", "finite non-negative hourly rate; defaults to zero on create, preserved when omitted on update", false, ""),
+		p("billable", "string", "true or false for the native TimeActivity billing status", false, ""),
+	} {
+		found := false
+		for i := range ps {
+			if ps[i].Name == field.Name {
+				ps[i].Help = field.Help
+				found = true
+				break
+			}
+		}
+		if !found {
+			ps = append(ps, field)
+		}
+	}
+	return ps
+}
+
+func reportParamDocs(id, report string) []paramDoc {
+	ps := []paramDoc{
+		p("report", "string", "report API name (omit to use this command's default)", false, report),
+		p("date-range", "string", "optional period start,end as YYYY-MM-DD,YYYY-MM-DD; omit for the API default", false, ""),
+		p("accounting-method", "string", "Cash or Accrual basis, sent as accounting_method (omit for the API default)", false, ""),
+		p("columns", "string", "column grouping sent as summarize_column_by (Total, Month, Quarter, Year; monthly is an alias for Month); comparison/detail-field lists are unsupported", false, ""),
+		p("id", "string", "unsupported for reports; explicit use is rejected (use --report to select a report)", false, ""),
+		p("limit", "int", "unsupported for reports; explicit use is rejected (reports are not paginated entity lists)", false, "20"),
+	}
+	if report == "TAXABLE_PAYMENTS" {
+		ps[2].Help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
+		ps[3].Help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
+	}
+	if id == "QBO.FEED.REC_REPORT" {
+		ps = append(ps, p("account-id", "string", "unsupported for this company-wide report; explicit use is rejected", false, "204"))
+	}
+	return ps
 }
 
 // canonicalLineItemsHelp replaces any line-items/lines help with the JSON
@@ -66,11 +121,14 @@ func canonicalLineItemsHelp(ps []paramDoc, id string) []paramDoc {
 	return ps
 }
 
-// canonicalFileHelp replaces any file help with the upload truth: only CSV
+// canonicalFileHelp scopes bank-feed import help to the upload truth: only CSV
 // bank-statement files are staged via uploadCsvFile (text/csv). The generated
 // AU texts promising XLSX/PDF describe the UI wizard, which the CLI does not
 // drive, and must not reach agents.
-func canonicalFileHelp(ps []paramDoc) []paramDoc {
+func canonicalFileHelp(ps []paramDoc, id string) []paramDoc {
+	if id != "QBO.FEED.TXN_IMPORT" {
+		return ps
+	}
 	for i, prm := range ps {
 		if prm.Name == "file" {
 			ps[i].Help = "CSV bank-statement file staged via uploadCsvFile then processed row by row (other formats are UI-only)"
@@ -157,16 +215,6 @@ func wiredParams(id string) ([]paramDoc, bool) {
 	case "QBO.FEED.TXN_POPULATION_ALL":
 		return []paramDoc{
 			p("max-pages-per-account", "int", "page ceiling per account at 300 rows per page", false, "40"),
-		}, true
-	case "QBO.REPORTS.PERFORMANCE_READ":
-		// ProfitAndLoss-backed report read: same flag set as the generic
-		// report reader. The catalogued --chart dimension has no backend.
-		return []paramDoc{
-			p("date-range", "string", "report period start,end as YYYY-MM-DD,YYYY-MM-DD", true, ""),
-			p("accounting-method", "string", "accrual or cash basis (accepted, not forwarded to v3 reports API)", false, ""),
-			p("columns", "string", "period columns / compare time periods (accepted, not forwarded to v3 reports API)", false, ""),
-			p("id", "string", "target report id (accepted, not forwarded to v3 reports API)", false, ""),
-			p("limit", "int", "max rows (accepted for catalog parity; reports are not list endpoints)", false, "20"),
 		}, true
 	case "QBO.ACCOUNTING.PREPAID_READ":
 		// Schedule fetch keyed solely by --source-id; the cobra command
@@ -513,7 +561,10 @@ func notesFor(e primitiveEntry) string {
 	base := ""
 	switch e.Mode {
 	case modeWired:
-		base = "Live mutation. Uses the captured QBO session. Prefer account 209 for tests. Pass olbTxnIds, never :ofx display ids."
+		base = "Live mutation using the captured QBO session. Use record IDs from the corresponding read command."
+		if strings.HasPrefix(e.ID, "QBO.FEED.") {
+			base += " Bank-feed writes require olbTxnIds, not :ofx display IDs."
+		}
 	case modeRead:
 		base = "Live read via the captured session. Secret-free JSON with --json."
 	case modeBlocked:
@@ -521,6 +572,9 @@ func notesFor(e primitiveEntry) string {
 
 	case modeExcluded:
 		base = "Policy-excluded. Listed only. Not a command."
+	}
+	if strings.HasPrefix(e.ID, "QBO.SALES.SALES_ORDER_") {
+		return base + "\nUses the native sales-order service. Create supports SERVICE lines; updates preserve omitted values and reject unsupported tax, discount, shipping, or linked-line changes."
 	}
 	if extra := auHelpNote(e.ID); extra != "" {
 		if base != "" {
@@ -554,7 +608,7 @@ func attachParamFlags(cmd *cobra.Command, id string) {
 		switch p.Type {
 		case "int":
 			def := 0
-			fmt.Sscanf(p.Default, "%d", &def)
+			_, _ = fmt.Sscanf(p.Default, "%d", &def)
 			cmd.Flags().Int(p.Name, def, help)
 		case "bool":
 			cmd.Flags().Bool(p.Name, false, help)

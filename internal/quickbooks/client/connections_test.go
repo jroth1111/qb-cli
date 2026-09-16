@@ -44,7 +44,7 @@ func TestProjectConnectionsGraphQLError(t *testing.T) {
 }
 
 func TestPlannedConnectionsURL(t *testing.T) {
-	if PlannedConnectionsURL() != "https://v4.api.intuit.com/graphql" {
+	if PlannedConnectionsURL() != "https://qbo.intuit.com/api/v4/graphql" {
 		t.Fatalf("%s", PlannedConnectionsURL())
 	}
 }

@@ -33,10 +33,8 @@ import (
 //     "DelayedCredit") and ReplayMutate("DelayedCredit", "create") — the
 //     same calls cli/v3mutate.go makes for QBO.SALES.DELAYED_CREDIT_CREATE.
 //   - sales-order reads dispatch to the captured commercecontrol
-//     GetSalesOrders GraphQL (ReplayQuery("SalesOrder")). Sales-order
-//     create/update/delete share the Invoice v3 write path (cli/v3mutate.go
-//     pins SALES_ORDER_* to Entity "Invoice"); the invoice write tests below
-//     therefore exercise their wire behaviour too.
+//     GetSalesOrders / GetSalesOrderWithTaxGroup GraphQL (ReplayQuery("SalesOrder")).
+//     Native sales-order mutation contracts are covered in salesorder_contract_test.go.
 //
 // Kill denominator: 12. The suite rejects implementations that
 //  1. dial the network without credentials (fast-fail broken),
@@ -80,7 +78,7 @@ func newSDServer(t *testing.T, bodies map[string]string) *sdServer {
 	t.Helper()
 	s := &sdServer{t: t, bodies: bodies}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
-	t.Cleanup(s.Server.Close)
+	t.Cleanup(s.Close)
 	return s
 }
 
@@ -396,72 +394,52 @@ func TestSalesDomainListAndGetProjectsV3Rows(t *testing.T) {
 	}
 }
 
-// TestSalesDomainSalesOrderReadsPostCapturedGraphQL pins the sales-order
-// dispatch: ReplayQuery("SalesOrder") must POST the captured GetSalesOrders
-// document to commercecontrol — never a v3 /query GET — and report the
-// honest totalCount note. By-id get accepts the id for flag parity but does
-// not forward it (the captured document has no by-id variable).
+// TestSalesDomainSalesOrderReadsPostCapturedGraphQL checks native rows and IDs.
 func TestSalesDomainSalesOrderReadsPostCapturedGraphQL(t *testing.T) {
-	saveUsable(t)
+	saveUsableURIHost(t)
 	srv := newSDServer(t, map[string]string{
-		"POST /graphql": `{"data":{"result":{"totalCount":2,"__typename":"SalesOrdersPagedResult"}}}`,
+		"POST /graphql": `{"data":{"result":{"totalCount":2,"salesOrders":[{"id":"77","customerName":"Fixture Customer","orderNumber":"SO-77","transactionDate":"2026-09-10","total":2},{"id":"78","customerName":"Other Customer","orderNumber":"SO-78","total":3}]}}}`,
 	})
 	interceptHTTP(t, srv.URL)
-	ctx := context.Background()
-
-	res, err := ReplayQuery(ctx, "SalesOrder", "", "", 5)
+	res, err := ReplayQuery(t.Context(), "SalesOrder", "", "", 5)
 	if err != nil {
-		t.Fatalf("salesorder list: %v", err)
+		t.Fatal(err)
 	}
-	if res.Status != http.StatusOK || res.Entity != "SalesOrder" || len(res.Items) != 0 {
-		t.Fatalf("salesorder list envelope = %+v", res)
-	}
-	if res.Counts["totalCount"] != 2 || res.Counts["items"] != 0 {
-		t.Fatalf("salesorder counts = %v", res.Counts)
-	}
-	if !strings.Contains(res.Note, "totalCount=2") || !strings.Contains(res.Note, "SalesOrdersPagedResult") {
-		t.Fatalf("salesorder note = %q", res.Note)
+	if res.Status != http.StatusOK || res.Entity != "SalesOrder" || len(res.Items) != 2 || res.Items[0].ID != "77" || res.Items[0].Amount != 2 || res.Counts["totalCount"] != 2 || res.Counts["items"] != 2 {
+		t.Fatalf("list=%+v", res)
 	}
 	snap := srv.snap()
 	if snap.Calls != 1 || snap.Method != http.MethodPost || snap.Path != "/graphql" {
-		t.Fatalf("dispatch = %+v", snap)
+		t.Fatalf("dispatch=%+v", snap)
 	}
 	var payload struct {
-		OperationName string `json:"operationName"`
-		Query         string `json:"query"`
-		Variables     struct {
-			Offset int `json:"offset"`
-			Limit  int `json:"limit"`
-		} `json:"variables"`
+		OperationName string
+		Query         string
+		Variables     map[string]any
 	}
 	if err := json.Unmarshal(snap.Body, &payload); err != nil {
-		t.Fatalf("payload not JSON: %v (%s)", err, snap.Body)
+		t.Fatal(err)
 	}
-	if payload.OperationName != "GetSalesOrders" || !strings.Contains(payload.Query, "GetSalesOrders") {
-		t.Fatalf("operation = %q, query = %q", payload.OperationName, payload.Query)
+	if payload.OperationName != "GetSalesOrders" || !strings.Contains(payload.Query, "salesOrders {") || payload.Variables["offset"] != float64(0) || payload.Variables["limit"] != float64(5) {
+		t.Fatalf("payload=%+v", payload)
 	}
-	if payload.Variables.Offset != 0 || payload.Variables.Limit != 5 {
-		t.Fatalf("variables = %+v", payload.Variables)
+	srv.mu.Lock()
+	srv.bodies["POST /graphql"] = `{"data":{"result":{"id":"77","customerName":"Fixture Customer","orderNumber":"SO-77","transactionDate":"2026-09-10","total":2}}}`
+	srv.mu.Unlock()
+	res, err = ReplayQuery(t.Context(), "SalesOrder", "77", "", 5)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	// get: id accepted for cobra parity, never forwarded.
-	if _, err := ReplayQuery(ctx, "SalesOrder", "77", "", 5); err != nil {
-		t.Fatalf("salesorder get: %v", err)
+	if len(res.Items) != 1 || res.Items[0].ID != "77" || res.Items[0].Name != "Fixture Customer" {
+		t.Fatalf("get=%+v", res)
 	}
 	snap = srv.snap()
-	if snap.Calls != 2 {
-		t.Fatalf("by-id get must reuse the single GraphQL dispatch; calls = %d", snap.Calls)
+	payload.Variables = nil
+	if err := json.Unmarshal(snap.Body, &payload); err != nil {
+		t.Fatal(err)
 	}
-	var vars map[string]any
-	var raw struct {
-		Variables map[string]any `json:"variables"`
-	}
-	if err := json.Unmarshal(snap.Body, &raw); err != nil || len(raw.Variables) != 2 {
-		t.Fatalf("by-id variables must stay {offset,limit}: %v (%s)", err, snap.Body)
-	}
-	vars = raw.Variables
-	if vars["offset"] != float64(0) || vars["limit"] != float64(5) {
-		t.Fatalf("by-id variables = %v", vars)
+	if snap.Calls != 2 || payload.OperationName != "GetSalesOrderWithTaxGroup" || !strings.Contains(payload.Query, "getSalesOrder(id: $id)") || len(payload.Variables) != 1 || payload.Variables["id"] != "77" {
+		t.Fatalf("by-id payload=%+v", payload)
 	}
 }
 

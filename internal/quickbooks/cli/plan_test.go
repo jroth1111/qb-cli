@@ -16,7 +16,7 @@ import (
 // Rejects dry-run that: dials, skips validation, requires creds, leaks
 // secrets, succeeds as a live stub, or leaves RULE_READ/AUDIT_LOG_READ blocked.
 
-func runQB(t *testing.T, args ...string) (string, error, time.Duration) {
+func runQB(t *testing.T, args ...string) (string, time.Duration, error) {
 	t.Helper()
 	t.Setenv("QB_HOME", t.TempDir())
 	root := NewRootCommand()
@@ -28,7 +28,7 @@ func runQB(t *testing.T, args ...string) (string, error, time.Duration) {
 	defer cancel()
 	start := time.Now()
 	err := root.ExecuteContext(ctx)
-	return out.String(), err, time.Since(start)
+	return out.String(), time.Since(start), err
 }
 
 func decodePlan(t *testing.T, stdout string) planEnvelope {
@@ -41,7 +41,7 @@ func decodePlan(t *testing.T, stdout string) planEnvelope {
 }
 
 func TestDryRunExcludeEmitsPlanNoDial(t *testing.T) {
-	stdout, err, elapsed := runQB(t, "feed", "txn", "update", "exclude", "--ids", "olb-1", "--dry-run", "--json")
+	stdout, elapsed, err := runQB(t, "feed", "txn", "update", "exclude", "--ids", "olb-1", "--dry-run", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("dry-run took %s — likely dialed", elapsed)
 	}
@@ -61,7 +61,7 @@ func TestDryRunExcludeEmitsPlanNoDial(t *testing.T) {
 }
 
 func TestDryRunExcludeEmptyIDsFails(t *testing.T) {
-	_, err, elapsed := runQB(t, "feed", "txn", "update", "exclude", "--dry-run", "--json")
+	_, elapsed, err := runQB(t, "feed", "txn", "update", "exclude", "--dry-run", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -71,7 +71,7 @@ func TestDryRunExcludeEmptyIDsFails(t *testing.T) {
 }
 
 func TestDryRunImportBlockedAccountFails(t *testing.T) {
-	_, err, elapsed := runQB(t, "feed", "txn", "import", "--account-id", "204", "--description", "QB-CLI-TEST", "--amount", "0.01", "--dry-run", "--json")
+	_, elapsed, err := runQB(t, "feed", "txn", "import", "--account-id", "204", "--description", "QB-CLI-TEST", "--amount", "0.01", "--dry-run", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -81,7 +81,7 @@ func TestDryRunImportBlockedAccountFails(t *testing.T) {
 }
 
 func TestDryRunStubInvoiceCreate(t *testing.T) {
-	stdout, err, elapsed := runQB(t, "sales", "invoice", "create", "--customer", "1", "--line-items", "[{\"Amount\":1}]", "--dry-run", "--json")
+	stdout, elapsed, err := runQB(t, "sales", "invoice", "create", "--customer", "1", "--line-items", "[{\"Amount\":1}]", "--dry-run", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -98,7 +98,7 @@ func TestDryRunStubInvoiceCreate(t *testing.T) {
 }
 
 func TestDryRunStubFlagsAreIndependent(t *testing.T) {
-	stdout, err, _ := runQB(t, "sales", "invoice", "create", "--customer", "Acme", "--line-items", "[{\"Amount\":1}]", "--dry-run", "--json")
+	stdout, _, err := runQB(t, "sales", "invoice", "create", "--customer", "Acme", "--line-items", "[{\"Amount\":1}]", "--dry-run", "--json")
 	if err != nil {
 		t.Fatalf("dry-run stub: %v; stdout=%q", err, stdout)
 	}
@@ -112,7 +112,7 @@ func TestDryRunStubFlagsAreIndependent(t *testing.T) {
 }
 
 func TestStubInvoiceCreateWithoutDryRunStillFails(t *testing.T) {
-	_, err, elapsed := runQB(t, "sales", "invoice", "create", "--customer", "TEST", "--line-items", "[{\"Amount\":1}]", "--json")
+	_, elapsed, err := runQB(t, "sales", "invoice", "create", "--customer", "TEST", "--line-items", "[{\"Amount\":1}]", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -125,7 +125,7 @@ func TestStubInvoiceCreateWithoutDryRunStillFails(t *testing.T) {
 }
 
 func TestDryRunRegisterReadNoDial(t *testing.T) {
-	stdout, err, elapsed := runQB(t, "accounting", "register", "get", "--dry-run", "--json")
+	stdout, elapsed, err := runQB(t, "accounting", "register", "get", "--dry-run", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -139,7 +139,7 @@ func TestDryRunRegisterReadNoDial(t *testing.T) {
 }
 
 func TestFeedRuleReadMissingCredentialsFails(t *testing.T) {
-	_, err, elapsed := runQB(t, "feed", "rule", "get", "--json")
+	_, elapsed, err := runQB(t, "feed", "rule", "get", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -149,7 +149,7 @@ func TestFeedRuleReadMissingCredentialsFails(t *testing.T) {
 }
 
 func TestInvoiceReadMissingCredentialsFails(t *testing.T) {
-	_, err, elapsed := runQB(t, "sales", "invoice", "get", "--json")
+	_, elapsed, err := runQB(t, "sales", "invoice", "get", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -159,7 +159,7 @@ func TestInvoiceReadMissingCredentialsFails(t *testing.T) {
 }
 
 func TestDryRunInvoiceReadNoDial(t *testing.T) {
-	stdout, err, elapsed := runQB(t, "sales", "invoice", "get", "--dry-run", "--json")
+	stdout, elapsed, err := runQB(t, "sales", "invoice", "get", "--dry-run", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}
@@ -173,7 +173,7 @@ func TestDryRunInvoiceReadNoDial(t *testing.T) {
 }
 
 func TestAuditLogReadMissingCredentialsFails(t *testing.T) {
-	_, err, elapsed := runQB(t, "accounting", "audit-log", "get", "--json")
+	_, elapsed, err := runQB(t, "accounting", "audit-log", "get", "--json")
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s", elapsed)
 	}

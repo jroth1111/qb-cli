@@ -26,7 +26,28 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql"
 )
+
+// Keep these protocol fixtures offline while production uses ego-browser.
+func init() {
+	crmBrowserFetch = func(ctx context.Context, endpoint, method string, headers map[string]string, body []byte) (*gql.Response, error) {
+		relay := crmRelayURL()
+		tabs, err := crmListRelayPages(ctx, relay)
+		if err != nil {
+			return nil, err
+		}
+		tab := crmFindAuthTab(tabs)
+		if tab == nil {
+			return nil, ErrCrmNeedsRelayTab
+		}
+		status, raw, err := crmEvalFetch(ctx, relay, tab.ID, endpoint, method, body, headers)
+		if err != nil {
+			return nil, err
+		}
+		return &gql.Response{Status: int(status), Body: raw}, nil
+	}
+}
 
 // crmCapturedRequest records what the last evaluated in-page fetch did.
 type crmCapturedRequest struct {
@@ -143,7 +164,7 @@ func crmRecordFetch(expr string, into *crmCapturedRequest) {
 	into.URL = crmUnquote(crmBetween(expr, `await fetch(`, `, {`))
 	into.Method = crmUnquote(crmBetween(expr, `method: `, ",\n"))
 	into.Headers = map[string]string{}
-	for _, pair := range strings.Split(crmBetween(expr, `headers: {`, `}`), ", ") {
+	for pair := range strings.SplitSeq(crmBetween(expr, `headers: {`, `}`), ", ") {
 		parts := strings.SplitN(strings.TrimSpace(pair), ": ", 2)
 		if len(parts) == 2 && parts[0] != "" {
 			into.Headers[crmUnquote(parts[0])] = crmUnquote(parts[1])
@@ -156,16 +177,16 @@ func crmRecordFetch(expr string, into *crmCapturedRequest) {
 }
 
 func crmBetween(s, start, end string) string {
-	i := strings.Index(s, start)
-	if i < 0 {
+	_, after, ok := strings.Cut(s, start)
+	if !ok {
 		return ""
 	}
-	rest := s[i+len(start):]
-	j := strings.Index(rest, end)
-	if j < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, end)
+	if !ok0 {
 		return rest
 	}
-	return rest[:j]
+	return before0
 }
 
 // crmUnquote resolves a double-quoted JSON string token; anything else is
@@ -313,7 +334,7 @@ func TestCrmReplayNoCredentialsZeroDial(t *testing.T) {
 func TestCrmLeadListViaRelayTab(t *testing.T) {
 	crmSaveSession(t)
 	var captured crmCapturedRequest
-	body := `{"content":[{"nameId":"L1","displayName":"Acme Corp"},{"nameId":"L2","displayName":"Globex"}],"totalElements":42}`
+	body := `{"data":{"dataAccessLeads":{"edges":[{"node":{"id":"L1","displayName":"Acme Corp"}},{"node":{"id":"L2","displayName":"Globex"}}],"totalCount":42,"pageInfo":{"hasNextPage":true,"endCursor":"CURSOR"}}}}`
 	srv := crmStartFakeRelay(t, &captured, func(string) string {
 		return crmStatusBodyResult(http.StatusOK, body)
 	})
@@ -329,12 +350,22 @@ func TestCrmLeadListViaRelayTab(t *testing.T) {
 	if len(res.Leads) != 2 || res.Leads[0].ID != "L1" || res.Leads[0].DisplayName != "Acme Corp" || res.Leads[1].ID != "L2" {
 		t.Fatalf("leads = %+v", res.Leads)
 	}
-	wantURL := crmCoreBaseURL + "/leads?page=0&size=25&sort=updateDate%2Cdesc"
+	wantURL := "https://sbseggraphqlorch.api.intuit.com/graphql"
 	if captured.URL != wantURL {
 		t.Errorf("in-page fetch URL = %s, want %s", captured.URL, wantURL)
 	}
-	if captured.Method != http.MethodGet {
-		t.Errorf("method = %s, want GET", captured.Method)
+	if captured.Method != http.MethodPost {
+		t.Errorf("method = %s, want POST", captured.Method)
+	}
+	var payload struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	if err := json.Unmarshal([]byte(captured.Body), &payload); err != nil {
+		t.Fatalf("GraphQL body = %q: %v", captured.Body, err)
+	}
+	if !strings.Contains(payload.Query, "dataAccessLeads") || payload.Variables["first"] != float64(25) {
+		t.Fatalf("GraphQL payload = %+v", payload)
 	}
 	if !strings.Contains(captured.Expression, "credentials: 'include'") {
 		t.Error("fetch must send credentials:'include' — cookie auth is the point of the relay tab")
@@ -345,8 +376,8 @@ func TestCrmLeadListViaRelayTab(t *testing.T) {
 	if got := captured.Headers["intuit-company-id"]; got != "12345" {
 		t.Errorf("intuit-company-id = %q, want 12345", got)
 	}
-	if captured.Body != "" {
-		t.Errorf("GET must interpolate null body, got %q", captured.Body)
+	if captured.Body == "" {
+		t.Error("GraphQL POST must interpolate a JSON body")
 	}
 }
 
@@ -365,13 +396,13 @@ func TestCrmLeadCreateViaRelayTab(t *testing.T) {
 	if res.ID != "NEW1" || res.DisplayName != "Initech" {
 		t.Fatalf("created = %+v", res)
 	}
-	if captured.Method != http.MethodPost {
-		t.Fatalf("method = %s, want POST", captured.Method)
+	if captured.Method != http.MethodPut {
+		t.Fatalf("method = %s, want PUT", captured.Method)
 	}
 	if captured.Body == "" || !strings.Contains(captured.Body, `"displayName":"Initech"`) {
-		t.Fatalf("POST body not forwarded: %q", captured.Body)
+		t.Fatalf("PUT body not forwarded: %q", captured.Body)
 	}
-	if captured.URL != crmCoreBaseURL+"/leads" {
+	if captured.URL != "https://mccrmmessaging.api.intuit.com/v1/api/leads" {
 		t.Errorf("URL = %s", captured.URL)
 	}
 }
@@ -391,7 +422,7 @@ func TestCrmLeadCountBareNumberViaRelayTab(t *testing.T) {
 	if n != 7 {
 		t.Fatalf("count = %d, want 7", n)
 	}
-	want := crmCoreBaseURL + "/leads/count?sourceTypes=CSV"
+	want := "https://mccrmmessaging.api.intuit.com/v1/api/leads/count?sourceType=CSV"
 	if captured.URL != want {
 		t.Errorf("URL = %s, want %s", captured.URL, want)
 	}
@@ -445,15 +476,10 @@ func TestCrmSurfacesHTTPErrorStatus(t *testing.T) {
 	})
 	t.Setenv("QB_RELAY_URL", srv.URL)
 
-	res, err := ReplayAssociationList(context.Background(), "C1")
-	if err != nil {
-		t.Fatalf("transport error returned for HTTP-level failure: %v", err)
-	}
-	if res.Status != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 surfaced", res.Status)
-	}
-	if res.Count != 0 {
-		t.Fatalf("count = %d, want 0 for error body", res.Count)
+	_, err := ReplayAssociationList(context.Background(), "C1")
+	var apiError *ReplayError
+	if !errors.As(err, &apiError) || apiError.Status != http.StatusInternalServerError {
+		t.Fatalf("HTTP500 must fail the domain action: %v", err)
 	}
 }
 
@@ -491,7 +517,7 @@ func TestCrmUnwrapsDoubleEncodedBodies(t *testing.T) {
 func TestCrmObjectFormResultUnwrapsQuotedBody(t *testing.T) {
 	crmSaveSession(t)
 	var captured crmCapturedRequest
-	quotedEnvelope := `"` + `{"content":[],"totalElements":0}` + `"`
+	quotedEnvelope := crmMustJSON(`{"content":[],"totalElements":0}`)
 	srv := crmStartFakeRelay(t, &captured, func(string) string {
 		return crmObjectFormResult(quotedEnvelope)
 	})

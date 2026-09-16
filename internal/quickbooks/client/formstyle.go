@@ -31,7 +31,7 @@ func replayFormStyles(ctx context.Context, _, query string, limit int) (*QueryRe
 	if err != nil {
 		return nil, fmt.Errorf("form-style customizations: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading form-style customizations: %w", err)

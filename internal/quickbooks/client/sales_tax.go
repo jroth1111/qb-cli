@@ -149,32 +149,6 @@ const taxReturnsQuery = `query TaxReturns__indirect_tax_ui_qbo($id: ID!) {
                 }
             }`
 
-const taxSettingQuery = `query TaxSetting__indirect_tax_ui_qbo($DEFAULT_FIRST_COUNT: Int!) {
-                company {
-                    id
-                    taxSettings(first: 1) {
-                        edges {
-                            node {
-                                id
-                                taxEnabled
-                                taxStructure {
-                                    taxAgencies(first: $DEFAULT_FIRST_COUNT) {
-                                        edges {
-                                            node {
-                                                id
-                                                name
-                                                code
-                                                displayName
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }`
-
 const createTaxPaymentMutation = `mutation CreateTaxPayment($input: IndirectTax_CreatePaymentInput!) {
                 indirectTaxCreatePayment(input: $input) {
                     clientMutationId
@@ -392,7 +366,7 @@ func execTaxGraphQL(ctx context.Context, plan *RequestPlan, write bool) ([]byte,
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: %w", plan.op, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: %w", plan.op, err)

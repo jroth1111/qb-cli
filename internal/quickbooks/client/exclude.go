@@ -22,6 +22,7 @@ type excludeRequest struct {
 	TxnIDList struct {
 		ExternalTxnIDs []string `json:"externalTxnIds"`
 		OlbTxnIDs      []string `json:"olbTxnIds"`
+		TxnIDPairs     []any    `json:"txnIdPairs"`
 	} `json:"txnIdList"`
 }
 

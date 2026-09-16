@@ -38,8 +38,8 @@ type TokenSet struct {
 	// Remint ApplyATSCapture does not overwrite this map.
 	URIHostHeaders map[string]map[string]string `json:"uri_host_headers,omitempty"`
 
-	AccessExpiry  time.Time `json:"access_expiry,omitempty"`
-	RefreshExpiry time.Time `json:"refresh_expiry,omitempty"`
+	AccessExpiry  time.Time `json:"access_expiry,omitzero"`
+	RefreshExpiry time.Time `json:"refresh_expiry,omitzero"`
 	Cookies       []Cookie  `json:"cookies"`
 	RelayURL      string    `json:"relay_url,omitempty"`
 }
@@ -50,7 +50,7 @@ type Cookie struct {
 	Value    string    `json:"value"`
 	Domain   string    `json:"domain"`
 	Path     string    `json:"path"`
-	Expires  time.Time `json:"expires,omitempty"`
+	Expires  time.Time `json:"expires,omitzero"`
 	Secure   bool      `json:"secure"`
 	HTTPOnly bool      `json:"http_only"`
 }
@@ -69,9 +69,9 @@ type Status struct {
 	HasRequestHeaders   bool   `json:"has_request_headers"`
 	RequestHeaderCount  int    `json:"request_header_count,omitempty"`
 
-	AccessExpiry  time.Time `json:"access_expiry,omitempty"`
-	RefreshExpiry time.Time `json:"refresh_expiry,omitempty"`
-	LongestExpiry time.Time `json:"longest_expiry,omitempty"`
+	AccessExpiry  time.Time `json:"access_expiry,omitzero"`
+	RefreshExpiry time.Time `json:"refresh_expiry,omitzero"`
+	LongestExpiry time.Time `json:"longest_expiry,omitzero"`
 	CapturedAt    time.Time `json:"captured_at"`
 	FinalURL      string    `json:"final_url,omitempty"`
 }

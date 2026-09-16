@@ -64,6 +64,7 @@ file. Every success leads with the bound company. ` + "`qb auth status --live`" 
 
 --no-open: only the relay path (wait for a tab; never open a browser).
 --from-mitm PATH: import a mitmproxy dump (no browser).
+QB_NO_MANAGED=1: skip the managed-profile rung (relay → ego Space).
 Cookie-only sessions are rejected. --json never prints secrets.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLogin(cmd, flags, lf)
@@ -104,13 +105,25 @@ func runLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error {
 	}
 	// Managed persistent profile first: a visible Chromium on a stable
 	// profile dir the user signs into normally. Falls through to the
-	// isolated ego Space only when managed Chrome cannot start.
-	if tok, merr := runLoginManaged(ctx, cmd.ErrOrStderr(), lf.loginURL); merr == nil {
+	// isolated ego Space only when managed Chrome cannot start or the
+	// operator opted out via QB_NO_MANAGED=1 (same kill-switch the
+	// auto-remint ladder honors in auth.RemintManaged).
+	if managedLoginDisabled() {
+		fmt.Fprintln(cmd.ErrOrStderr(), "qb: QB_NO_MANAGED=1; skipping managed browser, opening ego Space...")
+	} else if tok, merr := runLoginManaged(ctx, cmd.ErrOrStderr(), lf.loginURL); merr == nil {
 		return persistLogin(cmd, flags, tok)
 	} else {
 		fmt.Fprintf(cmd.ErrOrStderr(), "qb: managed browser unavailable (%v); trying ego Space...\n", merr)
 	}
 	return runLoginEgo(cmd, flags, lf)
+}
+
+// managedLoginDisabled reports whether the operator opted the explicit
+// login ladder out of the managed Chromium rung. Mirrors the check inside
+// auth.RemintManaged / auth.allowManagedRemint (managedDisableEnv is
+// unexported there, so the env name is repeated here).
+func managedLoginDisabled() bool {
+	return os.Getenv("QB_NO_MANAGED") == "1"
 }
 
 // captureManagedFn runs the managed-profile capture. Tests replace it so
@@ -464,7 +477,7 @@ func probeRelay(ctx context.Context, relayURL string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("relay /json/version returned %s", resp.Status)
 	}
@@ -483,7 +496,7 @@ func listTabs(ctx context.Context, relayURL string) ([]relayTab, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("relay /json/list returned %s", resp.Status)
 	}

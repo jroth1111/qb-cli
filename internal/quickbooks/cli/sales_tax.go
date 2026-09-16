@@ -30,7 +30,6 @@ type salestxFlags struct {
 	id       string
 	to       string
 	email    string
-	output   string
 	customer string
 	amount   float64
 	date     string
@@ -39,7 +38,6 @@ type salestxFlags struct {
 	account  string // payment account id (gst file)
 	agency   string // tax agency node id (bas list / gst file)
 	status   string
-	limit    int
 	version  int
 }
 
@@ -52,7 +50,7 @@ func (f *salestxFlags) bindWrite(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.date, "date", "", "dd/MM/yyyy")
 	cmd.Flags().StringVar(&f.item, "item", "", "item id for sales lines")
 	cmd.Flags().StringVar(&f.memo, "memo", "", "memo / private note")
-	cmd.Flags().MarkHidden("email")
+	_ = cmd.Flags().MarkHidden("email")
 }
 
 // newSalesTxV3Cmd builds one v3-backed leaf: verb over a CLI entity word.
@@ -67,6 +65,18 @@ func newSalesTxV3Cmd(flags *rootFlags, entity, use, op string) *cobra.Command {
 		Use: use,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isRead {
+				if !client.V3Queryable(v3Word(entity)) {
+					if flags.dryRun {
+						return writePlan(cmd, flags, planEnvelope{
+							Command: command,
+							ID:      eFor(command),
+							Mode:    modeBlocked,
+							Flags:   localFlagMap(cmd),
+							Note:    "unsupported contract: v3 query has no " + v3Word(entity) + " context; not sent",
+						})
+					}
+					return feedErr(flags, fmt.Errorf("%w: %s", client.ErrUnsupportedQueryContext, v3Word(entity)))
+				}
 				if handled, err := dryRunGET(flags, cmd, command, eFor(command), client.PlannedQueryURL(v3Word(entity)), "v3 query GET; not sent"); handled {
 					return err
 				}
@@ -106,6 +116,9 @@ func newSalesTxV3Cmd(flags *rootFlags, entity, use, op string) *cobra.Command {
 	}
 	if isRead {
 		cmd.Short = command + " (v3 query)"
+		if !client.V3Queryable(v3Word(entity)) {
+			cmd.Short = command + " (unsupported: no v3 query context)"
+		}
 		cmd.Flags().StringVar(&id, "id", "", "v3 entity id (omit to list)")
 		cmd.Flags().StringVar(&query, "query", "", "substring match on doc number")
 		cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
@@ -395,7 +408,7 @@ func newSalesTaxCmd(flags *rootFlags) *cobra.Command {
 		Long: "Sales transactions and indirect tax. qb salestx <entity> <verb>.\n\n" +
 			"v3 transactions: invoice list|get|create|update|delete|void|send|pdf,\n" +
 			"estimate list|get|create|update|delete|send, payment list|get|create|delete,\n" +
-			"creditmemo list|get|create|delete, delayedcharge list|create,\n" +
+			"creditmemo list|get|create|delete, delayedcharge create (list unsupported: no v3 query context),\n" +
 			"salesreceipt list|get|create|delete.\n" +
 			"tax: taxcode list, taxrate list|get, gst list|file, bas list|lodge,\n" +
 			"tpar list|generate.",

@@ -54,7 +54,7 @@ func replayGetItemReceipts(ctx context.Context, _, _ string, limit int) (*QueryR
 	if err != nil {
 		return nil, fmt.Errorf("item-receipt GetItemReceipts: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading item-receipt GetItemReceipts: %w", err)
@@ -74,8 +74,10 @@ func projectGetItemReceipts(body []byte) *QueryResult {
 		} `json:"errors"`
 		Data struct {
 			Result struct {
-				TotalCount int    `json:"totalCount"`
-				Typename   string `json:"__typename"`
+				Nodes      []json.RawMessage `json:"nodes"`
+				Edges      []json.RawMessage `json:"edges"`
+				TotalCount int               `json:"totalCount"`
+				Typename   string            `json:"__typename"`
 			} `json:"warehouseManagementItemReceipts"`
 		} `json:"data"`
 	}
@@ -91,10 +93,28 @@ func projectGetItemReceipts(body []byte) *QueryResult {
 	if len(wrap.Errors) > 0 && wrap.Errors[0].Message != "" {
 		note += "; gql: " + wrap.Errors[0].Message
 	}
+	// The connection's known nodes array carries the full receipt fields;
+	// edge nodes (id only) are the fallback when nodes is absent.
+	raws := wrap.Data.Result.Nodes
+	if len(raws) == 0 {
+		raws = gqlEdgeNodes(wrap.Data.Result.Edges)
+	}
+	items := projectJSONItems("ItemReceipt", raws, itemReceiptItemKeys)
 	return &QueryResult{
 		Entity: "ItemReceipt",
-		Counts: map[string]int{"items": 0, "totalCount": total},
-		Items:  []QueryItem{},
+		Counts: map[string]int{"items": len(items), "totalCount": total},
+		Items:  items,
 		Note:   note,
 	}
+}
+
+// itemReceiptItemKeys maps warehouseManagementItemReceipts nodes onto
+// QueryItem; the vendor {id,name} reference fills AccountID/Account.
+var itemReceiptItemKeys = itemKeys{
+	id:        []string{"id", "Id"},
+	name:      []string{"memo", "name", "Name"},
+	date:      []string{"txnDate", "TxnDate", "date"},
+	docNumber: []string{"referenceNo", "docNumber", "DocNumber"},
+	typeOf:    []string{"status", "Status"},
+	refs:      []string{"vendor"},
 }

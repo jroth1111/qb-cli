@@ -180,7 +180,7 @@ func replayListsPrefs(ctx context.Context, _, _ string, limit int) (*QueryResult
 	if err != nil {
 		return nil, fmt.Errorf("lists ListsPrefs: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading lists ListsPrefs: %w", err)

@@ -45,7 +45,7 @@ func swapCostGroupSurfStdlib(t *testing.T) {
 		if err != nil {
 			return nil, 0, err
 		}
-		defer drainAndClose(resp)
+		defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 		raw, err := readBody(resp)
 		if err != nil {
 			return nil, 0, err

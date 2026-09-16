@@ -220,7 +220,7 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 	if err != nil {
 		return nil, fmt.Errorf("audit logs: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading audit logs: %w", err)

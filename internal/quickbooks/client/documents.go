@@ -29,7 +29,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 )
 
@@ -140,7 +139,7 @@ func ReplayDestinationEmailGet(ctx context.Context) (*DestinationEmailResult, er
 	if err != nil {
 		return nil, fmt.Errorf("destinationEmail get: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -188,7 +187,7 @@ func ReplayDestinationEmailSend(ctx context.Context, txnID, email string) (*Dest
 	if err != nil {
 		return nil, fmt.Errorf("destinationEmail send: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -231,7 +230,7 @@ func ReplayDestinationEmailCheck(ctx context.Context, email string) (*Destinatio
 	if err != nil {
 		return nil, fmt.Errorf("destinationEmail checkAvailability: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -264,7 +263,7 @@ func ReplayDestinationEmailsList(ctx context.Context) (*DestinationEmailResult, 
 	if err != nil {
 		return nil, fmt.Errorf("destinationEmails list: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -322,7 +321,7 @@ func ReplayDocumentPrint(ctx context.Context, txnID string) (*PrintResult, error
 	if err != nil {
 		return nil, fmt.Errorf("document print: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	if resp.StatusCode != http.StatusOK {
 		raw, err := readBody(resp)
 		if err != nil {
@@ -350,6 +349,9 @@ func ReplayDocumentPDF(ctx context.Context, txnID, outPath string) (*PDFResult, 
 	if txnID == "" {
 		return nil, ErrMissingTxnID
 	}
+	if strings.TrimSpace(outPath) == "" {
+		return nil, fmt.Errorf("document pdf requires --out path")
+	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -359,7 +361,7 @@ func ReplayDocumentPDF(ctx context.Context, txnID, outPath string) (*PDFResult, 
 	if err != nil {
 		return nil, fmt.Errorf("document pdf: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	if resp.StatusCode != http.StatusOK {
 		raw, err := readBody(resp)
 		if err != nil {
@@ -367,17 +369,14 @@ func ReplayDocumentPDF(ctx context.Context, txnID, outPath string) (*PDFResult, 
 		}
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	pdf, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	n, err := writeDownload(resp.Body, outPath, maxPDFBytes, true)
 	if err != nil {
-		return nil, fmt.Errorf("reading pdf: %w", err)
-	}
-	if err := os.WriteFile(outPath, pdf, 0o644); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("document pdf: %w", err)
 	}
 	return &PDFResult{
 		Status: resp.StatusCode,
 		Path:   outPath,
-		Bytes:  len(pdf),
+		Bytes:  n,
 		Note:   "txnsrendering GET /v3/documents/pdf",
 	}, nil
 }
@@ -418,7 +417,7 @@ func ReplayDocumentsList(ctx context.Context, entity string, ids []string) (*Doc
 	if err != nil {
 		return nil, fmt.Errorf("documents list: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -486,7 +485,7 @@ func ReplayDocumentUpdate(ctx context.Context, id, data string) (*MutateResult, 
 	if err != nil {
 		return nil, fmt.Errorf("document update: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -532,13 +531,12 @@ func (c *apiClient) putDocument(ctx context.Context, rawURL string, body []byte)
 	c.applyHeaders(req, "")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	cli := &http.Client{Timeout: httpTimeout}
-	return cli.Do(req)
+	return impersonatedDo(req)
 }
 
 // countBody drains the response counting bytes without keeping them.
 func countBody(resp *http.Response) (int, error) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	n, err := io.Copy(io.Discard, resp.Body)
 	return int(n), err
 }

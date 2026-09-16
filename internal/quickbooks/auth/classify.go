@@ -3,7 +3,6 @@ package auth
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -246,7 +245,7 @@ func ExtractRealmID(rawURL string) string {
 	// looks like a realm id (QBO realm ids are 9-12 digit numbers, but we
 	// accept any all-digit segment of reasonable length to stay forward-
 	// compatible).
-	for _, seg := range strings.Split(u.Path, "/") {
+	for seg := range strings.SplitSeq(u.Path, "/") {
 		if isRealmID(seg) {
 			return seg
 		}
@@ -314,19 +313,4 @@ func hasAnyFold(candidates []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// formatCookieHeader builds a "name=value; name=value" Cookie header from
-// a slice of cookies for use in outbound HTTP requests. Values are taken
-// verbatim. Used by callers that replay the captured jar against QBO
-// frontend APIs.
-func formatCookieHeader(cookies []Cookie) string {
-	var b strings.Builder
-	for i, c := range cookies {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		fmt.Fprintf(&b, "%s=%s", c.Name, c.Value)
-	}
-	return b.String()
 }

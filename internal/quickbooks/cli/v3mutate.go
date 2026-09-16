@@ -17,20 +17,16 @@ type v3MutateSpec struct {
 }
 
 var v3MutateByID = map[string]v3MutateSpec{
-	"QBO.ACCOUNTING.BUDGET_CREATE":      {Entity: "Budget", Op: "create"},
-	"QBO.ACCOUNTING.BUDGET_EDIT":        {Entity: "Budget", Op: "update"},
-	"QBO.ACCOUNTING.BUDGET_DELETE":      {Entity: "Budget", Op: "delete"},
-	"QBO.ACCOUNTING.CLASS_CREATE":       {Entity: "Class", Op: "create"},
-	"QBO.ACCOUNTING.CLASS_EDIT":         {Entity: "Class", Op: "update"},
-	"QBO.ACCOUNTING.DEPARTMENT_CREATE":  {Entity: "Department", Op: "create"},
-	"QBO.ACCOUNTING.DEPARTMENT_EDIT":    {Entity: "Department", Op: "update"},
-	"QBO.ACCOUNTING.DEPARTMENT_DELETE":  {Entity: "Department", Op: "deactivate"},
-	"QBO.ACCOUNTING.COA_CREATE":         {Entity: "Account", Op: "create"},
-	"QBO.ACCOUNTING.COA_DEACTIVATE":     {Entity: "Account", Op: "deactivate"},
-	"QBO.ACCOUNTING.FIXED_ASSET_CREATE": {Entity: "Account", Op: "create"},
-	"QBO.ACCOUNTING.FIXED_ASSET_DELETE": {Entity: "Account", Op: "deactivate"},
-	"QBO.ACCOUNTING.FIXED_ASSET_EDIT":   {Entity: "Account", Op: "update"},
-
+	"QBO.ACCOUNTING.BUDGET_CREATE":       {Entity: "Budget", Op: "create"},
+	"QBO.ACCOUNTING.BUDGET_EDIT":         {Entity: "Budget", Op: "update"},
+	"QBO.ACCOUNTING.BUDGET_DELETE":       {Entity: "Budget", Op: "delete"},
+	"QBO.ACCOUNTING.CLASS_CREATE":        {Entity: "Class", Op: "create"},
+	"QBO.ACCOUNTING.CLASS_EDIT":          {Entity: "Class", Op: "update"},
+	"QBO.ACCOUNTING.DEPARTMENT_CREATE":   {Entity: "Department", Op: "create"},
+	"QBO.ACCOUNTING.DEPARTMENT_EDIT":     {Entity: "Department", Op: "update"},
+	"QBO.ACCOUNTING.DEPARTMENT_DELETE":   {Entity: "Department", Op: "deactivate"},
+	"QBO.ACCOUNTING.COA_CREATE":          {Entity: "Account", Op: "create"},
+	"QBO.ACCOUNTING.COA_DEACTIVATE":      {Entity: "Account", Op: "deactivate"},
 	"QBO.ACCOUNTING.DEPOSIT_CREATE":      {Entity: "Deposit", Op: "create"},
 	"QBO.ACCOUNTING.DEPOSIT_DELETE":      {Entity: "Deposit", Op: "delete"},
 	"QBO.ACCOUNTING.DEPOSIT_EDIT":        {Entity: "Deposit", Op: "update"},
@@ -40,8 +36,6 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.ACCOUNTING.JOURNAL_DELETE":   {Entity: "JournalEntry", Op: "delete"},
 	"QBO.ACCOUNTING.JOURNAL_EDIT":     {Entity: "JournalEntry", Op: "update"},
 	"QBO.ACCOUNTING.LOCATION_CREATE":  {Entity: "Department", Op: "create"},
-	"QBO.ACCOUNTING.PROJECT_CREATE":   {Entity: "Customer", Op: "create"},
-	"QBO.ACCOUNTING.PROJECT_EDIT":     {Entity: "Customer", Op: "update"},
 	"QBO.ACCOUNTING.TRANSFER_CREATE":  {Entity: "Transfer", Op: "create"},
 	"QBO.ACCOUNTING.RECURRING_CREATE": {Entity: "RecurringTransaction", Op: "create"},
 	"QBO.ACCOUNTING.RECURRING_DELETE": {Entity: "RecurringTransaction", Op: "delete"},
@@ -49,15 +43,11 @@ var v3MutateByID = map[string]v3MutateSpec{
 
 	"QBO.ACCOUNTING.TRANSFER_DELETE":      {Entity: "Transfer", Op: "delete"},
 	"QBO.ACCOUNTING.TRANSFER_EDIT":        {Entity: "Transfer", Op: "update"},
-	"QBO.ACCOUNTING.TXN_VOID":             {Entity: "Invoice", Op: "void"},
 	"QBO.COMPANY.ATTACHABLE_DELETE":       {Entity: "Attachable", Op: "delete"},
 	"QBO.COMPANY.ATTACHABLE_EDIT":         {Entity: "Attachable", Op: "update"},
 	"QBO.COMPANY.CURRENCY_CREATE":         {Entity: "CompanyCurrency", Op: "create"},
-	"QBO.COMPANY.CURRENCY_DELETE":         {Entity: "CompanyCurrency", Op: "delete"},
+	"QBO.COMPANY.CURRENCY_DELETE":         {Entity: "CompanyCurrency", Op: "deactivate"},
 	"QBO.COMPANY.COMPANY_INFO_EDIT":       {Entity: "CompanyInfo", Op: "update"},
-	"QBO.COMPANY.TAG_CREATE":              {Entity: "Class", Op: "create"},
-	"QBO.COMPANY.TAG_DELETE":              {Entity: "Class", Op: "deactivate"},
-	"QBO.COMPANY.TAG_EDIT":                {Entity: "Class", Op: "update"},
 	"QBO.CUSTOMERS.CUSTOMER_CREATE":       {Entity: "Customer", Op: "create"},
 	"QBO.CUSTOMERS.CUSTOMER_DELETE":       {Entity: "Customer", Op: "deactivate"},
 	"QBO.CUSTOMERS.CUSTOMER_EDIT":         {Entity: "Customer", Op: "update"},
@@ -69,15 +59,12 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.EXPENSES.BILL_PAYMENT_CREATE":    {Entity: "BillPayment", Op: "create"},
 	"QBO.EXPENSES.BILL_PAYMENT_DELETE":    {Entity: "BillPayment", Op: "delete"},
 	"QBO.EXPENSES.BILL_PAYMENT_EDIT":      {Entity: "BillPayment", Op: "update"},
-	"QBO.EXPENSES.CHEQUE_CREATE":          {Entity: "Purchase", Op: "create"},
-	"QBO.EXPENSES.CHEQUE_DELETE":          {Entity: "Purchase", Op: "delete"},
-	"QBO.EXPENSES.CHEQUE_EDIT":            {Entity: "Purchase", Op: "update"},
+	"QBO.EXPENSES.CHEQUE_CREATE":          {Entity: "Cheque", Op: "create"},
+	"QBO.EXPENSES.CHEQUE_DELETE":          {Entity: "Cheque", Op: "delete"},
+	"QBO.EXPENSES.CHEQUE_EDIT":            {Entity: "Cheque", Op: "update"},
 	"QBO.EXPENSES.EXPENSE_CREATE":         {Entity: "Purchase", Op: "create"},
 	"QBO.EXPENSES.EXPENSE_DELETE":         {Entity: "Purchase", Op: "delete"},
 	"QBO.EXPENSES.EXPENSE_EDIT":           {Entity: "Purchase", Op: "update"},
-	"QBO.EXPENSES.MILEAGE_CREATE":         {Entity: "TimeActivity", Op: "create"},
-	"QBO.EXPENSES.MILEAGE_DELETE":         {Entity: "TimeActivity", Op: "delete"},
-	"QBO.EXPENSES.MILEAGE_EDIT":           {Entity: "TimeActivity", Op: "update"},
 	"QBO.EXPENSES.TIME_ACTIVITY_CREATE":   {Entity: "TimeActivity", Op: "create"},
 	"QBO.EXPENSES.TIME_ACTIVITY_EDIT":     {Entity: "TimeActivity", Op: "update"},
 	"QBO.EXPENSES.TIME_ACTIVITY_DELETE":   {Entity: "TimeActivity", Op: "delete"},
@@ -94,8 +81,6 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.INVENTORY.PURCHASE_ORDER_DELETE": {Entity: "PurchaseOrder", Op: "delete"},
 	"QBO.INVENTORY.PURCHASE_ORDER_EDIT":   {Entity: "PurchaseOrder", Op: "update"},
 	"QBO.INVENTORY.ADJUST_CREATE":         {Entity: "InventoryAdjustment", Op: "create"},
-	"QBO.INVENTORY.ITEM_RECEIPT_CREATE":   {Entity: "ItemReceipt", Op: "create"},
-	"QBO.INVENTORY.ITEM_RECEIPT_EDIT":     {Entity: "ItemReceipt", Op: "update"},
 	"QBO.PAYROLL.EMPLOYEE_TERMINATE":      {Entity: "Employee", Op: "deactivate"},
 	"QBO.PAYROLL.EMPLOYEE_CREATE":         {Entity: "Employee", Op: "create"},
 	"QBO.PAYROLL.EMPLOYEE_EDIT":           {Entity: "Employee", Op: "update"},
@@ -107,7 +92,6 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.COMPANY.PAYMENT_METHOD_DELETE":   {Entity: "PaymentMethod", Op: "deactivate"},
 	"QBO.PAYROLL.TIMESHEET_CREATE":        {Entity: "TimeActivity", Op: "create"},
 	"QBO.PAYROLL.TIMESHEET_EDIT":          {Entity: "TimeActivity", Op: "update"},
-	"QBO.SALES.CREDIT_CARD_CREDIT_CREATE": {Entity: "Purchase", Op: "create"},
 	"QBO.SALES.CREDIT_MEMO_CREATE":        {Entity: "CreditMemo", Op: "create"},
 	"QBO.SALES.CREDIT_MEMO_DELETE":        {Entity: "CreditMemo", Op: "delete"},
 	"QBO.SALES.CREDIT_MEMO_EDIT":          {Entity: "CreditMemo", Op: "update"},
@@ -119,13 +103,9 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.SALES.INVOICE_DELETE":            {Entity: "Invoice", Op: "delete"},
 	"QBO.SALES.INVOICE_EDIT":              {Entity: "Invoice", Op: "update"},
 	"QBO.SALES.INVOICE_COPY":              {Entity: "Invoice", Op: "copy"},
-	"QBO.SALES.DELAYED_CHARGE_CREATE":     {Entity: "DelayedCharge", Op: "create"},
-	"QBO.SALES.DELAYED_CREDIT_CREATE":     {Entity: "DelayedCredit", Op: "create"},
 	"QBO.SALES.INVOICE_DISCOUNT":          {Entity: "Invoice", Op: "discount"},
 	"QBO.SALES.INVOICE_SEND":              {Entity: "Invoice", Op: "send"},
 	"QBO.SALES.INVOICE_WRITE_OFF":         {Entity: "Invoice", Op: "writeoff"},
-	"QBO.SALES.TIME_INVOICE_CREATE":       {Entity: "Invoice", Op: "create"},
-	"QBO.COMPANY.SETTINGS_EDIT":           {Entity: "Preferences", Op: "update"},
 	"QBO.SALES.PAYMENT_CREATE":            {Entity: "Payment", Op: "create"},
 	"QBO.SALES.PAYMENT_DELETE":            {Entity: "Payment", Op: "delete"},
 	"QBO.SALES.PAYMENT_EDIT":              {Entity: "Payment", Op: "update"},
@@ -135,9 +115,9 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.SALES.REFUND_RECEIPT_CREATE":     {Entity: "RefundReceipt", Op: "create"},
 	"QBO.SALES.REFUND_RECEIPT_DELETE":     {Entity: "RefundReceipt", Op: "delete"},
 	"QBO.SALES.REFUND_RECEIPT_EDIT":       {Entity: "RefundReceipt", Op: "update"},
-	"QBO.SALES.SALES_ORDER_CREATE":        {Entity: "Invoice", Op: "create"},
-	"QBO.SALES.SALES_ORDER_DELETE":        {Entity: "Invoice", Op: "delete"},
-	"QBO.SALES.SALES_ORDER_EDIT":          {Entity: "Invoice", Op: "update"},
+	"QBO.SALES.SALES_ORDER_CREATE":        {Entity: "SalesOrder", Op: "create"},
+	"QBO.SALES.SALES_ORDER_DELETE":        {Entity: "SalesOrder", Op: "delete"},
+	"QBO.SALES.SALES_ORDER_EDIT":          {Entity: "SalesOrder", Op: "update"},
 	"QBO.TAX.TAX_AGENCY_CREATE":           {Entity: "TaxAgency", Op: "create"},
 }
 
@@ -148,6 +128,9 @@ func maybeV3MutateCmd(flags *rootFlags, e primitiveEntry, command string) *cobra
 	spec, ok := v3MutateByID[e.ID]
 	if !ok {
 		return nil
+	}
+	if spec.Entity == "SalesOrder" {
+		return newSalesOrderMutateCmd(flags, e, command, spec.Op)
 	}
 	return newV3MutateCmd(flags, e, command, spec)
 }
@@ -224,6 +207,10 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 	ensureFlag(cmd, "to", "override recipient email (invoice send)")
 	ensureFlag(cmd, "employee", "employee id for timesheets and mileage")
 	ensureFlag(cmd, "hours", "hours for TimeActivity")
+	if spec.Entity == "TimeActivity" {
+		ensureFlag(cmd, "rate", "hourly rate for TimeActivity (defaults to zero)")
+		ensureFlag(cmd, "billable", "true or false for TimeActivity billing")
+	}
 	ensureFlag(cmd, "qty", "quantity difference for inventory adjust")
 	ensureFlag(cmd, "subtype", "account subtype (e.g. SuppliesMaterialsCogs)")
 	ensureFlag(cmd, "income-account", "income account id for items")

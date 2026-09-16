@@ -11,20 +11,21 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql/routes"
 )
 
 // gqlMutationFlagVerbs lists every named `qb gql mutate` verb and the catalog
 // operation it must route to. Membership here is the acceptance contract for
 // the top-8 list.
 var gqlMutationFlagVerbs = []struct{ verb, op string }{
-	{"create-account", "CreateAccountV2"},
+	{"create-account", "CreateAccount"},
 	{"bank-disconnect", "BankingDisconnectOlbAccounts"},
 	{"batch-update-products", "BatchUpdateProducts"},
 	{"assign-dimensions", "AssignDimensionsForProducts"},
 	{"cancel-reconcile", "CancelReconcile__integration_banking_reconcile_ui_qbo"},
 	{"receive-inventory", "CommerceReceiveInventory"},
 	{"consume-inventory", "CommerceConsumeInventory"},
-	{"activate-products", "ActivateProductEntities"},
+	{"activate-products", "UpdateItemStatus"},
 }
 
 // runGqlMutate executes `qb gql mutate ...` in-process against a dead relay,
@@ -139,9 +140,87 @@ func TestGqlCreateAccountRejectsBlankName(t *testing.T) {
 	}
 }
 
-// buildSpecVars executes one spec's RunE against flags and captures the
-// variables it would send, by intercepting at the transport seam.
-type varsCapture struct{ got map[string]any }
+// TestGqlCreateAccountLowerCamelInput pins the live-proven wire shape: the
+// SPA posts CreateAccount with lower-camel Accounting_CreateAccountInput keys
+// ({name, accountType, detailType, ...}) — the PascalCase V2 shape answers
+// PLT-2000 on every captured host.
+func TestGqlCreateAccountLowerCamelInput(t *testing.T) {
+	spec := gqlMutationFlagSpecByVerb(t, "create-account")
+	cmd := newGqlMutationFlagCmd(&rootFlags{}, spec)
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.Flags().Set("name", "Petty Cash")
+	cmd.Flags().Set("subtype", "cash and cash equivalents")
+	cmd.Flags().Set("description", "drawer float")
+	cmd.Flags().Set("number", "1010")
+	cmd.Flags().Set("parent-id", "77")
+	cmd.Flags().Set("currency", "AUD")
+	vars, err := spec.build(cmd)
+	if err != nil {
+		t.Fatalf("valid create-account args rejected: %v", err)
+	}
+	input, _ := vars["input"].(map[string]any)
+	if input == nil {
+		t.Fatalf("envelope missing input: %#v", vars)
+	}
+	want := map[string]any{
+		"name":            "Petty Cash",
+		"accountType":     "BANK", // --type default, normalized to UPPER_SNAKE
+		"detailType":      "CASH_AND_CASH_EQUIVALENTS",
+		"description":     "drawer float",
+		"number":          "1010",
+		"parentAccountId": "77",
+		"currency":        "AUD",
+	}
+	for k, v := range want {
+		if input[k] != v {
+			t.Errorf("input[%q] = %#v; want %#v (keys %#v)", k, input[k], v, input)
+		}
+	}
+	for _, stale := range []string{"Name", "AccountType", "AccountSubType", "Description", "AcctNum", "ParentAccountId", "Currency"} {
+		if _, ok := input[stale]; ok {
+			t.Errorf("input carries stale PascalCase key %q: %#v", stale, input)
+		}
+	}
+}
+
+// TestGqlCreateAccountRouteOverride proves the verified coa-core route
+// override is wired through the shared routes table into the catalog op the
+// named verb executes — the defect was CreateAccountV2 dialing the v4
+// gateway that answers PLT-2000.
+func TestGqlCreateAccountRouteOverride(t *testing.T) {
+	if endpoint, found := routes.Lookup("CreateAccount"); !found || endpoint != routes.EndpointCoaCore {
+		t.Fatalf("routes.Lookup(CreateAccount) = (%q, %v); want (%q, true)",
+			endpoint, found, routes.EndpointCoaCore)
+	}
+	if routes.EndpointCoaCore != "https://coa-core.api.intuit.com/graphql" {
+		t.Fatalf("EndpointCoaCore = %q; want https://coa-core.api.intuit.com/graphql", routes.EndpointCoaCore)
+	}
+	op, err := gql.Lookup("CreateAccount")
+	if err != nil {
+		t.Fatalf("CreateAccount not in catalog: %v", err)
+	}
+	if op.Endpoint != routes.EndpointCoaCore {
+		t.Fatalf("catalog CreateAccount endpoint = %q; want verified override %q", op.Endpoint, routes.EndpointCoaCore)
+	}
+	spec := gqlMutationFlagSpecByVerb(t, "create-account")
+	if spec.opName != "CreateAccount" {
+		t.Fatalf("create-account routes to %q; want CreateAccount", spec.opName)
+	}
+}
+
+func TestEffectiveMutationEndpointUsesRequestOverride(t *testing.T) {
+	op, err := gql.Lookup("CreateAccount")
+	if err != nil {
+		t.Fatal(err)
+	}
+	override := "https://example.invalid/graphql"
+	if got := effectiveMutationEndpoint(gql.Request{Op: op, Endpoint: override}); got != override {
+		t.Fatalf("effective endpoint = %q; want override %q", got, override)
+	}
+	if got := effectiveMutationEndpoint(gql.Request{Op: op}); got != op.Endpoint {
+		t.Fatalf("effective endpoint without override = %q; want catalog endpoint %q", got, op.Endpoint)
+	}
+}
 
 func TestGqlBankDisconnectTrimsDisplayIds(t *testing.T) {
 	spec := gqlMutationFlagSpecByVerb(t, "bank-disconnect")
@@ -260,8 +339,9 @@ func TestGqlCommerceInventoryEnvelope(t *testing.T) {
 		cmd.SetOut(new(bytes.Buffer))
 		cmd.Flags().Set("txn-id", "198")
 		cmd.Flags().Set("txn-type", "Bill")
+		cmd.Flags().Set("source-version", "1")
 		cmd.Flags().Set("txn-date", "2026-08-24")
-		cmd.Flags().Set("lines-json", `[{"itemId":"72","quantity":3,"inventoryLocationId":"L1"}]`)
+		cmd.Flags().Set("lines-json", `[{"itemId":"72","quantity":3,"inventoryLocationId":"L1","sourceTransactionLineId":"9","lineOrder":1}]`)
 		vars, err := spec.build(cmd)
 		if err != nil {
 			t.Fatalf("%s: valid args rejected: %v", verb, err)
@@ -271,6 +351,9 @@ func TestGqlCommerceInventoryEnvelope(t *testing.T) {
 		lines, _ := input["lines"].([]any)
 		if src == nil || src["txnId"] != "198" || src["txnType"] != "Bill" || src["txnDate"] != "2026-08-24" {
 			t.Fatalf("%s: sourceTransaction wrong: %#v", verb, src)
+		}
+		if src["version"] != 1 {
+			t.Fatalf("%s: sourceTransaction.version = %#v; want 1 (NonNull Int!)", verb, src["version"])
 		}
 		if len(lines) != 1 {
 			t.Fatalf("%s: lines not threaded through: %#v", verb, lines)
@@ -282,6 +365,7 @@ func TestGqlCommerceInventoryEnvelope(t *testing.T) {
 		cmd2.SetOut(new(bytes.Buffer))
 		cmd2.Flags().Set("txn-id", "198")
 		cmd2.Flags().Set("txn-type", "Bill")
+		cmd2.Flags().Set("source-version", "1")
 		if _, err := spec.build(cmd2); err == nil || !strings.Contains(err.Error(), "lines-json") {
 			t.Fatalf("%s: missing lines accepted: %v", verb, err)
 		}
@@ -292,6 +376,29 @@ func TestGqlCommerceInventoryEnvelope(t *testing.T) {
 		cmd3.Flags().Set("txn-id", "198")
 		if _, err := spec.build(cmd3); err == nil || !strings.Contains(err.Error(), "--txn-type") {
 			t.Fatalf("%s: missing --txn-type accepted: %v", verb, err)
+		}
+	}
+}
+
+// TestGqlCommerceInventorySourceVersion pins the live-proven contract: the
+// warehouse service coerces a missing sourceTransaction.version to Null for
+// a NonNull Int! and rejects the call. Missing, zero, and negative values
+// must fail locally as input errors before any transport attempt.
+func TestGqlCommerceInventorySourceVersion(t *testing.T) {
+	for _, verb := range []string{"receive-inventory", "consume-inventory"} {
+		spec := gqlMutationFlagSpecByVerb(t, verb)
+		for _, bad := range []string{"", "0", "-2"} {
+			cmd := newGqlMutationFlagCmd(&rootFlags{}, spec)
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.Flags().Set("txn-id", "198")
+			cmd.Flags().Set("txn-type", "Bill")
+			cmd.Flags().Set("lines-json", `[{"itemId":"72","quantity":3,"sourceTransactionLineId":"9","lineOrder":1}]`)
+			if bad != "" {
+				cmd.Flags().Set("source-version", bad)
+			}
+			if _, err := spec.build(cmd); err == nil || !strings.Contains(err.Error(), "--source-version") {
+				t.Fatalf("%s: --source-version %q accepted: %v", verb, bad, err)
+			}
 		}
 	}
 }
@@ -311,8 +418,8 @@ func TestGqlActivateProductsEntities(t *testing.T) {
 		t.Fatalf("entities = %#v; want two entries", entities)
 	}
 	first, _ := entities[0].(map[string]any)
-	if first["id"] != "72" || first["version"] != 0 || first["type"] != "INVENTORY" {
-		t.Fatalf("entity[0] = %#v; want id=72 version=0 type=INVENTORY defaults", first)
+	if first["id"] != "72" || first["version"] != 0 || first["entityType"] != "INVENTORY" || first["actionType"] != "ACTIVATE" {
+		t.Fatalf("entity[0] = %#v; want id=72 version=0 entityType=INVENTORY actionType=ACTIVATE defaults", first)
 	}
 
 	// Neither flag: refused.

@@ -65,6 +65,7 @@ func TestLookupMutationUnknown(t *testing.T) {
 		t.Errorf("error lacks canonical prefix: %v", err)
 	}
 	if !strings.Contains(err.Error(), "CreateAccount") { // prefix hit
+		t.Errorf("error should mention a known mutation: %v", err)
 	}
 }
 

@@ -89,6 +89,44 @@ func TestApplyHeadersFallbackDuplicatesCSRF(t *testing.T) {
 	}
 }
 
+func TestPostJSONDropsCapturedPaginationRange(t *testing.T) {
+	var gotRange, gotContentType string
+	var gotTrace string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Header.Get("X-Range")
+		gotContentType = r.Header.Get("Content-Type")
+		gotTrace = r.Header.Get("X-B3-TraceId")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+
+	original := impersonatedTransport
+	impersonatedTransport = http.DefaultTransport
+	t.Cleanup(func() { impersonatedTransport = original })
+	c := &apiClient{tok: &auth.TokenSet{RequestHeaders: map[string]string{
+		"Authorization": "Intuit_APIKey intuit_apikey=x,intuit_apikey_version=1.0",
+		"x-range":       "items=0-49",
+		"x-b3-sampled":  "1",
+		"x-b3-spanid":   "stale-span",
+		"x-b3-traceid":  "stale-trace",
+	}}}
+	resp, err := c.postJSON(context.Background(), srv.URL, []byte(`{"ok":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = drainAndClose(resp)
+	if gotRange != "" {
+		t.Fatalf("mutation replay sent captured pagination range %q", gotRange)
+	}
+	if gotContentType != "application/json" {
+		t.Fatalf("Content-Type=%q, want application/json", gotContentType)
+	}
+	if gotTrace != "" {
+		t.Fatalf("mutation replay sent stale B3 trace header %q", gotTrace)
+	}
+}
+
 func TestGetRemintsOnceOn401(t *testing.T) {
 	t.Setenv("QB_HOME", t.TempDir())
 	usable := &auth.TokenSet{

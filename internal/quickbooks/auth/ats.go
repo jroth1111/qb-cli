@@ -22,9 +22,19 @@ const AuditCaptureURL = "https://qbo.intuit.com/app/auditlog"
 // ATSCapture is one intercepted ATS request plus optional CDP cookies.
 // AuditAuthorization holds the audit-ui Intuit_APIKey when captured in the
 // same remint pass; it may be empty when only the banking key was observed.
+// SecondaryHeaders optionally holds an apikey-bearing qbo.intuit.com request
+// (/olb/, /api/v4/graphql) captured in the same pass: the new banking SPA
+// splits the credential pair across request families, so the apikey/authtype/
+// intuit_appid fields come from it when the primary request lacks them.
 type ATSCapture struct {
-	Headers            map[string]string
-	Cookies            []Cookie
+	Headers          map[string]string
+	SecondaryHeaders map[string]string
+	Cookies          []Cookie
+	// HostHeaders carries per-service-host request header maps harvested
+	// during the same pass (any *.api.intuit.com request that carries its
+	// own Intuit_APIKey). It refreshes TokenSet.URIHostHeaders — the
+	// leftover-host credential surface older captures used to populate.
+	HostHeaders        map[string]map[string]string
 	AuditAuthorization string
 	// Identity is the signed-in user/company mined from the hydrated tab
 	// DOM during capture. Best-effort: empty when the tab was not
@@ -111,6 +121,32 @@ func (t *TokenSet) ApplyATSCapture(cap *ATSCapture) error {
 		return ErrNoATSAuthorization
 	}
 	t.ApplyATSHeaders(cap.Headers)
+	// Fill apikey/authtype/intuit_appid gaps from a secondary apikey-bearing
+	// request. Never overwrites: a primary /ats/-era request that carries
+	// the trio itself stays authoritative.
+	if sec := cap.SecondaryHeaders; len(sec) > 0 {
+		if t.APIKey == "" {
+			t.APIKey = headerGet(sec, "apikey")
+		}
+		if t.TokenType == "" {
+			t.TokenType = headerGet(sec, "authtype")
+		}
+		if t.IntuitAppID == "" {
+			t.IntuitAppID = headerGet(sec, "intuit_appid")
+		}
+	}
+	// Fresh per-host headers replace stale entries; hosts not seen this pass
+	// keep their existing maps.
+	if len(cap.HostHeaders) > 0 {
+		if t.URIHostHeaders == nil {
+			t.URIHostHeaders = map[string]map[string]string{}
+		}
+		for host, headers := range cap.HostHeaders {
+			if len(headers) > 0 {
+				t.URIHostHeaders[host] = headers
+			}
+		}
+	}
 	t.MergeCookies(cap.Cookies)
 	t.ApplyIdentity(cap.Identity)
 	if cap.AuditAuthorization != "" {
@@ -145,6 +181,53 @@ func (t *TokenSet) ApplyIdentity(id Identity) {
 
 func isIntuitAPIKey(v string) bool {
 	return strings.HasPrefix(strings.TrimSpace(v), "Intuit_APIKey")
+}
+
+// isATSCredentialRequest reports whether an intercepted request carries the
+// first-party Intuit_APIKey credential the CLI replays. The SPA historically
+// sent it on /ats/v1/ calls; the new banking experience emits the same key on
+// first-party qbo.intuit.com requests such as /api/neo/.../ipd/signedAuthData.
+// Requests that also carry an `apikey` header belong to the olb/v4-graphql
+// surface and use a different key, so they do not qualify.
+func isATSCredentialRequest(reqURL string, headers map[string]string) bool {
+	if !isIntuitAPIKey(headerGet(headers, "authorization")) {
+		return false
+	}
+	if strings.Contains(reqURL, "/ats/") {
+		return true
+	}
+	if !strings.Contains(reqURL, "://qbo.intuit.com/") {
+		return false
+	}
+	return headerGet(headers, "apikey") == ""
+}
+
+// isAPIKeyHeaderRequest reports whether an intercepted qbo.intuit.com request
+// carries the secondary `apikey` credential (the olb/v4-graphql surface).
+// Its headers fill the apikey/authtype/intuit_appid fields the primary
+// first-party request no longer carries.
+func isAPIKeyHeaderRequest(reqURL string, headers map[string]string) bool {
+	return strings.Contains(reqURL, "://qbo.intuit.com/") &&
+		headerGet(headers, "apikey") != ""
+}
+
+// ServiceHost extracts the *.api.intuit.com host a request targets when it
+// carries a service-scoped Intuit_APIKey — the leftover-host credential shape
+// URIHostHeaders stores. Returns "" for first-party qbo.intuit.com traffic
+// and for requests without the service key.
+func ServiceHost(reqURL string, headers map[string]string) string {
+	if !isIntuitAPIKey(headerGet(headers, "authorization")) {
+		return ""
+	}
+	if !strings.Contains(reqURL, ".api.intuit.com/") {
+		return ""
+	}
+	if _, rest, ok := strings.Cut(reqURL, "://"); ok {
+		if j := strings.IndexByte(rest, '/'); j > 0 {
+			return rest[:j]
+		}
+	}
+	return ""
 }
 
 // redactAuthKey returns a secret-free summary of an Authorization header for

@@ -251,15 +251,15 @@ func TestExpensesDomainRouteThroughThreeV3Entities(t *testing.T) {
 		}
 	}
 
-	// Unknown-entity rejection precedes credential loading: with no saved
-	// session the error is still the routing error, not a credentials error.
-	noCredsDir(t)
-	if _, err := ReplayMutate(context.Background(), "Cheque", "create", "", nil); err == nil ||
-		strings.Contains(err.Error(), "credentials") {
-		t.Fatalf("ReplayMutate(Cheque) err = %v, want no-v3-path rejection before creds", err)
+	// Cheque is a constrained Purchase operation, never a separate API entity.
+	if PlannedMutateURL("Cheque", "create") != PlannedMutateURL("Purchase", "create") {
+		t.Fatal("cheque plan must target the native purchase endpoint")
 	}
-	if _, err := ReplayMutate(context.Background(), "BankFee", "create", "", nil); err == nil {
-		t.Fatal("ReplayMutate(BankFee) must reject: bank fees ride Purchase")
+	// Unknown-entity rejection still precedes credential loading.
+	noCredsDir(t)
+	if _, err := ReplayMutate(context.Background(), "BankFee", "create", "", nil); err == nil ||
+		strings.Contains(err.Error(), "credentials") {
+		t.Fatalf("ReplayMutate(BankFee) err = %v, want no-v3-path rejection before creds", err)
 	}
 }
 
@@ -318,7 +318,7 @@ func TestExpensesBillCreatePostsSupplierAndExpenseLine(t *testing.T) {
 		t.Fatalf("projected item = %+v", res.Item)
 	}
 	body := expBodyMap(t, srv.lastBody)
-	if got, _ := body["VendorRef"].(map[string]any)["value"]; got != "2" {
+	if got := body["VendorRef"].(map[string]any)["value"]; got != "2" {
 		t.Fatalf("VendorRef = %v", body["VendorRef"])
 	}
 	if body["TxnDate"] != "2026-08-05" {
@@ -818,7 +818,7 @@ func TestExpensesDomainPlannedURLsAreSecretFree(t *testing.T) {
 			if !strings.Contains(u, "/api/v3/company/{realm}/") {
 				t.Fatalf("planned %s %s url is not v3 company-scoped: %s", ent, op, u)
 			}
-			for _, seg := range strings.Split(u, "/") {
+			for seg := range strings.SplitSeq(u, "/") {
 				if len(seg) == 16 && seg != "{realm}" && isAllDigits(seg) {
 					t.Fatalf("planned %s %s url embeds a realm-like id: %s", ent, op, u)
 				}

@@ -10,14 +10,16 @@ import (
 
 // CaptureATSFromRelay attaches to the OMP relay CDP multiplex socket,
 // enables Fetch on the given page target, navigates (or reloads) the
-// banking SPA, and returns the first ATS request whose Authorization
+// banking SPA, and returns the first first-party request whose Authorization
 // starts with Intuit_APIKey. Header values are secret; callers must not
 // log the capture.
 func CaptureATSFromRelay(ctx context.Context, relayURL, targetID, navigateURL string) (*ATSCapture, error) {
 	if navigateURL == "" {
 		navigateURL = BankingCaptureURL
 	}
-	return captureFromRelay(ctx, relayURL, targetID, "*://qbo.intuit.com/ats/*", navigateURL, "/ats/v1/")
+	return captureFromRelayHarvest(ctx, relayURL, targetID,
+		[]string{"*://qbo.intuit.com/*", "*://*.api.intuit.com/*"},
+		navigateURL, isATSCredentialRequest, isAPIKeyHeaderRequest)
 }
 
 // CaptureAuditFromRelay navigates the Audit Log UI and returns the
@@ -28,7 +30,9 @@ func CaptureAuditFromRelay(ctx context.Context, relayURL, targetID, navigateURL 
 	if navigateURL == "" {
 		navigateURL = AuditCaptureURL
 	}
-	cap, err := captureFromRelay(ctx, relayURL, targetID, "*://audit.api.intuit.com/*", navigateURL, "audit.api.intuit.com")
+	cap, err := captureFromRelay(ctx, relayURL, targetID, "*://audit.api.intuit.com/*", navigateURL, func(reqURL string, headers map[string]string) bool {
+		return strings.Contains(reqURL, "audit.api.intuit.com") && isIntuitAPIKey(headerGet(headers, "authorization"))
+	})
 	if err != nil {
 		return "", err
 	}
@@ -37,9 +41,23 @@ func CaptureAuditFromRelay(ctx context.Context, relayURL, targetID, navigateURL 
 
 // captureFromRelay is the shared CDP capture path: attach to a relay page
 // target, enable Fetch for fetchPattern, navigate to navigateURL, and return
-// the first paused request whose URL contains matchURL and whose
-// Authorization is an Intuit_APIKey. Cookies are best-effort.
-func captureFromRelay(ctx context.Context, relayURL, targetID, fetchPattern, navigateURL, matchURL string) (*ATSCapture, error) {
+// the first paused request satisfying match. Cookies are best-effort.
+func captureFromRelay(ctx context.Context, relayURL, targetID, fetchPattern, navigateURL string, match func(reqURL string, headers map[string]string) bool) (*ATSCapture, error) {
+	return captureFromRelayDual(ctx, relayURL, targetID, fetchPattern, navigateURL, match, nil)
+}
+
+// captureFromRelayDual is captureFromRelay plus an optional secondary
+// request predicate: when secondary is non-nil, paused requests satisfying
+// it are harvested alongside the primary so split-credential fields
+// (apikey/authtype/intuit_appid) fill in the same pass.
+func captureFromRelayDual(ctx context.Context, relayURL, targetID, fetchPattern, navigateURL string, match, secondary func(reqURL string, headers map[string]string) bool) (*ATSCapture, error) {
+	return captureFromRelayHarvest(ctx, relayURL, targetID, []string{fetchPattern}, navigateURL, match, secondary)
+}
+
+// captureFromRelayHarvest additionally harvests per-service-host request
+// headers (*.api.intuit.com carrying an Intuit_APIKey) into
+// ATSCapture.HostHeaders, refreshing TokenSet.URIHostHeaders each pass.
+func captureFromRelayHarvest(ctx context.Context, relayURL, targetID string, fetchPatterns []string, navigateURL string, match, secondary func(reqURL string, headers map[string]string) bool) (*ATSCapture, error) {
 	if targetID == "" {
 		return nil, fmt.Errorf("missing relay tab id")
 	}
@@ -75,25 +93,23 @@ func captureFromRelay(ctx context.Context, relayURL, targetID, fetchPattern, nav
 		defer cancel()
 		_, _ = conn.call(dctx, "Target.detachFromTarget", map[string]any{"sessionId": sid}, "")
 	}()
-	if _, err := conn.call(ctx, "Network.enable", map[string]any{}, sid); err != nil {
-		// Cookie dump is best-effort; Fetch intercept is required.
+	// Cookie dump is best-effort; Fetch intercept is required.
+	_, _ = conn.call(ctx, "Network.enable", map[string]any{}, sid)
+	patterns := make([]map[string]string, len(fetchPatterns))
+	for i, p := range fetchPatterns {
+		patterns[i] = map[string]string{"urlPattern": p, "requestStage": "Request"}
 	}
-	if _, err := conn.call(ctx, "Fetch.enable", map[string]any{
-		"patterns": []map[string]string{{
-			"urlPattern":   fetchPattern,
-			"requestStage": "Request",
-		}},
-	}, sid); err != nil {
-		return nil, fmt.Errorf("Fetch.enable: %w", err)
+	if _, err := conn.call(ctx, "Fetch.enable", map[string]any{"patterns": patterns}, sid); err != nil {
+		return nil, fmt.Errorf("fetch.enable: %w", err)
 	}
 	if _, err := conn.call(ctx, "Page.navigate", map[string]any{"url": navigateURL}, sid); err != nil {
-		return nil, fmt.Errorf("Page.navigate: %w", err)
+		return nil, fmt.Errorf("page.navigate: %w", err)
 	}
-	headers, err := waitPausedMatch(ctx, conn, sid, matchURL)
+	headers, secondaryHeaders, hostHeaders, err := waitPausedMatch(ctx, conn, sid, match, secondary)
 	if err != nil {
 		return nil, err
 	}
-	cap := &ATSCapture{Headers: headers}
+	cap := &ATSCapture{Headers: headers, SecondaryHeaders: secondaryHeaders, HostHeaders: hostHeaders}
 	if cookies, cerr := getAllCookies(ctx, conn, sid); cerr == nil {
 		cap.Cookies = cookies
 	}
@@ -109,18 +125,34 @@ func captureFromRelay(ctx context.Context, relayURL, targetID, fetchPattern, nav
 	return cap, nil
 }
 
-// waitPausedMatch blocks until a paused Fetch request whose URL contains
-// matchURL and whose Authorization is an Intuit_APIKey is observed, then
-// returns its header map. Every paused request is continued so the tab
+// waitPausedMatch blocks until a paused Fetch request satisfies match, then
+// returns its header map. When secondary is non-nil it keeps draining for a
+// short grace window to also harvest the first secondary match, and every
+// service-host request (*.api.intuit.com with its own Intuit_APIKey) is
+// recorded into hostHeaders. Every paused request is continued so the tab
 // never hangs on an intercept it does not care about.
-func waitPausedMatch(ctx context.Context, conn *cdpConn, sid, matchURL string) (map[string]string, error) {
+func waitPausedMatch(ctx context.Context, conn *cdpConn, sid string, match, secondary func(reqURL string, headers map[string]string) bool) (map[string]string, map[string]string, map[string]map[string]string, error) {
+	const secondaryGrace = 8 * time.Second
+	var primary, extra map[string]string
+	hostHeaders := map[string]map[string]string{}
+	var graceDeadline <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("%w: %v", ErrNoATSAuthorization, ctx.Err())
+			if primary != nil {
+				// Deadline hit inside the post-primary grace window: the
+				// credential is captured; the secondary fill is best-effort.
+				return primary, extra, hostHeaders, nil
+			}
+			return nil, nil, nil, fmt.Errorf("%w: %v", ErrNoATSAuthorization, ctx.Err())
+		case <-graceDeadline:
+			return primary, extra, hostHeaders, nil
 		case ev, ok := <-conn.events:
 			if !ok {
-				return nil, fmt.Errorf("%w: cdp closed", ErrNoATSAuthorization)
+				if primary != nil {
+					return primary, extra, hostHeaders, nil
+				}
+				return nil, nil, nil, fmt.Errorf("%w: cdp closed", ErrNoATSAuthorization)
 			}
 			if ev.Method != "Fetch.requestPaused" {
 				continue
@@ -137,13 +169,22 @@ func waitPausedMatch(ctx context.Context, conn *cdpConn, sid, matchURL string) (
 				_, _ = conn.call(cctx, "Fetch.continueRequest", map[string]any{"requestId": id}, sid)
 			}(p.RequestID)
 			headers := stringifyHeaders(p.Request.Headers)
-			if !strings.Contains(p.Request.URL, matchURL) {
-				continue
+			if host := ServiceHost(p.Request.URL, headers); host != "" {
+				hostHeaders[host] = headers
 			}
-			if !isIntuitAPIKey(headerGet(headers, "authorization")) {
-				continue
+			if extra == nil && secondary != nil && secondary(p.Request.URL, headers) {
+				extra = headers
+				if primary != nil {
+					return primary, extra, hostHeaders, nil
+				}
 			}
-			return headers, nil
+			if primary == nil && match != nil && match(p.Request.URL, headers) {
+				primary = headers
+				if secondary == nil || extra != nil {
+					return primary, extra, hostHeaders, nil
+				}
+				graceDeadline = time.After(secondaryGrace)
+			}
 		}
 	}
 }

@@ -81,7 +81,7 @@ func Save(t *TokenSet) error {
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("writing credentials: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

@@ -786,12 +786,12 @@ var auParamGaps = map[string][]paramDoc{
 		p("page-size", "int", "rows bound per page for the paged items walk (optional)", false, "100"),
 	},
 	"QBO.GQL.MUTATE_CREATE_ACCOUNT": {
-		p("name", "string", "ledger account Name, e.g. Payroll Clearing (required)", true, ""),
-		p("subtype", "string", "AccountSubType detail enum like Checking or Savings (required)", true, ""),
-		p("type", "string", "AccountType enum, defaults to Bank on the command (optional)", false, ""),
-		p("description", "string", "Description text stored on the ledger account (optional)", false, ""),
-		p("number", "string", "general-ledger account number AcctNum (optional)", false, ""),
-		p("parent-id", "string", "parent account id for sub-accounts ParentAccountId (optional)", false, ""),
+		p("name", "string", "ledger account name, e.g. Payroll Clearing (required)", true, ""),
+		p("subtype", "string", "detailType enum like Checking or Savings (required)", true, ""),
+		p("type", "string", "accountType enum, defaults to Bank on the command (optional)", false, ""),
+		p("description", "string", "description text stored on the ledger account (optional)", false, ""),
+		p("number", "string", "general-ledger account number (optional)", false, ""),
+		p("parent-id", "string", "parent account id for sub-accounts (optional)", false, ""),
 		p("currency", "string", "currency code, defaults to company currency (optional)", false, ""),
 	},
 	"QBO.GQL.MUTATE_BANK_DISCONNECT": {
@@ -810,6 +810,7 @@ var auParamGaps = map[string][]paramDoc{
 	"QBO.GQL.MUTATE_RECEIVE_INVENTORY": {
 		p("txn-id", "string", "source transaction id holding the inbound movement (required)", true, ""),
 		p("txn-type", "string", "source transaction type Bill or Invoice (required)", true, ""),
+		p("source-version", "int", "sourceTransaction.version, positive integer (required)", true, ""),
 		p("txn-date", "string", "source transaction date yyyy-MM-dd (optional)", false, ""),
 		p("vendor-id", "string", "vendor id for Bill-sourced inbound movements (optional)", false, ""),
 		p("customer-id", "string", "customer id for Invoice-sourced movements (optional)", false, ""),
@@ -818,6 +819,7 @@ var auParamGaps = map[string][]paramDoc{
 	"QBO.GQL.MUTATE_CONSUME_INVENTORY": {
 		p("txn-id", "string", "source transaction id holding the outbound movement (required)", true, ""),
 		p("txn-type", "string", "source transaction type Bill or Invoice (required)", true, ""),
+		p("source-version", "int", "sourceTransaction.version, positive integer (required)", true, ""),
 		p("txn-date", "string", "source transaction date yyyy-MM-dd (optional)", false, ""),
 		p("vendor-id", "string", "vendor id for Bill-sourced outbound movements (optional)", false, ""),
 		p("customer-id", "string", "customer id for Invoice-sourced movements (optional)", false, ""),
@@ -1095,7 +1097,7 @@ var auNoteGaps = map[string]string{
 	"QBO.GQL.BILLS_WALK":                         "Walk all bills via GetBills across pages with an optional transaction-date window; relay-executed live read.",
 	"QBO.GQL.TASKS_WALK":                         "Walk all tasks via TaskManagementTasks with an optional due-date window; relay-executed live read.",
 	"QBO.GQL.ITEMS_WALK":                         "Walk the product and service catalog via Items with paging; relay-executed live read.",
-	"QBO.GQL.MUTATE_CREATE_ACCOUNT":              "Create a ledger account via CreateAccountV2 without hand-building the input envelope; name and subtype are required.",
+	"QBO.GQL.MUTATE_CREATE_ACCOUNT":              "Create a ledger account via CreateAccount at coa-core.api.intuit.com/graphql with the SPA lower-camel input shape; name and subtype are required.",
 	"QBO.GQL.MUTATE_BANK_DISCONNECT":             "Disconnect bank-feed OLB accounts via the FIT transactions gateway; feeds stop syncing for those accounts.",
 	"QBO.GQL.MUTATE_BATCH_UPDATE_PRODUCTS":       "Bulk-update products from a JSON row array via Commerce batchUpdateProducts; verify with a walk first.",
 	"QBO.GQL.MUTATE_ASSIGN_DIMENSIONS":           "Assign custom dimension values to products; the input object passes through verbatim to the mutation.",

@@ -29,23 +29,23 @@ go build -o qb ./cmd/qb
 
 | Domain | Wired | Read | Command root |
 |---|---|---|---|
-| Accounting (COA, class, budget, journals, fixed assets, CDC) | 36 | 27 | `qb accounting` |
-| Expenses (bills, suppliers, cheques, time activities) | 24 | 19 | `qb expenses` |
-| Sales (invoices, estimates, payments, sends, PDFs) | 27 | 17 | `qb sales` |
-| Company (settings, users, lists, attachables, rates) | 15 | 22 | `qb company` |
-| Feed (banking classify/split/exclude/undo) | 7 | 11 | `qb feed` |
-| Payroll (pay runs, STP, super) | 5 | 11 | `qb payroll` |
-| Tax (GST, BAS, TPAR, agencies, codes) | 3 | 8 | `qb tax` |
+| Accounting (COA, class, budget, journals, fixed assets, CDC) | 30 | 25 | `qb accounting` |
+| Expenses (bills, suppliers, cheques, time activities) | 23 | 16 | `qb expenses` |
+| Sales (invoices, estimates, payments, sends, PDFs, sales orders) | 29 | 16 | `qb sales` |
+| Company (settings, users, lists, attachables, rates) | 12 | 18 | `qb company` |
+| Feed (banking classify/split/exclude/undo) | 7 | 10 | `qb feed` |
+| Payroll (pay runs, STP, super) | 5 | 3 | `qb payroll` |
+| Tax (GST, BAS, TPAR, agencies, codes) | 2 | 5 | `qb tax` |
 | Inventory (items, purchase orders) | 7 | 8 | `qb inventory` |
-| Customers | 3 | 15 | `qb customers` |
-| Reports + forecasts | 0 | 30 | `qb reports` |
+| Customers | 3 | 11 | `qb customers` |
+| Reports + forecasts | 0 | 28 | `qb reports` |
 | GraphQL (captured webapp ops) | 8 | 3 | `qb gql` |
 | Cost groups, custom objects, accountant | 3 | 1 | `qb costgroups`, `qb customobjects`, `qb accountant` |
-| Integrations, advanced (service maps) | 0 | 4 | `qb integrations`, `qb advanced` |
+| Integrations, advanced (service maps, batch) | 1 | 2 | `qb integrations`, `qb advanced` |
 
-`qb crm` and `qb salestx` exist as command trees outside the actions catalog (service-mapped verbs).
+`qb crm` and `qb salestx` are additional command trees outside the actions catalog. `salestx` includes live v3 sales transactions and tax-service operations; its plan IDs are command identifiers, not catalog entries.
 
-Totals: **140 wired, 178 read-only, 223 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+Totals: **130 wired, 146 read-only, 265 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
 
 Examples:
 
@@ -151,3 +151,5 @@ Layout: `cmd/qb` (entrypoint) · `internal/quickbooks/{cli,client,auth,gql,docto
 ## The Press
 
 This repo also holds `cli-printing-press`, the generator that printed `qb` (API studies, sniffing, verification, skills + MCP output). `qb` is its reference print. See [printingpress.dev](https://printingpress.dev).
+
+Printing Press runs generate their working CLI at `~/printing-press/.runstate/<scope>/runs/<run-id>/working/<api>-pp-cli` and promote it to the local library at `~/printing-press/library/<api>`. Archived manuscripts live at `~/printing-press/manuscripts/<api>/<run-id>/`, with `research/`, `proofs/`, `discovery/`, and `pipeline/` evidence. See [Local Artifacts and Public Library](docs/ARTIFACTS.md) for the artifact lifecycle.

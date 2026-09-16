@@ -9,20 +9,20 @@ import (
 
 func TestCookieHeaderDropsVSTicketsUnderCap(t *testing.T) {
 	var jar []auth.Cookie
-	for i := 0; i < 142; i++ {
+	for range 142 {
 		jar = append(jar, auth.Cookie{Name: "VSremint", Value: "x"})
 	}
 	// 142 identical VS names still count as 142 header pairs if not dropped.
 	// Use distinct names so a naive send would exceed the cap.
 	jar = jar[:0]
-	for i := 0; i < 142; i++ {
+	for i := range 142 {
 		jar = append(jar, auth.Cookie{Name: "VS" + strings.Repeat("a", 1) + itoa(i), Value: "x"})
 	}
 	for _, n := range []string{"qbo.ticket", "qbn.ticket", "ius_session", "other.sid"} {
 		jar = append(jar, auth.Cookie{Name: n, Value: "x"})
 	}
 	// pad other non-VS to 87 keepers like the live prune (16+14+1+56)
-	for i := 0; i < 83; i++ {
+	for i := range 83 {
 		jar = append(jar, auth.Cookie{Name: "keep" + itoa(i), Value: "x"})
 	}
 	h := cookieHeader(jar)

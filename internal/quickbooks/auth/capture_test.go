@@ -59,6 +59,18 @@ func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
 					},
 				})
 				_ = conn.WriteJSON(cdpMsg{Method: "Fetch.requestPaused", Params: paused, SessionID: sid})
+				apiPaused, _ := json.Marshal(map[string]any{
+					"requestId": "R2",
+					"request": map[string]any{
+						"url": "https://qbo.intuit.com/api/v4/graphql",
+						"headers": map[string]any{
+							"Authorization": "Intuit_APIKey intuit_apikey=secondary,intuit_apikey_version=1.0",
+							"apikey":        "k",
+							"intuit_appid":  "app",
+						},
+					},
+				})
+				_ = conn.WriteJSON(cdpMsg{Method: "Fetch.requestPaused", Params: apiPaused, SessionID: sid})
 			case "Network.getAllCookies", "Network.getCookies":
 				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{"cookies":[{"name":"qbo.ticket","value":"v","domain":".qbo.intuit.com","path":"/","secure":true,"httpOnly":true}]}`)})
 			default:
@@ -81,6 +93,9 @@ func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
 	}
 	if len(cap.Cookies) != 1 || cap.Cookies[0].Name != "qbo.ticket" {
 		t.Fatalf("cookies %+v", cap.Cookies)
+	}
+	if headerGet(cap.SecondaryHeaders, "apikey") != "k" || headerGet(cap.SecondaryHeaders, "intuit_appid") != "app" {
+		t.Fatal("secondary apikey request not harvested")
 	}
 	// Never leak the secret into the test name/log via Fatalf of the header map.
 	if strings.Contains(cap.Headers["Authorization"], "Intuit_APIKey") == false {
@@ -124,13 +139,13 @@ func TestCDPConnSerializesConcurrentWrites(t *testing.T) {
 
 	const n = 32
 	errCh := make(chan error, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			_, e := conn.call(ctx, "Fetch.continueRequest", map[string]any{"requestId": "R"}, "")
 			errCh <- e
 		}()
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		if e := <-errCh; e != nil {
 			t.Fatalf("concurrent CDP write: %v", e)
 		}

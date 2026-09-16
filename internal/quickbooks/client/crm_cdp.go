@@ -19,12 +19,13 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql"
 )
 
 // ErrCrmNeedsRelayTab reports that a CRM call cannot run: the OMP relay is
 // unreachable, no authenticated qbo.intuit.com tab exists, or the in-page
 // fetch was blocked. Run `qb auth login` first.
-var ErrCrmNeedsRelayTab = errors.New("crm api/core: no authenticated qbo.intuit.com relay tab; run `qb auth login`")
+var ErrCrmNeedsRelayTab = errors.New("crm api/core: no authenticated ego-browser tab; run `qb login`")
 
 // crmEvalTimeout bounds dial + attach + evaluate for one CRM fetch.
 const crmEvalTimeout = 30 * time.Second
@@ -39,14 +40,12 @@ type crmCDPRequest struct {
 	Session string          `json:"sessionId,omitempty"`
 }
 
-// crmExecute runs one planned CRM api/core call inside the authenticated
-// relay tab and returns the response body and HTTP status. Guards run in
-// order so each failure is attributable before any dial: missing
-// credentials, realm pin, relay reachability, authenticated tab. Transport
-// failures (no relay, no tab, blocked fetch, evaluate error) return an
-// error; a completed HTTP exchange returns its status even for 4xx/5xx —
-// the CRM projections surface the status rather than second-guessing the
-// server, matching the tolerant-envelope design of this file.
+// crmBrowserFetch is the browser transport seam. Production uses ego-browser;
+// unit tests supply their isolated fake browser.
+var crmBrowserFetch = gql.FetchEgo
+
+// crmExecute keeps HTTP status separate from transport failure. Domain
+// consumers validate the response before projecting or reporting success.
 func crmExecute(ctx context.Context, plan *RequestPlan) ([]byte, int, error) {
 	tok, err := auth.Load()
 	if err != nil {
@@ -55,32 +54,31 @@ func crmExecute(ctx context.Context, plan *RequestPlan) ([]byte, int, error) {
 		}
 		return nil, 0, fmt.Errorf("crm: loading credentials: %w", err)
 	}
-	_ = tok // credentials validated; the session realm is the company.
-	relayURL := crmRelayURL()
-	tabs, err := crmListRelayPages(ctx, relayURL)
+	body := []byte(plan.Body)
+	if plan.op == "crm.leads.create" {
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, 0, err
+		}
+		source, _ := payload["source"].(map[string]any)
+		if source != nil {
+			if actor := headerGetFold(tok.RequestHeaders, "intuit-user-id"); actor != "" {
+				source["externalSourceId"] = actor
+			}
+		}
+		body, err = json.Marshal(payload)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	resp, err := crmBrowserFetch(ctx, plan.URL, plan.Method, crmAuthHeaders(tok), body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w (%s unreachable: %v)", ErrCrmNeedsRelayTab, relayURL, err)
+		return nil, 0, fmt.Errorf("%w: %w", ErrCrmNeedsRelayTab, err)
 	}
-	tab := crmFindAuthTab(tabs)
-	if tab == nil {
-		return nil, 0, ErrCrmNeedsRelayTab
+	if resp == nil || resp.Status == 0 {
+		return nil, 0, fmt.Errorf("%w: browser fetch returned no HTTP response", ErrCrmNeedsRelayTab)
 	}
-
-	status, raw, err := crmEvalFetch(ctx, relayURL, tab.ID, plan.URL, plan.Method,
-		[]byte(plan.Body), crmAuthHeaders(tok))
-	if err != nil {
-		return nil, 0, err
-	}
-	httpStatus := int(status)
-	// status==0 means the in-page fetch threw — almost always a CORS
-	// rejection for a cross-origin host from the qbo.intuit.com tab. The
-	// SPA fetches mccrmmessaging successfully from that origin, so this
-	// indicates the wrong tab or a broken relay, never a server answer.
-	if httpStatus == 0 {
-		return nil, 0, fmt.Errorf("%w: in-page fetch to %s was blocked (cross-origin/CORS)",
-			ErrCrmNeedsRelayTab, plan.URL)
-	}
-	return raw, httpStatus, nil
+	return crmUnwrapQuotedObject(resp.Body), resp.Status, nil
 }
 
 // crmAuthHeaders returns the saved-session headers the SPA attaches to
@@ -89,6 +87,17 @@ func crmExecute(ctx context.Context, plan *RequestPlan) ([]byte, int, error) {
 // and CSRF token round the request out. Absent values are omitted.
 func crmAuthHeaders(tok *auth.TokenSet) map[string]string {
 	h := map[string]string{}
+	if captured := tok.URIHostHeaders["mccrmmessaging.api.intuit.com"]; len(captured) > 0 {
+		for _, key := range []string{"authorization", "x-csrf-token", "intuit-plugin-id"} {
+			if v := headerGetFold(captured, key); v != "" {
+				h[key] = v
+			}
+		}
+		if tok.RealmID != "" {
+			h["intuit-company-id"] = tok.RealmID
+		}
+		return h
+	}
 	if tok.RealmID != "" {
 		h["intuit-company-id"] = tok.RealmID
 	}
@@ -119,7 +128,7 @@ func crmEvalFetch(ctx context.Context, relayURL, targetID, endpoint, method stri
 	if err != nil {
 		return 0, nil, fmt.Errorf("%w (relay dial: %v)", ErrCrmNeedsRelayTab, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	sid, err := crmAttachTarget(ctx, conn, targetID)
 	if err != nil {
@@ -128,19 +137,20 @@ func crmEvalFetch(ctx context.Context, relayURL, targetID, endpoint, method stri
 	defer func() {
 		dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer dcancel()
-		crmCallCDP(dctx, conn, "", "Target.detachFromTarget", map[string]any{"sessionId": sid})
+		_, _ = crmCallCDP(dctx, conn, "", "Target.detachFromTarget", map[string]any{"sessionId": sid})
 	}()
 
-	headers := "{'Content-Type': 'application/json'"
+	var headers strings.Builder
+	headers.WriteString("{'Content-Type': 'application/json'")
 	for k, v := range extraHeaders {
-		headers += ", " + crmJSString(k) + ": " + crmJSString(v)
+		headers.WriteString(", " + crmJSString(k) + ": " + crmJSString(v))
 	}
-	headers += "}"
+	headers.WriteString("}")
 	bodyExpr := "null"
 	if len(body) > 0 {
 		bodyExpr = crmJSString(string(body))
 	}
-	expr := fmt.Sprintf(crmFetchExpression, crmJSString(endpoint), crmJSString(method), headers, bodyExpr)
+	expr := fmt.Sprintf(crmFetchExpression, crmJSString(endpoint), crmJSString(method), headers.String(), bodyExpr)
 	raw, err := crmCallCDP(ctx, conn, sid, "Runtime.evaluate", map[string]any{
 		"expression":    expr,
 		"awaitPromise":  true,
@@ -329,11 +339,11 @@ func crmRelayDebuggerURL(ctx context.Context, relayURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("/json/version returned %s", resp.Status)
 	}
@@ -363,11 +373,11 @@ func crmListRelayPages(ctx context.Context, relayURL string) ([]crmRelayPage, er
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("relay /json/list returned %s", resp.Status)
 	}

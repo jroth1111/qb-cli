@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// Captured 2026-08-19 from /app/apptransactions (leftover-xhr-bodies.json).
-// Wrap ATS POST v4.api.intuit.com/graphql connections is 200 empty (edges=[]).
-// That is the honest integration-txn list — not v3 Purchase leftovers.
-const connectionsGraphQLURL = "https://v4.api.intuit.com/graphql"
+// Captured 2026-09-15 from the authenticated apptransactions SPA. The
+// first-party QBO v4 gateway accepts the saved ATS key; the v4.api host
+// rejects the same replay with 403 unless a separate per-host capture exists.
+const connectionsGraphQLURL = "https://qbo.intuit.com/api/v4/graphql"
 const connectionsReferer = "https://qbo.intuit.com/app/apptransactions"
 
 const connectionsQuery = `query connections($filterBy: String!) {
@@ -131,7 +131,7 @@ func ReplayConnections(ctx context.Context, id string, limit int) (*QueryResult,
 	if err != nil {
 		return nil, fmt.Errorf("connections graphql: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading connections: %w", err)

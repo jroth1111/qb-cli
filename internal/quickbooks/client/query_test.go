@@ -2,6 +2,9 @@ package client
 
 import (
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +40,28 @@ func TestProjectQueryEmpty(t *testing.T) {
 	}
 }
 
+func TestEstimateSearchRetriesUnfilteredAfterFalseEmpty(t *testing.T) {
+	saveUsable(t)
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			_, _ = io.WriteString(w, `{"QueryResponse":{"Estimate":[]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"QueryResponse":{"Estimate":[{"Id":"111","TxnDate":"2026-09-14","TotalAmt":1}]}}`)
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	res, err := ReplayQuery(t.Context(), "Estimate", "", "111", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || len(res.Items) != 1 || res.Items[0].ID != "111" {
+		t.Fatalf("calls=%d result=%+v, want bounded unfiltered fallback", calls, res)
+	}
+}
+
 func TestProjectQueryRecurringUnwrapsInvoice(t *testing.T) {
 	body := []byte(`{"QueryResponse":{"RecurringTransaction":[{"Invoice":{"Id":"88","TotalAmt":1,"RecurringInfo":{"Name":"QB-CLI-TEST-REC"}}}]}}`)
 	got := projectQuery("RecurringTransaction", body)
@@ -65,6 +90,17 @@ func TestReplayQueryNoCreds(t *testing.T) {
 	assertFast(t, time.Since(start))
 	if !errors.Is(err, ErrNoCredentials) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestV3QueryableRejectsDelayedCharge(t *testing.T) {
+	if V3Queryable("DelayedCharge") {
+		t.Fatal("DelayedCharge must not be a v3 query context")
+	}
+	for _, entity := range []string{"Invoice", "Estimate", "Payment", "CreditMemo", "SalesReceipt", "DelayedCredit"} {
+		if !V3Queryable(entity) {
+			t.Errorf("%s must stay queryable", entity)
+		}
 	}
 }
 
@@ -103,6 +139,22 @@ func TestProjectQueryInventoryAdjustmentAccount(t *testing.T) {
 	body := []byte(`{"QueryResponse":{"InventoryAdjustment":[{"Id":"159","DocNumber":"QB-ADJ-172351","TxnDate":"2026-08-18","AdjustAccountRef":{"value":"60","name":"Inventory Shrinkage"}}]}}`)
 	got := projectQuery("InventoryAdjustment", body)
 	if len(got) != 1 || got[0].ID != "159" || got[0].DocNumber != "QB-ADJ-172351" || got[0].Account != "Inventory Shrinkage" || got[0].AccountID != "60" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// The AU schema returns credit-card payments under CreditCardPaymentTxn;
+// the read must resolve that collection key rather than reporting empty.
+func TestProjectQueryCreditCardPaymentTxnAlias(t *testing.T) {
+	if got := queryResponseEntity("CreditCardPayment"); got != "CreditCardPaymentTxn" {
+		t.Fatalf("alias=%q", got)
+	}
+	body := []byte(`{"QueryResponse":{"CreditCardPaymentTxn":[{"Id":"120","Amount":10,"TxnDate":"2026-09-16","CreditCardAccountRef":{"value":"70","name":"QBVerify Credit Card"}}]}}`)
+	if err := validateQueryEnvelope(queryResponseEntity("CreditCardPayment"), body); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	got := projectQuery(queryResponseEntity("CreditCardPayment"), body)
+	if len(got) != 1 || got[0].ID != "120" || got[0].Amount != 10 {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -192,5 +244,19 @@ func TestProjectQueryFallsBackToSourceCurrencyCode(t *testing.T) {
 	}
 	if got := filterItems(items, "usd"); len(got) != 1 {
 		t.Error("client filter must match the projected currency code")
+	}
+}
+
+func TestAttachableNameAndSearch(t *testing.T) {
+	items := projectQuery("Attachable", []byte(`{"QueryResponse":{"Attachable":[{"Id":"7","FileName":"proof.txt"}]}}`))
+	if len(items) != 1 || items[0].Name != "proof.txt" {
+		t.Fatal("attachment filename discarded")
+	}
+	if !strings.Contains(buildQuery("Attachable", "", "proof", 5, ""), "FileName like") {
+		t.Fatal("attachment search uses wrong field")
+	}
+	body, err := buildUpdateBody("Attachable", map[string]string{"name": "renamed.txt"}, map[string]any{"Id": "7", "SyncToken": "0"})
+	if err != nil || body["FileName"] != "renamed.txt" {
+		t.Fatal("attachment rename did not target FileName")
 	}
 }

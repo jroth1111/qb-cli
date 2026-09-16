@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 )
@@ -32,6 +33,8 @@ type Walker struct {
 	// into when an operation pages through a nested input (Items'
 	// getItemsInput.limit/offset) instead of top-level variables.
 	InputVar string
+	// NodesPath selects a native array for APIs that do not use edges/node.
+	NodesPath []string
 	// Window, when non-nil, is injected into the $filter variable before
 	// the walk: filter[Field][AfterKey] / [BeforeKey] carry the ISO forms
 	// of From/To. Zero bounds drop their key; a fully-zero window still
@@ -48,6 +51,10 @@ type Walker struct {
 //   - single: one fetch — or, when InputVar names a nested paging input
 //     (Items: getItemsInput), successive offsets until totalCount drains
 func Walk(ctx context.Context, req Request, w Walker) (*WalkResult, error) {
+	return walk(ctx, req, w, Execute)
+}
+
+func walk(ctx context.Context, req Request, w Walker, execute func(context.Context, Request) (*Response, error)) (*WalkResult, error) {
 	style := req.Op.DetectWalkStyle()
 	// A numerically-typed $after (TaskManagementTasks declares Int!) is a
 	// page position, not an opaque Relay cursor: no endCursor ever comes
@@ -57,15 +64,18 @@ func Walk(ctx context.Context, req Request, w Walker) (*WalkResult, error) {
 		style = WalkOffset
 		offsetVar = "after"
 	}
-	res := &WalkResult{Op: req.Op.Name, Style: style}
+	res := &WalkResult{Op: req.Op.Name, Style: style, Nodes: []json.RawMessage{}}
 	vars := map[string]any{}
-	for k, v := range req.Variables {
-		vars[k] = v
+	maps.Copy(vars, req.Variables)
+	if offsetVar != "" {
+		if _, present := vars[offsetVar]; !present {
+			vars[offsetVar] = int64(0)
+		}
 	}
 	if w.Window != nil {
 		injectDateWindow(vars, w.Window)
 	}
-	if w.PageSize != nil && len(req.Op.DeclaredVars()) > 0 {
+	if w.PageSize != nil {
 		for _, d := range req.Op.DeclaredVars() {
 			switch d {
 			case "first", "limit":
@@ -86,11 +96,14 @@ func Walk(ctx context.Context, req Request, w Walker) (*WalkResult, error) {
 			res.Truncated = res.HasNext
 			break
 		}
-		resp, err := Execute(ctx, Request{Op: req.Op, Variables: vars, Endpoint: req.Endpoint})
+		resp, err := execute(ctx, Request{Op: req.Op, Variables: vars, Endpoint: req.Endpoint})
 		if err != nil {
 			return res, err
 		}
 		nodes, hasNext, endCursor, err := extractNodes(resp.Body)
+		if len(w.NodesPath) > 0 && len(resp.Errors) == 0 {
+			nodes, err = extractNodesPath(resp.Body, w.NodesPath)
+		}
 		if err != nil {
 			return res, fmt.Errorf("gql: walk %s page %d: %w", req.Op.Name, page+1, err)
 		}
@@ -108,10 +121,20 @@ func Walk(ctx context.Context, req Request, w Walker) (*WalkResult, error) {
 			}
 			setVarAny(vars, endCursor, "after", "afterCursor", "cursor")
 		case WalkOffset:
+			if total, ok := extractTotalCount(resp.Body); len(w.NodesPath) > 0 && ok && int64(len(res.Nodes)) >= total {
+				res.HasNext = false
+				return res, nil
+			}
+			res.HasNext = len(nodes) > 0
 			if len(nodes) == 0 {
 				return res, nil
 			}
 			inc, _ := toInt(w.PageSize)
+			if inc <= 0 {
+				// Without an explicit page size, advance by the rows actually
+				// returned instead of fetching the same offset indefinitely.
+				inc = int64(len(nodes))
+			}
 			offsetNames := []string{"offset", "skip"}
 			if offsetVar != "" {
 				offsetNames = []string{offsetVar}
@@ -130,6 +153,7 @@ func Walk(ctx context.Context, req Request, w Walker) (*WalkResult, error) {
 				inp["offset"] = c2 + inc
 			}
 		case WalkSingle:
+			res.HasNext = false
 			// Limit-only documents are one fetch — unless the op pages
 			// through a nested input whose connection selects totalCount
 			// (Items): then keep fetching until the total is drained.
@@ -153,6 +177,29 @@ func Walk(ctx context.Context, req Request, w Walker) (*WalkResult, error) {
 		}
 	}
 	return res, nil
+}
+
+func extractNodesPath(body json.RawMessage, path []string) ([]json.RawMessage, error) {
+	raw := body
+	for _, key := range path {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil {
+			return nil, fmt.Errorf("expected object at %s", key)
+		}
+		value, ok := object[key]
+		if !ok {
+			return nil, fmt.Errorf("missing node path field %s", key)
+		}
+		raw = value
+	}
+	var nodes []json.RawMessage
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil, fmt.Errorf("node path must contain an array")
+	}
+	if err := json.Unmarshal(raw, &nodes); err != nil {
+		return nil, err
+	}
+	return nodes, nil
 }
 
 // setVarAny binds val to the first of names already present in vars, else
@@ -227,26 +274,6 @@ func extractNodes(body json.RawMessage) ([]json.RawMessage, bool, string, error)
 	}
 	scan(data)
 	return out, hasNext, endCursor, nil
-}
-
-func setVar(vars map[string]any, names ...string) {
-	val := names[len(names)-1]
-	for _, n := range names[:len(names)-1] {
-		if n == "" {
-			continue
-		}
-		if _, ok := vars[n]; ok {
-			vars[n] = val
-			return
-		}
-	}
-	// none present yet: bind the primary name anyway so walks continue
-	for _, n := range names[:len(names)-1] {
-		if n != "" {
-			vars[n] = val
-			return
-		}
-	}
 }
 
 func toInt(v any) (int64, bool) {
@@ -408,18 +435,14 @@ func (s DateWindowSpec) ParseWindow(from, to string) (*DateWindow, error) {
 func injectDateWindow(vars map[string]any, win *DateWindow) {
 	src, _ := vars["filter"].(map[string]any)
 	filter := make(map[string]any, len(src)+1)
-	for k, v := range src {
-		filter[k] = v
-	}
+	maps.Copy(filter, src)
 	vars["filter"] = filter
 	if win.From.IsZero() && win.To.IsZero() {
 		return
 	}
 	nestedSrc, _ := filter[win.Field].(map[string]any)
 	nested := make(map[string]any, len(nestedSrc)+2)
-	for k, v := range nestedSrc {
-		nested[k] = v
-	}
+	maps.Copy(nested, nestedSrc)
 	if !win.From.IsZero() {
 		nested[win.AfterKey] = win.From.Format(wireDateLayout)
 	}

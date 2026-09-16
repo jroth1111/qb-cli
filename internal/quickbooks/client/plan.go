@@ -18,10 +18,7 @@ const (
 	atsBankingTmpl   = "https://qbo.intuit.com/ats/v1/company/" + realmToken + "/banking"
 	excludePath      = "/olb/ng/excludeTransactions"
 	undoPath         = "/olb/ng/undoTransactions"
-	categorisePath   = "/olb/ng/categoriseTransactions"
-	tsplitPath       = "/olb/ng/splitTransactions"
-	matchPath        = "/olb/ng/matchTransactions"
-	splitPath        = "/olb/ng/splitTransactions"
+	acceptPath       = "/olb/ng/acceptTransactions"
 	batchAcceptPath  = "/olb/ng/batchAcceptTransactions"
 	importPath       = "/olb/processCsvFile"
 	trulesPath       = "/lists/olbrules/getRules"
@@ -68,11 +65,12 @@ func PlanExclude(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	}
 	var req excludeRequest
 	req.NextTxnInfo.AccountID = accountID
-	req.NextTxnInfo.NextTransactionIndex = 0
+	req.NextTxnInfo.NextTransactionIndex = -1
 	req.NextTxnInfo.ReviewState = "PENDING"
 	req.NextTxnInfo.Sort = "-txnDate"
 	req.TxnIDList.ExternalTxnIDs = []string{}
 	req.TxnIDList.OlbTxnIDs = ids
+	req.TxnIDList.TxnIDPairs = []any{}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("encoding exclude request: %w", err)
@@ -91,7 +89,7 @@ func PlanUndo(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	}
 	var req undoRequest
 	req.NextTxnInfo.AccountID = accountID
-	req.NextTxnInfo.NextTransactionIndex = 0
+	req.NextTxnInfo.NextTransactionIndex = -1
 	req.NextTxnInfo.ReviewState = "EXCLUDED"
 	req.NextTxnInfo.Sort = "-txnDate"
 	req.TxnIDList.ExternalTxnIDs = []string{}
@@ -104,9 +102,12 @@ func PlanUndo(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	return newPOSTPlan(undoPath, body, "undoTransactions", "captured POST; not sent"), nil
 }
 
-// PlanCategorise builds the categoriseTransactions POST without opening a
-// socket. Validation matches ReplayCategorise: empty olbTxnIds and an empty
-// categoryRef are rejected. entityType defaults to Expense.
+// PlanCategorise builds the categorise POST without opening a socket. The
+// live contract folds categorise into batchAcceptTransactions?acceptOnly=true
+// with the category on addAsQboTxn.details[0].categoryId; the plan body shows
+// stub olbTxns entries — the live feed rows hydrate at send time. Validation
+// matches ReplayCategorise: empty olbTxnIds, an empty categoryRef and a
+// non-empty classRef (not in the captured contract) are rejected.
 func PlanCategorise(accountID string, olbTxnIDs []string, detail TransactionDetail) (*RequestPlan, error) {
 	ids := normalizeExcludeIDs(olbTxnIDs)
 	if len(ids) == 0 {
@@ -115,68 +116,83 @@ func PlanCategorise(accountID string, olbTxnIDs []string, detail TransactionDeta
 	if detail.CategoryRef == nil || strings.TrimSpace(detail.CategoryRef.Value) == "" {
 		return nil, ErrEmptyCategory
 	}
+	if detail.ClassRef != nil && strings.TrimSpace(detail.ClassRef.Value) != "" {
+		return nil, ErrUnsupportedClass
+	}
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
-	if detail.EntityType == "" {
-		detail.EntityType = "Expense"
+	olbTxns := make([]any, 0, len(ids))
+	for _, id := range ids {
+		olbTxns = append(olbTxns, map[string]any{
+			"olbTxnId":   id,
+			"acceptType": "ADD",
+			"addAsQboTxn": map[string]any{
+				"details": []any{map[string]any{"categoryId": detail.CategoryRef.Value}},
+			},
+		})
 	}
-	var req categoriseRequest
-	req.NextTxnInfo.AccountID = accountID
-	req.NextTxnInfo.NextTransactionIndex = 0
-	req.NextTxnInfo.ReviewState = "PENDING"
-	req.NextTxnInfo.Sort = "-txnDate"
-	req.TxnIDList.ExternalTxnIDs = []string{}
-	req.TxnIDList.OlbTxnIDs = ids
-	req.TransactionDetail = detail
-	body, err := json.Marshal(req)
+	body, err := buildAcceptBody(accountID, olbTxns)
 	if err != nil {
 		return nil, fmt.Errorf("encoding categorise request: %w", err)
 	}
-	return newPOSTPlan(categorisePath, body, "categoriseTransactions", "captured POST; not sent"), nil
+	return newPOSTPlan(batchAcceptPath+batchAcceptQuery, body, "batchAcceptTransactions", "captured POST /olb/ng/batchAcceptTransactions?acceptOnly=true; not sent"), nil
 }
 
-// PlanMatch builds the matchTransactions POST without opening a socket.
+// cleanMatchTxns drops empty match ids without mutating the caller's slice.
+// The txn type no longer defaults: the register's recorded txnTypeId is the
+// only value the acceptTransactions contract accepts.
+func cleanMatchTxns(in []MatchTxn) []MatchTxn {
+	clean := make([]MatchTxn, 0, len(in))
+	for _, m := range in {
+		if strings.TrimSpace(m.TxnID) == "" {
+			continue
+		}
+		clean = append(clean, m)
+	}
+	return clean
+}
+
+// PlanMatch builds the acceptTransactions POST without opening a socket.
 // Validation matches ReplayMatch: empty olbTxnIds and an empty matchTxns
-// list are rejected.
+// list are rejected. The plan body shows stub entries — feed-row fields and
+// register-resolved matchedTxns fields hydrate at send time.
 func PlanMatch(accountID string, olbTxnIDs []string, matchTxns []MatchTxn) (*RequestPlan, error) {
 	ids := normalizeExcludeIDs(olbTxnIDs)
 	if len(ids) == 0 {
 		return nil, ErrEmptyMatchIDs
 	}
-	clean := make([]MatchTxn, 0, len(matchTxns))
-	for _, m := range matchTxns {
-		if strings.TrimSpace(m.TxnID) == "" {
-			continue
-		}
-		if m.TxnType == "" {
-			m.TxnType = "Bill"
-		}
-		clean = append(clean, m)
-	}
+	clean := cleanMatchTxns(matchTxns)
 	if len(clean) == 0 {
 		return nil, ErrEmptyMatchTxns
 	}
-	if accountID == "" {
-		accountID = DefaultAccountID
+	matched := make([]any, 0, len(clean))
+	for _, m := range clean {
+		matched = append(matched, map[string]any{"qboTxnId": m.TxnID})
 	}
-	var req matchRequest
-	req.NextTxnInfo.AccountID = accountID
-	req.NextTxnInfo.NextTransactionIndex = 0
-	req.NextTxnInfo.ReviewState = "PENDING"
-	req.NextTxnInfo.Sort = "-txnDate"
-	req.TxnIDList.ExternalTxnIDs = []string{}
-	req.TxnIDList.OlbTxnIDs = ids
-	req.MatchTxns = clean
-	body, err := json.Marshal(req)
+	olbTxns := make([]any, 0, len(ids))
+	for _, id := range ids {
+		olbTxns = append(olbTxns, map[string]any{
+			"olbTxnId":   id,
+			"acceptType": "MATCH",
+			"selectedMatches": map[string]any{
+				"matchedTxns":  matched,
+				"addAdjQboTxn": nil,
+				"addAsQboTxn":  nil,
+			},
+		})
+	}
+	body, err := json.Marshal(map[string]any{"olbTxns": olbTxns})
 	if err != nil {
 		return nil, fmt.Errorf("encoding match request: %w", err)
 	}
-	return newPOSTPlan(matchPath, body, "matchTransactions", "captured POST; not sent"), nil
+	return newPOSTPlan(acceptPath, body, "acceptTransactions", "captured POST /olb/ng/acceptTransactions; not sent"), nil
 }
 
-// PlanBatchAccept builds the batchAcceptTransactions POST without opening a
-// socket. Validation matches ReplayBatchAccept: empty olbTxnIds are rejected.
+// PlanBatchAccept builds the batchAcceptTransactions?acceptOnly=true POST
+// without opening a socket. Validation matches ReplayBatchAccept: empty
+// olbTxnIds are rejected. The plan body shows stub entries — live feed rows
+// hydrate at send time.
 func PlanBatchAccept(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	ids := normalizeExcludeIDs(olbTxnIDs)
 	if len(ids) == 0 {
@@ -185,23 +201,23 @@ func PlanBatchAccept(accountID string, olbTxnIDs []string) (*RequestPlan, error)
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
-	var req batchAcceptRequest
-	req.NextTxnInfo.AccountID = accountID
-	req.NextTxnInfo.NextTransactionIndex = 0
-	req.NextTxnInfo.ReviewState = "PENDING"
-	req.NextTxnInfo.Sort = "-txnDate"
-	req.TxnIDList.ExternalTxnIDs = []string{}
-	req.TxnIDList.OlbTxnIDs = ids
-	body, err := json.Marshal(req)
+	olbTxns := make([]any, 0, len(ids))
+	for _, id := range ids {
+		olbTxns = append(olbTxns, map[string]any{"olbTxnId": id, "acceptType": "ADD"})
+	}
+	body, err := buildAcceptBody(accountID, olbTxns)
 	if err != nil {
 		return nil, fmt.Errorf("encoding batch accept request: %w", err)
 	}
-	return newPOSTPlan(batchAcceptPath, body, "batchAcceptTransactions", "captured POST; not sent"), nil
+	return newPOSTPlan(batchAcceptPath+batchAcceptQuery, body, "batchAcceptTransactions", "captured POST /olb/ng/batchAcceptTransactions?acceptOnly=true; not sent"), nil
 }
 
-// PlanSplit builds the splitTransactions POST without opening a socket.
-// Validation matches ReplaySplit: empty olbTxnIds and fewer than two lines
-// are rejected; every line needs a non-empty category.
+// PlanSplit builds the split POST without opening a socket. The live contract
+// folds split into batchAcceptTransactions?acceptOnly=true with the lines on
+// addAsQboTxn.details; the plan body shows stub olbTxns entries — the live
+// feed rows hydrate at send time. Validation matches ReplaySplit: empty
+// olbTxnIds and fewer than two non-empty lines are rejected. entityType is
+// vestigial: the feed row carries the created txn type.
 func PlanSplit(accountID string, olbTxnIDs []string, entityType string, lines []SplitLine) (*RequestPlan, error) {
 	ids := normalizeExcludeIDs(olbTxnIDs)
 	if len(ids) == 0 {
@@ -220,23 +236,20 @@ func PlanSplit(accountID string, olbTxnIDs []string, entityType string, lines []
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
-	if entityType == "" {
-		entityType = "Expense"
+	details := splitDetailList(clean)
+	olbTxns := make([]any, 0, len(ids))
+	for _, id := range ids {
+		olbTxns = append(olbTxns, map[string]any{
+			"olbTxnId":    id,
+			"acceptType":  "ADD",
+			"addAsQboTxn": map[string]any{"details": details},
+		})
 	}
-	var req splitRequest
-	req.NextTxnInfo.AccountID = accountID
-	req.NextTxnInfo.NextTransactionIndex = 0
-	req.NextTxnInfo.ReviewState = "PENDING"
-	req.NextTxnInfo.Sort = "-txnDate"
-	req.TxnIDList.ExternalTxnIDs = []string{}
-	req.TxnIDList.OlbTxnIDs = ids
-	req.TransactionDetail.EntityType = entityType
-	req.TransactionDetail.Lines = clean
-	body, err := json.Marshal(req)
+	body, err := buildAcceptBody(accountID, olbTxns)
 	if err != nil {
 		return nil, fmt.Errorf("encoding split request: %w", err)
 	}
-	return newPOSTPlan(splitPath, body, "splitTransactions", "captured POST; not sent"), nil
+	return newPOSTPlan(batchAcceptPath+batchAcceptQuery, body, "batchAcceptTransactions", "captured POST /olb/ng/batchAcceptTransactions?acceptOnly=true; not sent"), nil
 }
 
 // PlanImportCSV builds the processCsvFile POST without opening a socket.
@@ -313,7 +326,7 @@ func PlannedFeedURL(accountID, reviewState string) string {
 	if reviewState == "" {
 		reviewState = "PENDING"
 	}
-	return atsBankingTmpl + transactionsPath + "?accountId=" + accountID + "&reviewState=" + strings.ToUpper(reviewState)
+	return neoCompanyTmpl + "/olb/ng" + transactionsPath + "?sort=-txnDate&reviewState=" + strings.ToUpper(reviewState) + "&ignoreMatching=false&accountId=" + accountID
 }
 
 // PlannedRegisterURL is the captured register transactions GET.
@@ -344,12 +357,23 @@ func postPlanned(ctx context.Context, plan *RequestPlan) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	return postResolved(ctx, ac, plan, []byte(plan.Body))
+}
+
+// postResolved POSTs an explicitly resolved body to plan.URL on an existing
+// authenticated client. Replay functions that hydrate the request from live
+// reads build their body after loading the session and share the same
+// apiClient for the POST.
+func postResolved(ctx context.Context, ac *apiClient, plan *RequestPlan, body []byte) (int, error) {
+	if plan == nil {
+		return 0, fmt.Errorf("nil request plan")
+	}
 	url := strings.ReplaceAll(plan.URL, realmToken, ac.realm)
-	resp, err := ac.post(ctx, url, []byte(plan.Body))
+	resp, err := ac.post(ctx, url, body)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", plan.op, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return resp.StatusCode, fmt.Errorf("reading %s: %w", plan.op, err)

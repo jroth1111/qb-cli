@@ -21,7 +21,7 @@ func replayFeedbackEngagement(ctx context.Context, _, _ string, _ int) (*QueryRe
 	if err != nil {
 		return nil, fmt.Errorf("review feedback-engagement: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading review feedback-engagement: %w", err)
@@ -34,6 +34,15 @@ func replayFeedbackEngagement(ctx context.Context, _, _ string, _ int) (*QueryRe
 	return res, nil
 }
 
+// reviewItemKeys maps feedback-engagement response objects onto QueryItem.
+var reviewItemKeys = itemKeys{
+	id:     []string{"id", "Id", "responseId", "engagementId"},
+	name:   []string{"name", "Name", "comment", "feedback", "title"},
+	date:   []string{"submittedDate", "createdDate", "updatedDate", "date"},
+	amount: []string{"rating", "score"},
+	typeOf: []string{"status", "Status", "type"},
+}
+
 func projectFeedbackEngagement(body []byte) *QueryResult {
 	var wrap struct {
 		Responses []json.RawMessage `json:"responses"`
@@ -43,10 +52,11 @@ func projectFeedbackEngagement(body []byte) *QueryResult {
 		return &QueryResult{Entity: "Review", Counts: map[string]int{"items": 0}, Items: []QueryItem{}, Note: note + " (unparsed)"}
 	}
 	n := len(wrap.Responses)
+	items := projectJSONItems("Review", wrap.Responses, reviewItemKeys)
 	return &QueryResult{
 		Entity: "Review",
-		Counts: map[string]int{"items": 0, "totalCount": n},
-		Items:  []QueryItem{},
+		Counts: map[string]int{"items": len(items), "totalCount": n},
+		Items:  items,
 		Note:   fmt.Sprintf("%s responses=%d", note, n),
 	}
 }

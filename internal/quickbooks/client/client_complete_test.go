@@ -291,15 +291,18 @@ func (fs *feedServer) stats() (initial, tx int) {
 func interceptHTTP(t *testing.T, rawurl string) {
 	t.Helper()
 	orig := http.DefaultTransport
+	origImpersonated := impersonatedTransport
 	u, err := url.Parse(rawurl)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rt := &http.Transport{}
 	http.DefaultTransport = &localTransport{scheme: u.Scheme, host: u.Host, rt: rt}
+	impersonatedTransport = http.DefaultTransport
 	t.Cleanup(func() {
 		rt.CloseIdleConnections()
 		http.DefaultTransport = orig
+		impersonatedTransport = origImpersonated
 	})
 }
 

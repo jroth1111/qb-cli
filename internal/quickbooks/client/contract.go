@@ -21,7 +21,7 @@ func replayModifiedEnvelopes(ctx context.Context, _, _ string, _ int) (*QueryRes
 	if err != nil {
 		return nil, fmt.Errorf("contract modified-envelopes: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading contract modified-envelopes: %w", err)
@@ -34,14 +34,24 @@ func replayModifiedEnvelopes(ctx context.Context, _, _ string, _ int) (*QueryRes
 	return res, nil
 }
 
+// contractItemKeys maps esign modified-envelope objects onto QueryItem.
+var contractItemKeys = itemKeys{
+	id:        []string{"envelopeId", "id", "Id"},
+	name:      []string{"name", "Name", "subject", "title", "envelopeName"},
+	date:      []string{"lastModifiedDate", "modifiedDate", "updatedDate", "createdDate", "sentDate", "date"},
+	docNumber: []string{"docNumber", "DocNumber"},
+	typeOf:    []string{"status", "Status"},
+}
+
 func projectModifiedEnvelopes(body []byte) *QueryResult {
 	note := "esign.platform GET /v1/modified-envelopes"
 	var arr []json.RawMessage
 	if json.Unmarshal(body, &arr) == nil {
+		items := projectJSONItems("Contract", arr, contractItemKeys)
 		return &QueryResult{
 			Entity: "Contract",
-			Counts: map[string]int{"items": 0, "totalCount": len(arr)},
-			Items:  []QueryItem{},
+			Counts: map[string]int{"items": len(items), "totalCount": len(arr)},
+			Items:  items,
 			Note:   fmt.Sprintf("%s n=%d", note, len(arr)),
 		}
 	}

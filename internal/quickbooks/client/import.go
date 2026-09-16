@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/enetx/surf"
 )
 
 // CSVImportAccountID is the Jacob Reimbursement CSV-import feed (account 209).
@@ -116,18 +114,11 @@ func UploadCSVFile(ctx context.Context, filename string, content []byte) (*Uploa
 	req.Header.Set("Accept", "application/json")
 	// The bank-connections UI identifies itself; without it the endpoint 500s.
 	req.Header.Set("intuit-plugin-id", "integrations-bankconnections-ui")
-	builder := surf.NewClient().Builder().Impersonate().Chrome().Timeout(httpTimeout)
-	sc, err := builder.Build().Result()
-	if err != nil {
-		return nil, fmt.Errorf("upload client: %w", err)
-	}
-	std := sc.Std()
-	std.Timeout = httpTimeout
-	resp, err := std.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("uploadCsvFile: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("uploadCsvFile: %w", err)

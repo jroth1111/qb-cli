@@ -25,6 +25,8 @@ type DoctorResult struct {
 	Checks    []Check `json:"checks"`
 }
 
+var probeSession = client.ProbeSession
+
 // RunDoctor executes every check and returns the aggregate result. All
 // checks run; the first failure does not short-circuit the rest.
 func RunDoctor(ctx context.Context) DoctorResult {
@@ -60,7 +62,7 @@ func RunDoctor(ctx context.Context) DoctorResult {
 		pick(realmOK, "realm "+tok.RealmID,
 			"mixed-realm session: stored "+tok.RealmID+" != headers "+hdrCompany+"; re-run qb auth remint"))
 
-	ok, status, detail := client.ProbeSession(ctx)
+	ok, status, detail := probeSession(ctx)
 	add("live-probe", ok, detail+" (status "+itoa(status)+")")
 
 	// Zero AccessExpiry means "unknown" (remint does not persist it):

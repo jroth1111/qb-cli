@@ -21,7 +21,7 @@ func replayProposals(ctx context.Context, _, _ string, _ int) (*QueryResult, err
 	if err != nil {
 		return nil, fmt.Errorf("proposal GET /v1/proposals: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading proposal GET /v1/proposals: %w", err)
@@ -32,6 +32,16 @@ func replayProposals(ctx context.Context, _, _ string, _ int) (*QueryResult, err
 	res := projectProposals(raw)
 	res.Status = resp.StatusCode
 	return res, nil
+}
+
+// proposalItemKeys maps crm-proposal-svc proposal objects onto QueryItem.
+var proposalItemKeys = itemKeys{
+	id:        []string{"proposalId", "id", "Id"},
+	name:      []string{"name", "Name", "title", "subject", "proposalName"},
+	date:      []string{"updatedDate", "lastModifiedDate", "modifiedDate", "createdDate", "sentDate", "date"},
+	docNumber: []string{"docNumber", "DocNumber", "proposalNumber"},
+	amount:    []string{"totalAmount", "amount", "Amount", "total"},
+	typeOf:    []string{"status", "Status"},
 }
 
 func projectProposals(body []byte) *QueryResult {
@@ -47,10 +57,11 @@ func projectProposals(body []byte) *QueryResult {
 	if n == 0 {
 		n = len(wrap.Proposals)
 	}
+	items := projectJSONItems("Proposal", wrap.Proposals, proposalItemKeys)
 	return &QueryResult{
 		Entity: "Proposal",
-		Counts: map[string]int{"items": 0, "totalCount": n, "totalElements": wrap.TotalElements},
-		Items:  []QueryItem{},
+		Counts: map[string]int{"items": len(items), "totalCount": n, "totalElements": wrap.TotalElements},
+		Items:  items,
 		Note:   fmt.Sprintf("%s totalElements=%d", note, wrap.TotalElements),
 	}
 }

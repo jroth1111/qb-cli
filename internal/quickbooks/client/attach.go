@@ -6,12 +6,8 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"strings"
-
-	"github.com/enetx/surf"
 )
 
 // attachUploadTmpl is the v3 file-upload endpoint behind the webapp proxy
@@ -58,6 +54,9 @@ func UploadAttachable(ctx context.Context, filename string, content []byte) (*At
 	fmt.Fprintf(&buf, "\r\n--%s--\r\n", boundary)
 	url := strings.ReplaceAll(attachUploadTmpl, "{realm}", ac.realm)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("attachable upload request: %w", err)
+	}
 	ac.applyHeaders(req, "")
 	req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
 	req.Header.Set("Accept", "application/json")
@@ -65,7 +64,7 @@ func UploadAttachable(ctx context.Context, filename string, content []byte) (*At
 	if err != nil {
 		return nil, fmt.Errorf("attachable upload: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("attachable upload: %w", err)
@@ -110,54 +109,9 @@ type InvoicePDFResult struct {
 // ReplayInvoicePDF downloads a sales form as PDF (GET
 // /api/v3/company/{realm}/invoice/{id}/pdf, Accept: application/pdf —
 // verified live TC2: 21KB PDF for a real invoice) and writes the bytes to
-// outPath. The body is the PDF itself; at most 64MB is buffered.
+// outPath. The body is streamed with a 64MB size limit.
 func ReplayInvoicePDF(ctx context.Context, id, outPath string) (*InvoicePDFResult, error) {
-	id = sanitizeToken(id)
-	if id == "" {
-		return nil, ErrMissingMutateID
-	}
-	if strings.TrimSpace(outPath) == "" {
-		return nil, fmt.Errorf("invoice pdf requires --out path")
-	}
-	ac, err := newAPIClient()
-	if err != nil {
-		return nil, err
-	}
-	u := "https://qbo.intuit.com/api/v3/company/" + ac.realm + "/invoice/" + id + "/pdf"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("invoice pdf request: %w", err)
-	}
-	ac.applyHeaders(req, "")
-	req.Header.Set("Accept", "application/pdf")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("invoice pdf: %w", err)
-	}
-	defer drainAndClose(resp)
-	if resp.StatusCode != http.StatusOK {
-		raw, err := readBody(resp)
-		if err != nil {
-			return nil, err
-		}
-		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
-	}
-	pdf, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if err != nil {
-		return nil, fmt.Errorf("reading pdf: %w", err)
-	}
-	if len(pdf) == 0 || !bytes.HasPrefix(pdf, []byte("%PDF")) {
-		return nil, fmt.Errorf("invoice pdf: response is not a PDF (%d bytes)", len(pdf))
-	}
-	if err := os.WriteFile(outPath, pdf, 0o644); err != nil {
-		return nil, fmt.Errorf("writing pdf: %w", err)
-	}
-	return &InvoicePDFResult{
-		Status:      resp.StatusCode,
-		Path:        outPath,
-		Bytes:       len(pdf),
-		ContentType: resp.Header.Get("Content-Type"),
-	}, nil
+	return ReplaySalesFormPDF(ctx, "Invoice", id, outPath)
 }
 
 // attachXML is the XML envelope the upload endpoint serves to browser-like
@@ -195,20 +149,6 @@ func parseAttachableResponse(raw []byte) (id, name string) {
 	return "", ""
 }
 
-// impersonatedDo issues req through the Chrome-impersonating client (house
-// default for friction reduction). Defined once; upload and CSV staging
-// share it.
-func impersonatedDo(req *http.Request) (*http.Response, error) {
-	builder := surf.NewClient().Builder().Impersonate().Chrome().Timeout(httpTimeout)
-	sc, err := builder.Build().Result()
-	if err != nil {
-		return nil, err
-	}
-	std := sc.Std()
-	std.Timeout = httpTimeout
-	return std.Do(req)
-}
-
 // DownloadAttachable fetches an attachable's bytes to outPath. The v3
 // download endpoint answers with a pre-signed financialdocument URL (it
 // embeds a live apikey, so it is followed transiently and never logged or
@@ -232,11 +172,11 @@ func DownloadAttachable(ctx context.Context, id, outPath string) (*InvoicePDFRes
 	}
 	ac.applyHeaders(req, "")
 	req.Header.Set("Accept", "text/plain")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("attachable download pointer: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, err
@@ -250,27 +190,29 @@ func DownloadAttachable(ctx context.Context, id, outPath string) (*InvoicePDFRes
 	}
 	freq, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("attachable file request: %w", err)
+		// URL parse errors include the input, which can contain a signed key.
+		return nil, fmt.Errorf("attachable file request: invalid download URL")
 	}
-	fresp, err := http.DefaultClient.Do(freq)
+	fresp, err := impersonatedDo(freq)
 	if err != nil {
-		return nil, fmt.Errorf("attachable file fetch: %w", err)
+		// net/http errors include the full signed URL. Keep it out of output.
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("attachable file fetch: %w", ctx.Err())
+		}
+		return nil, fmt.Errorf("attachable file fetch failed")
 	}
-	defer drainAndClose(fresp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(fresp)
 	if fresp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("attachable file fetch: status %d", fresp.StatusCode)
 	}
-	content, err := io.ReadAll(io.LimitReader(fresp.Body, 100<<20))
+	n, err := writeDownload(fresp.Body, outPath, maxAttachmentBytes, false)
 	if err != nil {
-		return nil, fmt.Errorf("reading attachable: %w", err)
-	}
-	if err := os.WriteFile(outPath, content, 0o644); err != nil {
-		return nil, fmt.Errorf("writing attachable: %w", err)
+		return nil, fmt.Errorf("attachable download: %w", err)
 	}
 	return &InvoicePDFResult{
 		Status:      fresp.StatusCode,
 		Path:        outPath,
-		Bytes:       len(content),
+		Bytes:       n,
 		ContentType: fresp.Header.Get("Content-Type"),
 	}, nil
 }

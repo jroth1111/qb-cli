@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql"
@@ -100,12 +101,7 @@ func runMutationOp(cmd *cobra.Command, flags *rootFlags, name string, vars map[s
 // isCatalogMutationName reports whether s names a captured catalog
 // mutation; named flag subcommands shadow only when this is false.
 func isCatalogMutationName(s string) bool {
-	for _, n := range gql.ListMutations() {
-		if n == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(gql.ListMutations(), s)
 }
 
 // gqlPrepareVars parses --vars k=v pairs for the generic path, then applies
@@ -142,7 +138,7 @@ func runPreparedMutation(cmd *cobra.Command, flags *rootFlags, req gql.Request) 
 			"operation": req.Op.Name, "variables": req.Variables,
 		})
 	}
-	op := req.Op
+	endpoint := effectiveMutationEndpoint(req)
 	ctx, cancel := contextWithTimeout(cmd, flags.timeout)
 	defer cancel()
 	resp, err := gql.Execute(ctx, req)
@@ -153,7 +149,7 @@ func runPreparedMutation(cmd *cobra.Command, flags *rootFlags, req gql.Request) 
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(resp)
 	}
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "POST %s -> %d\n", op.Endpoint, resp.Status)
+	fmt.Fprintf(out, "POST %s -> %d\n", endpoint, resp.Status)
 	var pretty map[string]any
 	if json.Unmarshal(resp.Body, &pretty) == nil {
 		b, _ := json.MarshalIndent(pretty, "", "  ")
@@ -169,7 +165,17 @@ func runPreparedMutation(cmd *cobra.Command, flags *rootFlags, req gql.Request) 
 		return fmt.Errorf("GraphQL errors: %s", strings.Join(msgs, "; "))
 	}
 	if resp.Status >= 400 {
-		return &ExitError{Code: ExitRelayError, Err: fmt.Errorf("HTTP %d from %s", resp.Status, op.Endpoint)}
+		return &ExitError{Code: ExitRelayError, Err: fmt.Errorf("HTTP %d from %s", resp.Status, endpoint)}
 	}
 	return nil
+}
+
+func effectiveMutationEndpoint(req gql.Request) string {
+	if req.Endpoint != "" {
+		return req.Endpoint
+	}
+	if req.Op != nil {
+		return req.Op.Endpoint
+	}
+	return ""
 }

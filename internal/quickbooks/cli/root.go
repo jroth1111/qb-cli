@@ -14,6 +14,12 @@ import (
 // CanonicalBinaryName is the command users type.
 const CanonicalBinaryName = "qb"
 
+func init() {
+	// Cobra stores template functions globally. Register before concurrent
+	// command construction or help rendering can access that map.
+	cobra.AddTemplateFunc("coverageLine", coverageLine)
+}
+
 // Exit codes for structured error reporting. main.go maps an *ExitError to
 // its Code and prints the message unless Silent.
 const (
@@ -51,7 +57,6 @@ func (e *ExitError) Unwrap() error {
 // populated by newRootCmd's persistent flag bindings and read by RunE closures.
 type rootFlags struct {
 	asJSON, dryRun, quiet, noInput, yes bool
-	actionsMode                         string
 	auditDir, configPath, homePath      string
 	timeout                             time.Duration
 	relayURL                            string
@@ -107,7 +112,6 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 	// Coverage in every help screen without per-command edits: a template
 	// function appends mode counts computed from catalogPrimitives — the same
 	// source that feeds `qb actions` — to the root and each domain group.
-	cobra.AddTemplateFunc("coverageLine", coverageLine)
 	root.SetHelpTemplate(`{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}{{coverageLine $}}
 {{end}}{{if or .Runnable .HasSubCommands}}{{.UsageString}}{{end}}`)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
@@ -33,15 +34,9 @@ var v3ByID = map[string]v3Spec{
 	"QBO.ACCOUNTING.TRANSFER_READ":                {Entity: "Transfer"},
 	"QBO.ACCOUNTING.PROJECT_READ":                 {Entity: "Customer"},
 	"QBO.ACCOUNTING.PROJECT_SEARCH":               {Entity: "Customer"},
-	"QBO.ACCOUNTING.FIXED_ASSET_READ":             {Entity: "Account"},
-	"QBO.ACCOUNTING.FIXED_ASSET_SEARCH":           {Entity: "Account"},
-	"QBO.ACCOUNTING.MY_ACCOUNTANT_READ":           {Entity: "CompanyInfo"},
 	"QBO.ACCOUNTING.PREPAID_READ":                 {Entity: "PrepaidSchedule"},
-	"QBO.ACCOUNTING.RECONCILE_READ":               {Entity: "Account"},
 	"QBO.ACCOUNTING.REVENUE_RECOGNITION_READ":     {Entity: "RevenueRecognition"},
 	"QBO.ADVANCED.CUSTOM_ROLES_READ":              {Entity: "Role"},
-	"QBO.ADVANCED.EXPENSE_CLAIMS_READ":            {Entity: "Purchase"},
-	"QBO.ADVANCED.TASKS_READ":                     {Entity: "CompanyInfo"},
 	"QBO.ADVANCED.WORKFLOWS_READ":                 {Entity: "Workflow"},
 	"QBO.COMPANY.ATTACHABLE_READ":                 {Entity: "Attachable"},
 	"QBO.COMPANY.ATTACHABLE_SEARCH":               {Entity: "Attachable"},
@@ -53,27 +48,19 @@ var v3ByID = map[string]v3Spec{
 	"QBO.COMPANY.CUSTOM_FIELD_READ":               {Entity: "CustomField"},
 	"QBO.COMPANY.FORM_STYLE_READ":                 {Entity: "FormStyle"},
 	"QBO.COMPANY.LIST_READ":                       {Entity: "ListsPrefs"},
-	"QBO.COMPANY.MARKETING_READ":                  {Entity: "CompanyInfo"},
 	"QBO.COMPANY.COMPANY_INFO_READ":               {Entity: "CompanyInfo"},
 	"QBO.COMPANY.TERM_READ":                       {Entity: "Term"},
 	"QBO.COMPANY.PAYMENT_METHOD_READ":             {Entity: "PaymentMethod"},
 	"QBO.COMPANY.PREFERENCES_READ":                {Entity: "Preferences"},
 	"QBO.COMPANY.ROLE_READ":                       {Entity: "Role"},
-	"QBO.COMPANY.SEARCH":                          {Entity: "Customer"},
 	"QBO.COMPANY.SETTINGS_READ":                   {Entity: "Preferences"},
-	"QBO.COMPANY.TAG_READ":                        {Entity: "Class"},
-	"QBO.COMPANY.USER_READ":                       {Entity: "Employee"},
 	"QBO.CUSTOMERS.CUSTOMER_READ":                 {Entity: "Customer"},
 	"QBO.CUSTOMERS.CUSTOMER_SEARCH":               {Entity: "Customer"},
 	"QBO.CUSTOMERS.CUSTOMER_TYPE_READ":            {Entity: "CustomerType"},
 	"QBO.CUSTOMERS.CUSTOMER_TYPE_SEARCH":          {Entity: "CustomerType"},
 	"QBO.CUSTOMERS.OVERVIEW_READ":                 {Entity: "CustomersOverview"},
-	"QBO.CUSTOMERS.APPOINTMENT_READ":              {Entity: "Customer"},
-	"QBO.CUSTOMERS.APPOINTMENT_SEARCH":            {Entity: "Customer"},
 	"QBO.CUSTOMERS.CONTRACT_READ":                 {Entity: "Contract"},
 	"QBO.CUSTOMERS.CONTRACT_SEARCH":               {Entity: "Contract"},
-	"QBO.CUSTOMERS.OPPORTUNITY_READ":              {Entity: "Customer"},
-	"QBO.CUSTOMERS.OPPORTUNITY_SEARCH":            {Entity: "Customer"},
 	"QBO.CUSTOMERS.PROPOSAL_READ":                 {Entity: "Proposal"},
 	"QBO.CUSTOMERS.PROPOSAL_SEARCH":               {Entity: "Proposal"},
 	"QBO.CUSTOMERS.REVIEW_READ":                   {Entity: "Review"},
@@ -81,13 +68,11 @@ var v3ByID = map[string]v3Spec{
 	"QBO.EXPENSES.BILL_READ":                      {Entity: "Bill"},
 	"QBO.EXPENSES.BILL_PAYMENT_READ":              {Entity: "BillPayment"},
 	"QBO.EXPENSES.BILL_SEARCH":                    {Entity: "Bill"},
-	"QBO.EXPENSES.CHEQUE_READ":                    {Entity: "Purchase"},
+	"QBO.EXPENSES.CHEQUE_READ":                    {Entity: "Cheque"},
 	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_READ":       {Entity: "CreditCardPayment"},
 	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_SEARCH":     {Entity: "CreditCardPayment"},
 	"QBO.EXPENSES.EXPENSE_READ":                   {Entity: "Purchase"},
 	"QBO.EXPENSES.EXPENSE_SEARCH":                 {Entity: "Purchase"},
-	"QBO.EXPENSES.MILEAGE_READ":                   {Entity: "TimeActivity"},
-	"QBO.EXPENSES.MILEAGE_SEARCH":                 {Entity: "TimeActivity"},
 	"QBO.EXPENSES.RECEIPT_READ":                   {Entity: "Attachable"},
 	"QBO.EXPENSES.RECEIPT_SEARCH":                 {Entity: "Attachable"},
 	"QBO.EXPENSES.SUPPLIER_READ":                  {Entity: "Vendor"},
@@ -95,9 +80,7 @@ var v3ByID = map[string]v3Spec{
 	"QBO.EXPENSES.TIME_ACTIVITY_READ":             {Entity: "TimeActivity"},
 	"QBO.EXPENSES.TIME_ACTIVITY_SEARCH":           {Entity: "TimeActivity"},
 	"QBO.EXPENSES.VENDOR_CREDIT_READ":             {Entity: "VendorCredit"},
-	"QBO.EXPENSES.OVERVIEW_READ":                  {Entity: "Purchase"},
 	"QBO.EXPENSES.PURCHASE_SEARCH":                {Entity: "Purchase"},
-	"QBO.FEED.REC_REPORT":                         {Report: "BalanceSheet"},
 	"QBO.INVENTORY.ADJUST_READ":                   {Entity: "InventoryAdjustment"},
 	"QBO.INVENTORY.ADJUST_SEARCH":                 {Entity: "InventoryAdjustment"},
 	"QBO.INVENTORY.ITEM_READ":                     {Entity: "Item"},
@@ -108,16 +91,8 @@ var v3ByID = map[string]v3Spec{
 	"QBO.INVENTORY.OVERVIEW_SEARCH":               {Entity: "InventoryOverviewSearch"},
 	"QBO.INVENTORY.PURCHASE_ORDER_READ":           {Entity: "PurchaseOrder"},
 	"QBO.INVENTORY.PURCHASE_ORDER_SEARCH":         {Entity: "PurchaseOrder"},
-	"QBO.PAYROLL.DEDUCTION_READ":                  {Entity: "Employee"},
 	"QBO.PAYROLL.EMPLOYEE_READ":                   {Entity: "Employee"},
 	"QBO.PAYROLL.EMPLOYEE_SEARCH":                 {Entity: "Employee"},
-	"QBO.PAYROLL.LEAVE_CATEGORY_READ":             {Entity: "Employee"},
-	"QBO.PAYROLL.OVERVIEW_SEARCH":                 {Entity: "Employee"},
-	"QBO.PAYROLL.PAY_CATEGORY_READ":               {Entity: "Employee"},
-	"QBO.PAYROLL.PAY_RUN_READ":                    {Entity: "TimeActivity"},
-	"QBO.PAYROLL.SUPER_READ":                      {Entity: "Employee"},
-	"QBO.PAYROLL.TEAM_READ":                       {Entity: "Employee"},
-	"QBO.PAYROLL.TEAM_SEARCH":                     {Entity: "Employee"},
 	"QBO.PAYROLL.TIMESHEET_READ":                  {Entity: "TimeActivity"},
 	"QBO.SALES.CREDIT_MEMO_READ":                  {Entity: "CreditMemo"},
 	"QBO.SALES.ESTIMATE_READ":                     {Entity: "Estimate"},
@@ -131,14 +106,10 @@ var v3ByID = map[string]v3Spec{
 	"QBO.SALES.SALES_ORDER_SEARCH":                {Entity: "SalesOrder"},
 	"QBO.SALES.HUB_READ":                          {Entity: "SalesHub"},
 	"QBO.SALES.HUB_SEARCH":                        {Entity: "SalesHub"},
-	"QBO.SALES.OVERVIEW_READ":                     {Entity: "Invoice"},
 	"QBO.TAX.CODE_READ":                           {Entity: "TaxCode"},
 	"QBO.TAX.CODE_SEARCH":                         {Entity: "TaxCode"},
 	"QBO.TAX.TAX_AGENCY_READ":                     {Entity: "TaxAgency"},
 	"QBO.TAX.TAX_RATE_READ":                       {Entity: "TaxRate"},
-	"QBO.TAX.BAS_READ":                            {Report: "ProfitAndLoss"},
-	"QBO.TAX.GST_AMENDMENTS_READ":                 {Report: "ProfitAndLoss"},
-	"QBO.TAX.IAS_READ":                            {Report: "ProfitAndLoss"},
 	"QBO.TAX.TPAR_READ":                           {Report: "TAXABLE_PAYMENTS"},
 	"QBO.REPORTS.REPORT_READ":                     {Report: "ProfitAndLoss"},
 	"QBO.REPORTS.CASH_FLOW_READ":                  {Report: "CashFlow"},
@@ -167,9 +138,7 @@ var v3ByID = map[string]v3Spec{
 	"QBO.REPORTS.INVENTORY_VALUATION_DETAIL_READ": {Report: "InventoryValuationDetail"},
 	"QBO.REPORTS.ACCOUNT_LIST_READ":               {Report: "AccountList"},
 	"QBO.REPORTS.CUSTOM_READ":                     {Entity: "Folio"},
-	"QBO.REPORTS.FORECAST_READ":                   {Report: "ProfitAndLoss"},
 	"QBO.REPORTS.MANAGEMENT_READ":                 {Entity: "ManagementFolio"},
-	"QBO.REPORTS.PERFORMANCE_READ":                {Report: "ProfitAndLoss"},
 }
 
 func maybeV3Cmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Command {
@@ -182,6 +151,9 @@ func maybeV3Cmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Comma
 
 	if m := maybeV3MutateCmd(flags, e, command); m != nil {
 		return m
+	}
+	if e.Mode == modeBlocked || e.Mode == modeExcluded {
+		return nil
 	}
 	spec, ok := v3ByID[e.ID]
 	if !ok {
@@ -283,7 +255,10 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 		Use:   use,
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if handled, err := dryRunGET(flags, cmd, command, e.ID, client.PlannedQueryURL(entity), dryNote); handled {
+			if entity == "SalesOrder" && cmd.Flags().Changed("active") {
+				return exitInput(fmt.Errorf("sales orders do not support --active; use --id or --query"))
+			}
+			if handled, err := dryRunGET(flags, cmd, command, e.ID, client.PlannedQueryURL(entity, id), dryNote); handled {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
@@ -305,12 +280,8 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 }
 
 func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *cobra.Command {
-	// The catalog (auParamAll) advertises --report, --date-range,
-	// --accounting-method, --columns, --id, and --limit for report reads.
-	// Reports are not list endpoints, so --limit/--id/--accounting-method/
-	// --columns are accepted by cobra but not forwarded to the v3 reports
-	// API; they exist so `qb reports report read --limit 1 ...` parses
-	// instead of failing on an unknown flag.
+	// Keep legacy flags parseable, but reject explicit options with no report
+	// API contract instead of silently returning an unfiltered report.
 	var report, dateRange, accountingMethod, columns, id, accountID string
 	var limit int
 	use := verbOf(command)
@@ -324,17 +295,34 @@ func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *co
 		Use:   use,
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := report
+			for _, flag := range []string{"id", "limit", "account-id"} {
+				if cmd.Flags().Changed(flag) {
+					return fmt.Errorf("--%s is not supported by this report command; omit it (reports are company-wide, not paginated entity lists)", flag)
+				}
+			}
+			name := strings.TrimSpace(report)
 			if name == "" {
 				name = def
 			}
+			opts := client.ReportOptions{AccountingMethod: accountingMethod, SummarizeColumnBy: columns}
+			params, err := opts.QueryParams(name)
+			if err != nil {
+				return err
+			}
 			start, end := splitDateRange(dateRange)
-			if handled, err := dryRunGET(flags, cmd, command, e.ID, client.PlannedReportURL(name), dryNote); handled {
+			plannedURL := client.PlannedReportURL(name)
+			if name != "TAXABLE_PAYMENTS" {
+				maps.Copy(params, client.ReportDateParams(name, start, end))
+				if len(params) > 0 {
+					plannedURL += "&" + params.Encode()
+				}
+			}
+			if handled, err := dryRunGET(flags, cmd, command, e.ID, plannedURL, dryNote); handled {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayReport(ctx, name, start, end)
+			res, err := client.ReplayReport(ctx, name, start, end, opts)
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -344,12 +332,17 @@ func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *co
 	}
 	cmd.Flags().StringVar(&report, "report", def, "v3 report name (ProfitAndLoss, BalanceSheet, CashFlow)")
 	cmd.Flags().StringVar(&dateRange, "date-range", "", "start,end as YYYY-MM-DD,YYYY-MM-DD")
-	cmd.Flags().StringVar(&accountingMethod, "accounting-method", "", "accrual or cash basis (accepted, not forwarded to v3 reports API)")
-	cmd.Flags().StringVar(&columns, "columns", "", "period columns / compare time periods (accepted, not forwarded to v3 reports API)")
-	cmd.Flags().StringVar(&id, "id", "", "target report id (accepted, not forwarded to v3 reports API)")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rows (accepted for catalog parity; reports are not list endpoints)")
+	cmd.Flags().StringVar(&accountingMethod, "accounting-method", "", "")
+	cmd.Flags().StringVar(&columns, "columns", "", "")
+	cmd.Flags().StringVar(&id, "id", "", "")
+	cmd.Flags().IntVar(&limit, "limit", 20, "")
 	if command == "feed rec get" {
-		cmd.Flags().StringVar(&accountID, "account-id", client.DefaultAccountID, "banking account id (accepted for catalog parity; rec report is company-wide)")
+		cmd.Flags().StringVar(&accountID, "account-id", client.DefaultAccountID, "")
+	}
+	for _, param := range reportParamDocs(e.ID, def) {
+		if flag := cmd.Flags().Lookup(param.Name); flag != nil {
+			flag.Usage = param.Help
+		}
 	}
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
@@ -409,5 +402,12 @@ func printReport(stdout io.Writer, flags *rootFlags, res *client.ReportResult) {
 	fmt.Fprintf(stdout, "report %s columns=%d\n", res.Report, len(res.Columns))
 	for _, c := range res.Columns {
 		fmt.Fprintf(stdout, "  %s\n", c)
+	}
+	if len(res.Rows) > 0 {
+		var rows any
+		if json.Unmarshal(res.Rows, &rows) == nil {
+			body, _ := json.MarshalIndent(rows, "", "  ")
+			fmt.Fprintln(stdout, string(body))
+		}
 	}
 }

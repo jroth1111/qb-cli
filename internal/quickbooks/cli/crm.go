@@ -35,6 +35,16 @@ type crmFlags struct {
 	inactive   bool
 }
 
+// crmWriteReplay lets command tests supply domain results without credentials
+// or browser execution. Production uses the validated client replay methods.
+var crmWriteReplay = struct {
+	leadCreate        func(context.Context, client.CrmLeadInput) (*client.CrmLead, error)
+	leadUpdate        func(context.Context, string, client.CrmLeadInput) (*client.CrmLead, error)
+	leadDelete        func(context.Context, string) (int, error)
+	leadConvert       func(context.Context, string) (*client.CrmConvertResult, error)
+	opportunityCreate func(context.Context, client.CrmOpportunityInput) (*client.CrmOpportunity, error)
+}{client.ReplayLeadCreate, client.ReplayLeadUpdate, client.ReplayLeadDelete, client.ReplayLeadConvert, client.ReplayOpportunityCreate}
+
 // newCrmCmd builds the `qb crm` domain group.
 func newCrmCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -187,12 +197,15 @@ func newCrmLeadCreateCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			l, err := client.ReplayLeadCreate(ctx, in)
+			l, err := crmWriteReplay.leadCreate(ctx, in)
 			if err != nil {
 				return feedErr(flags, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created lead %s (%s)\n", l.ID, l.DisplayName)
-			return nil
+			if flags.asJSON {
+				return printCrmOne(cmd.OutOrStdout(), flags, l)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "created lead %s (%s)\n", l.ID, l.DisplayName)
+			return err
 		},
 	}
 	ff.bind(cmd)
@@ -215,12 +228,15 @@ func newCrmLeadUpdateCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			l, err := client.ReplayLeadUpdate(ctx, ff.id, in)
+			l, err := crmWriteReplay.leadUpdate(ctx, ff.id, in)
 			if err != nil {
 				return feedErr(flags, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "updated lead %s (%s)\n", l.ID, l.DisplayName)
-			return nil
+			if flags.asJSON {
+				return printCrmOne(cmd.OutOrStdout(), flags, l)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "updated lead %s (%s)\n", l.ID, l.DisplayName)
+			return err
 		},
 	}
 	ff.bind(cmd)
@@ -242,18 +258,17 @@ func newCrmLeadDeleteCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			status, err := client.ReplayLeadDelete(ctx, ff.id)
+			status, err := crmWriteReplay.leadDelete(ctx, ff.id)
 			if err != nil {
 				return feedErr(flags, err)
 			}
 			if flags.asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				_ = enc.Encode(map[string]any{"ok": true, "status": status})
-				return nil
+				return enc.Encode(map[string]any{"ok": true, "status": status})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "deleted lead %s (status %s)\n", ff.id, strconv.Itoa(status))
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "deleted lead %s (status %s)\n", ff.id, strconv.Itoa(status))
+			return err
 		},
 	}
 	ff.bind(cmd)
@@ -275,7 +290,7 @@ func newCrmLeadConvertCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayLeadConvert(ctx, ff.id)
+			res, err := crmWriteReplay.leadConvert(ctx, ff.id)
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -284,8 +299,8 @@ func newCrmLeadConvertCmd(flags *rootFlags) *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(res)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "converted lead %s -> %s (status %d)\n", ff.id, res.State, res.Status)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "lead conversion response %s: state %s, customer %s (status %d)\n", ff.id, res.State, res.CustomerID, res.Status)
+			return err
 		},
 	}
 	ff.bind(cmd)
@@ -334,12 +349,17 @@ func newCrmOpportunityCreateCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			o, err := client.ReplayOpportunityCreate(ctx, in)
+			o, err := crmWriteReplay.opportunityCreate(ctx, in)
 			if err != nil {
 				return feedErr(flags, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created opportunity %s (%s)\n", o.ID, o.Name)
-			return nil
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(o)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "created opportunity %s (%s)\n", o.ID, o.Name)
+			return err
 		},
 	}
 	ff.bind(cmd)

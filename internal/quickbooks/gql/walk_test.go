@@ -1,11 +1,84 @@
 package gql
 
 import (
+	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestWalkOffsetProgressAndTruncation(t *testing.T) {
+	op, err := Lookup("GetContacts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, maxPages := range []int{1, 3} {
+		calls := 0
+		res, err := walk(context.Background(), Request{Op: op}, Walker{MaxPages: maxPages}, func(_ context.Context, req Request) (*Response, error) {
+			if calls > 1 {
+				t.Fatal("walker repeated a completed page")
+			}
+			if calls == 1 {
+				if offset, _ := toInt(req.Variables["offset"]); offset != 2 {
+					t.Fatalf("offset did not advance: %v", req.Variables)
+				}
+			}
+			body := `{"data":{"contacts":{"edges":[{"node":{"id":"1"}},{"node":{"id":"2"}}]}}}`
+			if calls == 1 {
+				body = `{"data":{"contacts":{"edges":[]}}}`
+			}
+			calls++
+			return &Response{Body: json.RawMessage(body)}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Nodes) != 2 {
+			t.Fatalf("nodes = %d", len(res.Nodes))
+		}
+		if res.Truncated != (maxPages == 1) || res.HasNext != (maxPages == 1) {
+			t.Fatalf("completion flags incorrect: %+v", res)
+		}
+	}
+}
+
+func TestWalkInitialNumericAfter(t *testing.T) {
+	op := &Op{Name: "Tasks", Kind: KindQuery, Document: "query Tasks($first: Int!, $after: Int!) { tasks { edges { node { id } } } }", VarTypes: []string{"Int!", "Int!"}}
+	_, err := walk(context.Background(), Request{Op: op}, Walker{PageSize: 5, MaxPages: 1}, func(_ context.Context, req Request) (*Response, error) {
+		n, ok := toInt(req.Variables["after"])
+		if !ok || n != 0 {
+			t.Fatalf("first request omitted numeric after: %v", req.Variables)
+		}
+		return &Response{Status: 200, Body: json.RawMessage(`{"data":{"tasks":{"edges":[]}}}`)}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWalkNestedInputClearsHasNextOnCompletion(t *testing.T) {
+	op := &Op{Name: "Items", Kind: KindQuery, Document: "query Items($input: Input) { items(input: $input) { edges { node { id } } totalCount } }"}
+	calls := 0
+	res, err := walk(context.Background(), Request{Op: op}, Walker{MaxPages: 3, PageSize: 1, InputVar: "input"}, func(_ context.Context, req Request) (*Response, error) {
+		if calls > 1 {
+			t.Fatal("walk did not stop at totalCount")
+		}
+		offset, _ := toInt(req.Variables["input"].(map[string]any)["offset"])
+		if offset != int64(calls) {
+			t.Fatalf("offset = %d, want %d", offset, calls)
+		}
+		calls++
+		return &Response{Body: json.RawMessage(`{"data":{"items":{"edges":[{"node":{"id":"row"}}],"totalCount":2}}}`)}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pages != 2 || res.HasNext || res.Truncated {
+		t.Fatalf("completed nested walk: %+v", res)
+	}
+}
 
 // extractNodes is the walk engine's parser; each test below rejects a
 // distinct wrong-implementation mode: missing pageInfo, nested connections,
@@ -208,9 +281,7 @@ func TestInjectDateWindowTable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vars := map[string]any{}
-			for k, v := range tc.vars {
-				vars[k] = v
-			}
+			maps.Copy(vars, tc.vars)
 			injectDateWindow(vars, tc.win)
 			if got := mustJSON(vars); got != tc.want {
 				t.Fatalf("got  %s\nwant %s", got, tc.want)
@@ -276,5 +347,21 @@ func TestExtractTotalCountTable(t *testing.T) {
 				t.Fatalf("got (%d,%t) want (%d,%t)", got, found, tc.want, tc.found)
 			}
 		})
+	}
+}
+
+func TestOffsetWalkIgnoresUnrelatedTotalCount(t *testing.T) {
+	op := &Op{Name: "Rows", Kind: KindQuery, Document: "query Rows($offset:Int,$limit:Int){ rows { edges {node {id}} } badge {totalCount} }"}
+	calls := 0
+	result, err := walk(context.Background(), Request{Op: op}, Walker{PageSize: 1, MaxPages: 3}, func(context.Context, Request) (*Response, error) {
+		calls++
+		body := `{"data":{"rows":{"edges":[{"node":{"id":"row"}}]},"badge":{"totalCount":0}}}`
+		if calls == 3 {
+			body = `{"data":{"rows":{"edges":[]},"badge":{"totalCount":0}}}`
+		}
+		return &Response{Body: json.RawMessage(body)}, nil
+	})
+	if err != nil || len(result.Nodes) != 2 || calls != 3 {
+		t.Fatalf("calls=%d result=%+v err=%v", calls, result, err)
 	}
 }

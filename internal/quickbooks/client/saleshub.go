@@ -73,7 +73,7 @@ func replaySalesHub(ctx context.Context, _, query string, limit int) (*QueryResu
 	if err != nil {
 		return nil, fmt.Errorf("sales-hub transactions: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading sales-hub transactions: %w", err)

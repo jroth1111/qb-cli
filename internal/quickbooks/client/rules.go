@@ -48,7 +48,7 @@ func ReplayRules(ctx context.Context, limit int) (*RulesResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getRules: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading getRules: %w", err)

@@ -25,8 +25,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -151,32 +154,33 @@ func saveUsableAudit(t *testing.T) {
 	t.Cleanup(func() { postBudgetGraphQLFn = orig })
 }
 
-func TestReplayBudgetListPostsCapturedSupergraphQuery(t *testing.T) {
+func TestReplayBudgetListPostsCapturedCurrentUIQuery(t *testing.T) {
 	saveUsableAudit(t)
-	fs := newAcctDeepServer(t,
-		map[string]int{"POST /graphql": http.StatusOK},
-		map[string]string{"POST /graphql": gqlEnvelope(`{"dataAccessBudgets":{"edges":[
-			{"node":{"id":"B1","name":"FY27 P&L","budgetType":"PROFIT_AND_LOSS"}},
-			{"node":{"id":"B2","name":"FY27 BS","budgetType":"BALANCE_SHEET"}}]}}`)},
-	)
+	fs := newAcctDeepServer(t, nil, map[string]string{"POST /graphql": gqlEnvelope(`{"businessPlanningBudgets":{"edges":[
+  {"node":{"budgetId":"B1","budgetName":"FY27 P&L","budgetType":"PROFIT_AND_LOSS","startDate":"2026-07-01","viewSettings":{"archived":false}}},
+  {"node":{"budgetId":9007199254740993,"budgetName":"FY27 BS","budgetType":"BALANCE_SHEET","startDate":"2026-08-01"}}]}}`)})
 	interceptHTTP(t, fs.start(t))
-
 	res, err := ReplayBudgetList(context.Background(), 2)
 	if err != nil {
-		t.Fatalf("ReplayBudgetList: %v", err)
+		t.Fatal(err)
 	}
-	if res.Status != http.StatusOK || res.Entity != "Budget" || len(res.Items) != 2 {
+	if res.Status != http.StatusOK || res.Entity != "Budget" || len(res.Items) != 2 || res.Counts["items"] != 2 {
 		t.Fatalf("envelope = %+v", res)
 	}
-	if res.Items[0].ID != "B1" || res.Items[0].Name != "FY27 P&L" || res.Items[0].Type != "PROFIT_AND_LOSS" {
-		t.Fatalf("item0 = %+v", res.Items[0])
+	first := res.Items[0]
+	if first.ID != "B1" || first.Name != "FY27 P&L" || first.Type != "PROFIT_AND_LOSS" || first.Date != "2026-07-01" || first.Active == nil || !*first.Active {
+		t.Fatalf("item0 = %+v", first)
 	}
-	if !strings.Contains(res.Note, "GetSupergraphBudgetsByIds") {
+	second := res.Items[1]
+	if second.ID != "9007199254740993" || second.Name != "FY27 BS" || second.Type != "BALANCE_SHEET" || second.Date != "2026-08-01" || second.Active != nil {
+		t.Fatalf("numeric ID or missing archived flag misrepresented: %+v", second)
+	}
+	if !strings.Contains(res.Note, "fetchAllBudgets") {
 		t.Fatalf("note = %q", res.Note)
 	}
-	method, url, body := fs.calls()
-	if method != http.MethodPost || !strings.HasSuffix(url, "/graphql") {
-		t.Fatalf("call = %s %s", method, url)
+	method, path, body := fs.calls()
+	if method != http.MethodPost || !strings.HasSuffix(path, "/graphql") {
+		t.Fatalf("call = %s %s", method, path)
 	}
 	var sent struct {
 		OperationName string         `json:"operationName"`
@@ -184,112 +188,221 @@ func TestReplayBudgetListPostsCapturedSupergraphQuery(t *testing.T) {
 		Query         string         `json:"query"`
 	}
 	if err := json.Unmarshal(body, &sent); err != nil {
-		t.Fatalf("body = %s", body)
+		t.Fatal(err)
 	}
-	if sent.OperationName != "GetSupergraphBudgetsByIds" {
-		t.Fatalf("operationName = %q", sent.OperationName)
+	if sent.OperationName != "fetchAllBudgets" {
+		t.Fatalf("operation = %q", sent.OperationName)
 	}
-	if sent.Variables["first"] != float64(2) {
-		t.Fatalf("variables = %v", sent.Variables)
+	var wantVariables map[string]any
+	if err := json.Unmarshal([]byte(`{"last":null,"first":2,"after":null,"before":null,"sortBy":"LAST_MODIFIED","sortDirection":"DESC","budgetFilters":{"archived":false,"budgetType":["PROFIT_AND_LOSS","BALANCE_SHEET"]}}`), &wantVariables); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(sent.Query, "dataAccessBudgets") {
-		t.Fatalf("query = %q", sent.Query)
+	if !reflect.DeepEqual(sent.Variables, wantVariables) {
+		t.Fatalf("variables = %#v; want %#v", sent.Variables, wantVariables)
+	}
+	// Pin the independently captured document, not the implementation constant.
+	const wantQuery = `query fetchAllBudgets($first: Int, $after: String, $last: Int, $before: String, $sortBy: BusinessPlanning_SortByColumn, $sortDirection: BusinessPlanning_SortDirection, $budgetFilters: BusinessPlanning_BudgetFilters) {
+  businessPlanningBudgets(first: $first, after: $after, last: $last, before: $before, sortBy: $sortBy, sortDirection: $sortDirection, budgetFilters: $budgetFilters) {
+    pageInfo {
+      hasPreviousPage
+      hasNextPage
+      startCursor
+      endCursor
+      __typename
+    }
+    edges {
+      cursor
+      node {
+        budgetId
+        budgetName
+        budgetType
+        startDate
+        endDate
+        linkedEntityId
+        intervalType
+        syncToken
+        secondaryListType
+        dimensionDefId
+        budgetMetaData {
+          createdBy
+          createdAt
+          lastUpdatedBy
+          updatedAt
+          __typename
+        }
+        viewSettings {
+          archived
+          __typename
+        }
+        approvalDetails {
+          approvalStatus
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+    __typename
+  }
+}
+`
+	if sent.Query != wantQuery {
+		t.Fatalf("query differs from current UI capture:\n%s", sent.Query)
 	}
 }
 
-func TestReplayBudgetGetUsesGetBudgetsByIdsDocument(t *testing.T) {
-	saveUsableAudit(t)
-	fs := newAcctDeepServer(t,
-		map[string]int{"POST /graphql": http.StatusOK},
-		map[string]string{"POST /graphql": gqlEnvelope(`{"budgets":{"data":[{"id":"B9","name":"Test budget","budgetType":"PROFIT_AND_LOSS"}]}}`)},
-	)
+func TestReplayBudgetGetUsesNativeQuery(t *testing.T) {
+	saveUsable(t)
+	original := postBudgetGraphQLFn
+	postBudgetGraphQLFn = func(*apiClient, context.Context, []byte) (*http.Response, error) {
+		t.Error("budget get must not use budgeting GraphQL")
+		return nil, errors.New("unexpected budget GraphQL call")
+	}
+	t.Cleanup(func() { postBudgetGraphQLFn = original })
+	fs := newAcctDeepServer(t, nil, map[string]string{"GET /query": `{"QueryResponse":{"Budget":[{"Id":"B9","Name":"Test budget"}]}}`})
 	interceptHTTP(t, fs.start(t))
-
 	res, err := ReplayBudgetGet(context.Background(), "B9")
 	if err != nil {
-		t.Fatalf("ReplayBudgetGet: %v", err)
+		t.Fatal(err)
 	}
-	if len(res.Items) != 1 || res.Items[0].ID != "B9" {
+	if res.Status != 200 || res.Entity != "Budget" || len(res.Items) != 1 || res.Items[0].ID != "B9" || res.Items[0].Name != "Test budget" {
 		t.Fatalf("envelope = %+v", res)
 	}
-	_, _, body := fs.calls()
-	var sent struct {
-		OperationName string `json:"operationName"`
-		Variables     struct {
-			ID []string `json:"id"`
-		} `json:"variables"`
-		Query string `json:"query"`
+	method, path, query, body := fs.callsFull()
+	if method != http.MethodGet || !strings.HasSuffix(path, "/query") || len(body) != 0 {
+		t.Fatalf("call = %s %s %s", method, path, body)
 	}
-	if err := json.Unmarshal(body, &sent); err != nil {
-		t.Fatalf("body = %s", body)
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if sent.OperationName != "GetBudgetsByIds" || len(sent.Variables.ID) != 1 || sent.Variables.ID[0] != "B9" {
-		t.Fatalf("sent = %+v", sent)
-	}
-	if !strings.Contains(sent.Query, "fragment budgetAttributes on Budget") {
-		t.Fatal("budget get must inline the captured fragment for a standalone document")
+	statement := values.Get("query")
+	if !strings.Contains(statement, "from Budget") || !strings.Contains(statement, "Id = 'B9'") || !strings.Contains(statement, "maxresults 20") {
+		t.Fatalf("native query = %q", statement)
 	}
 }
 
-// TestReplayBudgetListEmptyEnvelope pins the empty-page shape: zero edges
-// must project to a 200 Budget result with an empty (non-nil) Items slice
-// and items=0 — not nil, not a synthetic row.
 func TestReplayBudgetListEmptyEnvelope(t *testing.T) {
 	saveUsableAudit(t)
-	fs := newAcctDeepServer(t,
-		map[string]int{"POST /graphql": http.StatusOK},
-		map[string]string{"POST /graphql": gqlEnvelope(`{"dataAccessBudgets":{"edges":[]}}`)},
-	)
+	fs := newAcctDeepServer(t, nil, map[string]string{"POST /graphql": gqlEnvelope(`{"businessPlanningBudgets":{"edges":[]}}`)})
 	interceptHTTP(t, fs.start(t))
-
 	res, err := ReplayBudgetList(context.Background(), 20)
 	if err != nil {
-		t.Fatalf("ReplayBudgetList: %v", err)
+		t.Fatal(err)
 	}
-	if res.Status != http.StatusOK || res.Entity != "Budget" {
-		t.Fatalf("envelope = %+v", res)
-	}
-	if res.Items == nil || len(res.Items) != 0 || res.Counts["items"] != 0 {
-		t.Fatalf("empty page must project to zero items: %+v", res)
-	}
-	if !strings.Contains(res.Note, "GetSupergraphBudgetsByIds") {
-		t.Fatalf("note = %q", res.Note)
+	if res.Status != http.StatusOK || res.Entity != "Budget" || res.Items == nil || len(res.Items) != 0 || res.Counts["items"] != 0 {
+		t.Fatalf("explicit empty collection must project to zero items: %+v", res)
 	}
 }
 
-// TestReplayBudgetListLimitClamps pins the documented clamp so callers
-// cannot push the captured PositiveInt variable out of range.
 func TestReplayBudgetListLimitClamps(t *testing.T) {
 	saveUsableAudit(t)
-	fs := newAcctDeepServer(t,
-		map[string]int{"POST /graphql": http.StatusOK},
-		map[string]string{"POST /graphql": gqlEnvelope(`{"dataAccessBudgets":{"edges":[]}}`)},
-	)
+	fs := newAcctDeepServer(t, nil, map[string]string{"POST /graphql": gqlEnvelope(`{"businessPlanningBudgets":{"edges":[]}}`)})
 	interceptHTTP(t, fs.start(t))
-	for _, limit := range []int{0, -5, 1000} {
-		if _, err := ReplayBudgetList(context.Background(), limit); err != nil {
-			t.Fatalf("limit %d: %v", limit, err)
+	for _, tc := range []struct{ input, want int }{{0, 20}, {-5, 20}, {1000, 100}, {5, 5}} {
+		if _, err := ReplayBudgetList(context.Background(), tc.input); err != nil {
+			t.Fatalf("limit %d: %v", tc.input, err)
 		}
-		method, _, body := fs.calls()
-		if method != http.MethodPost {
-			t.Fatalf("limit %d: call = %s", limit, method)
-		}
+		_, _, body := fs.calls()
 		var sent struct {
 			Variables map[string]any `json:"variables"`
 		}
 		if err := json.Unmarshal(body, &sent); err != nil {
-			t.Fatalf("limit %d: body = %s", limit, body)
+			t.Fatal(err)
 		}
-		first := sent.Variables["first"].(float64)
-		if first < 1 || first > 100 {
-			t.Fatalf("limit %d sent first=%v outside [1,100]", limit, first)
+		if sent.Variables["first"] != float64(tc.want) {
+			t.Fatalf("limit %d sent first=%v, want %d", tc.input, sent.Variables["first"], tc.want)
 		}
+	}
+}
+
+func TestReplayBudgetListBoundsOversizedResponse(t *testing.T) {
+	saveUsableAudit(t)
+	fs := newAcctDeepServer(t, nil, map[string]string{"POST /graphql": gqlEnvelope(`{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":"B1"}},{"node":{"budgetId":"B2"}}]}}`)})
+	interceptHTTP(t, fs.start(t))
+	res, err := ReplayBudgetList(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 || res.Items[0].ID != "B1" || res.Counts["items"] != 1 {
+		t.Fatalf("limit not honored: %+v", res)
+	}
+}
+
+func TestReplayBudgetListRejectsInvalidResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		body    string
+		message string
+	}{
+		{"http error", 500, `{"error":"upstream failed"}`, ""},
+		{"http error with data", 403, `{"data":{"businessPlanningBudgets":{"edges":[]}}}`, ""},
+		{"invalid json", 200, `{`, ""},
+		{"trailing json", 200, `{} {}`, ""},
+		{"html", 200, `<html>Sign in</html>`, ""},
+		{"graphql unknown type", 200, `{"errors":[{"message":"UnknownType DataAccess_BudgetFilter"}]}`, "UnknownType"},
+		{"graphql partial data", 200, `{"data":{"businessPlanningBudgets":{"edges":[]}},"errors":[{"message":"resolver failed"}]}`, "resolver failed"},
+		{"graphql empty error", 200, `{"data":{"businessPlanningBudgets":{"edges":[]}},"errors":[{}]}`, "GraphQL errors"},
+		{"graphql null error", 200, `{"data":{"businessPlanningBudgets":{"edges":[]}},"errors":[null]}`, "GraphQL errors"},
+		{"malformed errors", 200, `{"data":{"businessPlanningBudgets":{"edges":[]}},"errors":{}}`, ""},
+		{"null envelope", 200, `null`, ""},
+		{"missing data", 200, `{}`, ""},
+		{"null data", 200, `{"data":null}`, ""},
+		{"array data", 200, `{"data":[]}`, ""},
+		{"missing collection", 200, `{"data":{}}`, ""},
+		{"obsolete collection", 200, `{"data":{"dataAccessBudgets":{"edges":[]}}}`, ""},
+		{"null collection", 200, `{"data":{"businessPlanningBudgets":null}}`, ""},
+		{"malformed collection", 200, `{"data":{"businessPlanningBudgets":[]}}`, ""},
+		{"missing edges", 200, `{"data":{"businessPlanningBudgets":{}}}`, ""},
+		{"null edges", 200, `{"data":{"businessPlanningBudgets":{"edges":null}}}`, ""},
+		{"malformed edges", 200, `{"data":{"businessPlanningBudgets":{"edges":{}}}}`, ""},
+		{"missing node", 200, `{"data":{"businessPlanningBudgets":{"edges":[{}]}}}`, ""},
+		{"null node", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":null}]}}}`, ""},
+		{"missing identity", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{}}]}}}`, ""},
+		{"null identity", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":null}}]}}}`, ""},
+		{"empty identity", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":" "}}]}}}`, ""},
+		{"object identity", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":{}}}]}}}`, ""},
+		{"invalid name", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":"B1","budgetName":[]}}]}}}`, ""},
+		{"invalid date", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":"B1","startDate":{}}}]}}}`, ""},
+		{"invalid archived flag", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":"B1","viewSettings":{"archived":"false"}}}]}}}`, ""},
+		{"invalid edge past limit", 200, `{"data":{"businessPlanningBudgets":{"edges":[{"node":{"budgetId":"B1"}},{"node":null}]}}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveUsableAudit(t)
+			postBudgetGraphQLFn = func(*apiClient, context.Context, []byte) (*http.Response, error) {
+				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body)), Header: make(http.Header)}, nil
+			}
+			res, err := ReplayBudgetList(context.Background(), 1)
+			if err == nil || res != nil {
+				t.Fatalf("invalid response returned success: result=%+v err=%v", res, err)
+			}
+			if tc.message != "" && !strings.Contains(err.Error(), tc.message) {
+				t.Fatalf("error = %v, want %q", err, tc.message)
+			}
+			if tc.status != 200 {
+				var replay *ReplayError
+				if !errors.As(err, &replay) || replay.Status != tc.status {
+					t.Fatalf("HTTP status lost: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestReplayBudgetListPropagatesTransportFailure(t *testing.T) {
+	saveUsableAudit(t)
+	failure := errors.New("budget transport failed")
+	postBudgetGraphQLFn = func(*apiClient, context.Context, []byte) (*http.Response, error) { return nil, failure }
+	res, err := ReplayBudgetList(context.Background(), 20)
+	if res != nil || !errors.Is(err, failure) {
+		t.Fatalf("result=%+v error=%v", res, err)
 	}
 }
 
 func TestReplayBudgetGetRejectsEmptyID(t *testing.T) {
 	if _, err := ReplayBudgetGet(context.Background(), "  "); !errors.Is(err, ErrEmptyBudgetID) {
-		t.Fatalf("err = %v, want ErrEmptyBudgetID", err)
+		t.Fatalf("err=%v, want ErrEmptyBudgetID", err)
 	}
 }
 
@@ -716,11 +829,11 @@ func TestReplayDeferredScheduleGetProjectsSchedule(t *testing.T) {
 	saveUsable(t)
 	fs := newAcctDeepServer(t,
 		map[string]int{"POST /graphql": http.StatusOK},
-		map[string]string{"POST /graphql": gqlEnvelope(`{"accountingDeferredRecognitionSchedulesBySourceEntity":{
+		map[string]string{"POST /graphql": gqlEnvelope(`{"accountingDeferredRecognitionSchedulesBySourceEntity":[{
 			"id":"S-1","deferralType":"Prepaid","postingStatus":"POSTED","serviceStartDate":"2026-07-01",
 			"recognitionFrequency":"MONTHLY",
 			"remainingAmount":{"value":88.5,"currency":"AUD"},
-			"scheduleLines":[{"sequence":1},{"sequence":2}]}}`)},
+			"scheduleLines":[{"sequence":1},{"sequence":2}]}]}`)},
 	)
 	interceptHTTP(t, fs.start(t))
 
@@ -941,7 +1054,7 @@ func TestPostAccountingGraphQLFallsBackOn403(t *testing.T) {
 	if err != nil {
 		t.Fatalf("postAccountingGraphQL: %v", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, _ := readBody(resp)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), `"ok":true`) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, raw)

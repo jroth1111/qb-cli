@@ -118,11 +118,11 @@ func replayAccountingDeferredTransactionLineDetails(ctx context.Context, _, _ st
 		"Origin":       "https://qbo.intuit.com",
 		"Content-Type": "application/json",
 	}
-	resp, err := ac.postJSONExtra(ctx, revenueRecognitionGraphQLURL, payload, extra)
+	resp, err := ac.doURIHost(ctx, http.MethodPost, revenueRecognitionGraphQLURL, "sbseggraphqlorch.api.intuit.com", payload, extra)
 	if err != nil {
 		return nil, fmt.Errorf("revenue-recognition deferred lines: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	body, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading revenue-recognition deferred lines: %w", err)
@@ -149,9 +149,12 @@ func projectDeferredRecognitionLines(body []byte) *QueryResult {
 						DocNum        string `json:"docNum"`
 						PostingStatus string `json:"postingStatus"`
 						ServiceStart  string `json:"serviceStartDate"`
-						Remaining     struct {
-							Value    float64 `json:"value"`
-							Currency string  `json:"currency"`
+						// Common_MoneyAmountV2 serialises value as a
+						// string ("120.00"); a float64 field fails the
+						// whole decode and reads as an unparsed empty list.
+						Remaining struct {
+							Value    any    `json:"value"`
+							Currency string `json:"currency"`
 						} `json:"remainingAmount"`
 						Item struct {
 							ID string `json:"id"`
@@ -187,7 +190,7 @@ func projectDeferredRecognitionLines(body []byte) *QueryResult {
 			Name:      n.PostingStatus,
 			Date:      n.ServiceStart,
 			DocNumber: n.DocNum,
-			Amount:    n.Remaining.Value,
+			Amount:    acctAnyFloat(n.Remaining.Value),
 			Type:      n.SourceDetail.Transaction.Type,
 			ItemID:    n.Item.ID,
 		})

@@ -243,9 +243,11 @@ func newAccountingDeferredScheduleGetCmd(flags *rootFlags, prepaid bool) *cobra.
 	var sourceID string
 	label := "deferredrevenue"
 	entity := "DeferredRevenueSchedule"
+	id := "QBO.ACCOUNTING.DEFERRED_RECOGNITION_GET"
 	if prepaid {
 		label = "prepaid"
 		entity = "PrepaidSchedule"
+		id = "QBO.ACCOUNTING.PREPAID_READ"
 	}
 	cmd := &cobra.Command{
 		Use:   "get",
@@ -257,6 +259,7 @@ func newAccountingDeferredScheduleGetCmd(flags *rootFlags, prepaid bool) *cobra.
 			if flags.dryRun {
 				return writePlan(cmd, flags, planEnvelope{
 					Command: "accounting " + label + " get",
+					ID:      id,
 					Mode:    modeRead,
 					Method:  "POST",
 					URL:     client.PlannedDeferredRecognitionURL(),
@@ -276,7 +279,7 @@ func newAccountingDeferredScheduleGetCmd(flags *rootFlags, prepaid bool) *cobra.
 		},
 	}
 	cmd.Flags().StringVar(&sourceID, "source-id", "", "source transaction id carrying the schedule")
-	applyCatalogHelp(cmd, "QBO.ACCOUNTING.PREPAID_READ")
+	applyCatalogHelp(cmd, id)
 	return cmd
 }
 
@@ -288,8 +291,10 @@ func newAccountingDeferredScheduleCreateCmd(flags *rootFlags, prepaid bool) *cob
 		source string
 	)
 	label := "deferredrevenue"
+	id := "QBO.ACCOUNTING.DEFERRED_RECOGNITION_CREATE"
 	if prepaid {
 		label = "prepaid"
+		id = "QBO.ACCOUNTING.PREPAID_CREATE"
 	}
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -308,6 +313,8 @@ func newAccountingDeferredScheduleCreateCmd(flags *rootFlags, prepaid bool) *cob
 				body, _ := json.Marshal(in)
 				return writePlan(cmd, flags, planEnvelope{
 					Command: "accounting " + label + " create",
+					ID:      id,
+					Mode:    modeWired,
 					Method:  "POST",
 					URL:     client.PlannedDeferredRecognitionURL(),
 					Body:    body,
@@ -364,8 +371,8 @@ func newAccountingOpeningBalanceCmd(flags *rootFlags) *cobra.Command {
 			if flags.dryRun {
 				body, _ := json.Marshal(map[string]any{"date": date, "lines": tbl})
 				return writePlan(cmd, flags, planEnvelope{
-					Command: "accounting opening-balance update",
-					ID:      "QBO.ACCOUNTING.OPENING_BALANCE_SET",
+					Command: "accounting opening-balance create",
+					ID:      "QBO.ACCOUNTING.OPENING_BALANCE_CREATE",
 					Mode:    modeWired,
 					Method:  "POST",
 					URL:     client.PlannedMutateURL("JournalEntry", "create"),
@@ -388,7 +395,7 @@ func newAccountingOpeningBalanceCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&lines, "lines", "", `JSON array of {"account","debit"|"credit"} lines`)
 	_ = cmd.MarkFlagRequired("lines")
 	_ = cmd.MarkFlagRequired("date")
-	applyCatalogHelp(cmd, "QBO.ACCOUNTING.OPENING_BALANCE_SET")
+	applyCatalogHelp(cmd, "QBO.ACCOUNTING.OPENING_BALANCE_CREATE")
 	return cmd
 }
 
@@ -403,7 +410,7 @@ func newAccountingDeepCmds(flags *rootFlags) map[string][]*cobra.Command {
 		},
 		"class": {
 			newAccountingDimensionMutateCmd(flags, "Class", "update", "QBO.ACCOUNTING.CLASS_EDIT"),
-			newAccountingDimensionMutateCmd(flags, "Class", "delete", "QBO.ACCOUNTING.TAG_DELETE"),
+			newAccountingDimensionMutateCmd(flags, "Class", "delete", "QBO.ACCOUNTING.CLASS_DELETE"),
 		},
 		"location": {
 			newAccountingDimensionMutateCmd(flags, "Department", "update", "QBO.ACCOUNTING.LOCATION_EDIT"),

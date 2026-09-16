@@ -135,7 +135,7 @@ func TestFeedPendingDefaultAccountIs204(t *testing.T) {
 // so any read verb MUST fail fast with the auth exit code and MUST NOT reach
 // the network. The 10s context is a safety net only; a regression that
 // opened a socket would still be caught by the elapsed-time check below.
-func runFeedVerb(t *testing.T, args ...string) (err error, elapsed time.Duration) {
+func runFeedVerb(t *testing.T, args ...string) (elapsed time.Duration, err error) {
 	t.Helper()
 	t.Setenv("QB_HOME", t.TempDir())
 
@@ -152,7 +152,7 @@ func runFeedVerb(t *testing.T, args ...string) (err error, elapsed time.Duration
 	start := time.Now()
 	err = root.ExecuteContext(ctx)
 	elapsed = time.Since(start)
-	return err, elapsed
+	return elapsed, err
 }
 
 // assertAuthExit verifies err is an *ExitError with the auth exit code (2),
@@ -204,85 +204,85 @@ func assertFast(t *testing.T, elapsed time.Duration) {
 }
 
 func TestFeedPostedMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "list", "posted")
+	elapsed, err := runFeedVerb(t, "txn", "list", "posted")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedPopulationMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "population")
+	elapsed, err := runFeedVerb(t, "txn", "population")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedExcludedMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "list", "excluded")
+	elapsed, err := runFeedVerb(t, "txn", "list", "excluded")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedLookupRequiresQuery(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "get")
+	elapsed, err := runFeedVerb(t, "txn", "get")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedLookupMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "get", "--query", "coles")
+	elapsed, err := runFeedVerb(t, "txn", "get", "--query", "coles")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedMutationMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "unpost")
+	elapsed, err := runFeedVerb(t, "txn", "update", "unpost")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedExcludeEmptyIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "exclude")
+	elapsed, err := runFeedVerb(t, "txn", "update", "exclude")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedExcludeMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "exclude", "--ids", "1")
+	elapsed, err := runFeedVerb(t, "txn", "update", "exclude", "--ids", "1")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedUndoEmptyIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "undo-excluded")
+	elapsed, err := runFeedVerb(t, "txn", "update", "undo-excluded")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedUndoMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "undo-excluded", "--ids", "1")
+	elapsed, err := runFeedVerb(t, "txn", "update", "undo-excluded", "--ids", "1")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedImportMissingAccountFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "import", "--description", "QB-CLI-TEST", "--amount", "0.01")
+	elapsed, err := runFeedVerb(t, "txn", "import", "--description", "QB-CLI-TEST", "--amount", "0.01")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedImportBlockedAccountFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "import", "--account-id", "204", "--description", "QB-CLI-TEST", "--amount", "0.01")
+	elapsed, err := runFeedVerb(t, "txn", "import", "--account-id", "204", "--description", "QB-CLI-TEST", "--amount", "0.01")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedImportMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "import", "--account-id", "209", "--description", "QB-CLI-TEST", "--amount", "0.01")
+	elapsed, err := runFeedVerb(t, "txn", "import", "--account-id", "209", "--description", "QB-CLI-TEST", "--amount", "0.01")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedImportMissingFileFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "import", "--account-id", "209", "--file", "/nonexistent-tour.csv")
+	elapsed, err := runFeedVerb(t, "txn", "import", "--account-id", "209", "--file", "/nonexistent-tour.csv")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
@@ -381,19 +381,19 @@ func findSub(cmd *cobra.Command, name string) *cobra.Command {
 // --- categorise / match / split / batch-accept wired commands ---------------
 
 func TestFeedCategoriseEmptyIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "categorise", "--category", "7")
+	elapsed, err := runFeedVerb(t, "txn", "update", "categorise", "--category", "7")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedCategoriseEmptyCategoryFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "categorise", "--ids", "3")
+	elapsed, err := runFeedVerb(t, "txn", "update", "categorise", "--ids", "3")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedCategoriseMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "categorise", "--ids", "3", "--category", "7")
+	elapsed, err := runFeedVerb(t, "txn", "update", "categorise", "--ids", "3", "--category", "7")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
@@ -401,7 +401,7 @@ func TestFeedCategoriseMissingCredentialsFails(t *testing.T) {
 func TestFeedCategoriseDryRunPlan(t *testing.T) {
 	t.Setenv("QB_HOME", t.TempDir())
 	root := NewRootCommand()
-	root.SetArgs([]string{"feed", "txn", "update", "categorise", "--ids", "3", "--category", "7", "--class", "800398", "--dry-run", "--json"})
+	root.SetArgs([]string{"feed", "txn", "update", "categorise", "--ids", "3", "--category", "7", "--dry-run", "--json"})
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
@@ -409,57 +409,84 @@ func TestFeedCategoriseDryRunPlan(t *testing.T) {
 		t.Fatalf("dry-run failed: %v", err)
 	}
 	body := out.String()
-	for _, want := range []string{"categoriseTransactions", "categoryRef", "800398", "QBO.FEED.TXN_CATEGORISE"} {
+	for _, want := range []string{"batchAcceptTransactions", "acceptOnly=true", "categoryId", "QBO.FEED.TXN_CATEGORISE"} {
 		if !bytesContains(out.Bytes(), want) {
 			t.Errorf("dry-run output missing %q\n%s", want, body)
 		}
 	}
 }
 
+// TestFeedCategoriseClassRefusedFailsFast asserts a --class value is an
+// input error before any dial: the captured batchAcceptTransactions detail
+// has no class field, so the CLI must not invent a wire key for it.
+func TestFeedCategoriseClassRefusedFailsFast(t *testing.T) {
+	elapsed, err := runFeedVerb(t, "txn", "update", "categorise", "--ids", "3", "--category", "7", "--class", "800398")
+	assertInputExit(t, err, "")
+	assertFast(t, elapsed)
+}
+
 func TestFeedMatchEmptyIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "match", "--match-id", "123")
+	elapsed, err := runFeedVerb(t, "txn", "update", "match", "--match-id", "123")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedMatchEmptyMatchIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "match", "--ids", "3")
+	elapsed, err := runFeedVerb(t, "txn", "update", "match", "--ids", "3")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedMatchMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "match", "--ids", "3", "--match-id", "123")
+	elapsed, err := runFeedVerb(t, "txn", "update", "match", "--ids", "3", "--match-id", "123")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
+func TestFeedMatchDryRunPlan(t *testing.T) {
+	t.Setenv("QB_HOME", t.TempDir())
+	root := NewRootCommand()
+	root.SetArgs([]string{"feed", "txn", "update", "match", "--ids", "3", "--match-id", "123", "--dry-run", "--json"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("dry-run failed: %v", err)
+	}
+	body := out.String()
+	for _, want := range []string{"acceptTransactions", "selectedMatches", "matchedTxns", "qboTxnId", "QBO.FEED.TXN_MATCH"} {
+		if !bytesContains(out.Bytes(), want) {
+			t.Errorf("dry-run output missing %q\n%s", want, body)
+		}
+	}
+}
+
 func TestFeedSplitEmptyIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "split", "--lines", "7=-6,8=-4")
+	elapsed, err := runFeedVerb(t, "txn", "update", "split", "--lines", "7=-6,8=-4")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedSplitTooFewLinesFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "split", "--ids", "3", "--lines", "7=-10")
+	elapsed, err := runFeedVerb(t, "txn", "update", "split", "--ids", "3", "--lines", "7=-10")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedSplitMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "split", "--ids", "3", "--lines", "7=-6,8=-4")
+	elapsed, err := runFeedVerb(t, "txn", "update", "split", "--ids", "3", "--lines", "7=-6,8=-4")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedBatchAcceptEmptyIDsFailsFast(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "batch-accept")
+	elapsed, err := runFeedVerb(t, "txn", "update", "batch-accept")
 	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
 func TestFeedBatchAcceptMissingCredentialsFails(t *testing.T) {
-	err, elapsed := runFeedVerb(t, "txn", "update", "batch-accept", "--ids", "3")
+	elapsed, err := runFeedVerb(t, "txn", "update", "batch-accept", "--ids", "3")
 	assertAuthExit(t, err, "")
 	assertFast(t, elapsed)
 }
@@ -475,7 +502,7 @@ func TestFeedBatchAcceptDryRunPlan(t *testing.T) {
 		t.Fatalf("dry-run failed: %v", err)
 	}
 	body := out.String()
-	for _, want := range []string{"batchAcceptTransactions", "QBO.FEED.TXN_BATCH_ACCEPT"} {
+	for _, want := range []string{"batchAcceptTransactions", "acceptOnly=true", "txnList", "olbTxns", "QBO.FEED.TXN_BATCH_ACCEPT"} {
 		if !bytesContains(out.Bytes(), want) {
 			t.Errorf("dry-run output missing %q\n%s", want, body)
 		}

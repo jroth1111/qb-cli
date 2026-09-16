@@ -21,7 +21,7 @@ func replayFolio(ctx context.Context, _, _ string, _ int) (*QueryResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("folio GET /v1/folio: %w", err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading folio GET /v1/folio: %w", err)
@@ -34,14 +34,23 @@ func replayFolio(ctx context.Context, _, _ string, _ int) (*QueryResult, error) 
 	return res, nil
 }
 
+// folioItemKeys maps universalreportinsights folio objects onto QueryItem.
+var folioItemKeys = itemKeys{
+	id:     []string{"id", "Id", "folioId"},
+	name:   []string{"name", "Name", "title", "reportName"},
+	date:   []string{"updatedDate", "createdDate", "generatedDate", "date"},
+	typeOf: []string{"status", "Status", "subType", "type"},
+}
+
 func projectFolio(body []byte) *QueryResult {
 	note := "universalreportinsights GET /v1/folio"
 	var arr []json.RawMessage
 	if json.Unmarshal(body, &arr) == nil {
+		items := projectJSONItems("Folio", arr, folioItemKeys)
 		return &QueryResult{
 			Entity: "Folio",
-			Counts: map[string]int{"items": 0, "totalCount": len(arr)},
-			Items:  []QueryItem{},
+			Counts: map[string]int{"items": len(items), "totalCount": len(arr)},
+			Items:  items,
 			Note:   fmt.Sprintf("%s n=%d", note, len(arr)),
 		}
 	}

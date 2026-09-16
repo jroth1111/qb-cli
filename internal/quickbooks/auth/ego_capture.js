@@ -8,6 +8,7 @@ const loginURL = process.env.QB_LOGIN_URL ||
   "https://accounts.intuit.com/app/sign-in?app_group=QBO&asset_alias=Intuit.accounting.core.qbowebapp&app_environment=prod";
 const bankingURL = process.env.QB_BANKING_URL || "https://qbo.intuit.com/app/banking";
 const timeoutMs = Number(process.env.QB_TIMEOUT_MS || "600000");
+const spaceKey = process.env.QB_EGO_SPACE || "qb-login";
 
 function fail(msg, code) {
   cliLog(JSON.stringify({ ok: false, error: msg }));
@@ -35,10 +36,39 @@ function isAPIKey(v) {
   return String(v || "").trim().startsWith("Intuit_APIKey");
 }
 
+// The first-party credential rides Intuit_APIKey on qbo.intuit.com requests
+// without an `apikey` header (e.g. /api/neo/.../ipd/signedAuthData; /ats/
+// historically). apikey-bearing olb/v4-graphql calls use a different key.
+function isCredentialRequest(url, headers) {
+  if (!isAPIKey(headerGet(headers, "authorization"))) return false;
+  if (String(url || "").includes("/ats/")) return true;
+  if (!String(url || "").includes("://qbo.intuit.com/")) return false;
+  return headerGet(headers, "apikey") === "";
+}
+
+// apikey-bearing qbo.intuit.com requests (/olb/, /api/v4/graphql) carry the
+// secondary credential trio (apikey/authtype/intuit_appid) the primary
+// request no longer carries. Harvested alongside so typed fields fill.
+function isAPIKeyRequest(url, headers) {
+  return String(url || "").includes("://qbo.intuit.com/") &&
+    headerGet(headers, "apikey") !== "";
+}
+
+// Service hosts (*.api.intuit.com) mint their own Intuit_APIKey — the
+// leftover-host credential URIHostHeaders stores. Harvest each host's
+// request headers so remint refreshes the whole map in one pass.
+function serviceHost(url, headers) {
+  if (!isAPIKey(headerGet(headers, "authorization"))) return "";
+  const m = String(url || "").match(/^https?:\/\/([a-z0-9.-]+\.api\.intuit\.com)\//i);
+  return m ? m[1] : "";
+}
+
 async function main() {
   if (!outPath) fail("QB_CAPTURE_OUT is required", 2);
 
-  const task = await h.useOrCreateTaskSpace("qb-login");
+  const task = /^\d+$/.test(spaceKey)
+    ? await h.switchTaskSpace(Number(spaceKey))
+    : await h.useOrCreateTaskSpace(spaceKey);
   let closed = false;
   const close = async (keep) => {
     if (closed) return;
@@ -80,7 +110,10 @@ async function main() {
 
     await h.cdp("Network.enable", {});
     await h.cdp("Fetch.enable", {
-      patterns: [{ urlPattern: "*://qbo.intuit.com/ats/*", requestStage: "Request" }],
+      patterns: [
+        { urlPattern: "*://qbo.intuit.com/*", requestStage: "Request" },
+        { urlPattern: "*://*.api.intuit.com/*", requestStage: "Request" },
+      ],
     });
     await h.drainEvents();
     try {
@@ -90,7 +123,15 @@ async function main() {
     }
 
     let headers = null;
-    while (Date.now() < deadline && !headers) {
+    let apiHeaders = null;
+    const hostHeaders = {};
+    // After the primary request lands, keep draining briefly for the
+    // apikey-bearing sibling and service-host traffic so the credential
+    // fills in one pass.
+    const secondaryGraceMs = 8000;
+    let primaryAt = 0;
+    while (Date.now() < deadline) {
+      if (headers && (apiHeaders || Date.now() - primaryAt > secondaryGraceMs)) break;
       let evs = null;
       try {
         evs = await h.drainEvents();
@@ -101,24 +142,28 @@ async function main() {
       const list = Array.isArray(evs) ? evs : [];
       for (const ev of list) {
         if (!ev || !ev.method) continue;
+        let req = null;
         if (ev.method === "Fetch.requestPaused") {
-          const req = ev.params && ev.params.request;
+          req = ev.params && ev.params.request;
           const rid = ev.params && ev.params.requestId;
           if (rid) {
             try { await h.cdp("Fetch.continueRequest", { requestId: rid }); } catch (_) {}
           }
-          if (req && String(req.url || "").includes("/ats/v1/") && isAPIKey(headerGet(req.headers, "Authorization"))) {
-            headers = req.headers;
-          }
+        } else if (ev.method === "Network.requestWillBeSent") {
+          req = ev.params && ev.params.request;
         }
-        if (ev.method === "Network.requestWillBeSent") {
-          const req = ev.params && ev.params.request;
-          if (req && String(req.url || "").includes("/ats/v1/") && isAPIKey(headerGet(req.headers, "Authorization"))) {
-            headers = req.headers;
-          }
+        if (!req) continue;
+        const sh = serviceHost(req.url, req.headers);
+        if (sh) hostHeaders[sh] = req.headers;
+        if (!apiHeaders && isAPIKeyRequest(req.url, req.headers)) {
+          apiHeaders = req.headers;
+        }
+        if (!headers && isCredentialRequest(req.url, req.headers)) {
+          headers = req.headers;
+          primaryAt = Date.now();
         }
       }
-      if (!headers) await h.wait(0.25);
+      if (!headers || !apiHeaders) await h.wait(0.25);
     }
     if (!headers) {
       await close(true);
@@ -185,9 +230,25 @@ async function main() {
       if (v == null || v === "") continue;
       stored[k] = String(v);
     }
+    const storedApi = {};
+    for (const [k, v] of Object.entries(apiHeaders || {})) {
+      if (String(k).toLowerCase() === "cookie") continue;
+      if (v == null || v === "") continue;
+      storedApi[k] = String(v);
+    }
+    const storedHosts = {};
+    for (const [host, hmap] of Object.entries(hostHeaders)) {
+      const clean = {};
+      for (const [k, v] of Object.entries(hmap || {})) {
+        if (String(k).toLowerCase() === "cookie") continue;
+        if (v == null || v === "") continue;
+        clean[k] = String(v);
+      }
+      if (Object.keys(clean).length) storedHosts[host] = clean;
+    }
 
     const fs = require("fs");
-    fs.writeFileSync(outPath, JSON.stringify({ headers: stored, cookies, identity }, null, 2));
+    fs.writeFileSync(outPath, JSON.stringify({ headers: stored, api_headers: storedApi, host_headers: storedHosts, cookies, identity }, null, 2));
     fs.chmodSync(outPath, 0o600);
     cliLog(JSON.stringify({
       ok: true,

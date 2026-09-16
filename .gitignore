@@ -57,6 +57,13 @@ AGENTS.override.md
 # Machine-local audit/capture history (may contain live keys)
 /.audit/
 
+# Orchestrator evidence + local sweep artifacts (may contain captures)
+/.sol/
+
+# One-off sweep binaries
+/qb
+/qb-*
+
 # Editor/test cruft
 *.orig
 ._*

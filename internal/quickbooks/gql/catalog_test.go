@@ -122,6 +122,34 @@ func TestDeclaredVarsOrder(t *testing.T) {
 	}
 }
 
+func TestDeclaredVarsNewlineCatalog(t *testing.T) {
+	op, err := Lookup("GetContacts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(op.DeclaredVars(), ","); got != "first,offset,filter" {
+		t.Fatalf("DeclaredVars = %q", got)
+	}
+	if err := op.ValidateVars(map[string]any{"offset": 100, "filter": map[string]any{}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := op.DetectWalkStyle(); got != WalkOffset {
+		t.Fatalf("style = %q, want offset", got)
+	}
+}
+
+func TestDeclaredVarsWhitespaceAndSelectionArguments(t *testing.T) {
+	for _, tc := range []struct{ doc, want string }{
+		{"query Q($first \t: Int\n$offset: Int) { rows }", "first,offset"},
+		{"query Q { rows(first: $notDeclared) { id } }", ""},
+	} {
+		op := &Op{Kind: KindQuery, Document: tc.doc}
+		if got := strings.Join(op.DeclaredVars(), ","); got != tc.want {
+			t.Errorf("DeclaredVars(%q) = %q, want %q", tc.doc, got, tc.want)
+		}
+	}
+}
+
 // DetectWalkStyle must classify from the document's own variable names.
 // Each style branch below rejects a distinct misclassification bug.
 func TestDetectWalkStyle(t *testing.T) {

@@ -147,7 +147,7 @@ func invPostV3(ctx context.Context, entity, path string, body map[string]any, op
 	if err != nil {
 		return nil, fmt.Errorf("v3 %s %s: %w", op, entity, err)
 	}
-	defer drainAndClose(resp)
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	got, err := readBody(resp)
 	if err != nil {
 		return nil, err
