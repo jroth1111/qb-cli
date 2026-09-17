@@ -147,7 +147,7 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 			}
 			if spec.Op == "create" {
 				for _, p := range paramsFor(e.ID) {
-					if !p.Required || (p.Name != "line-items" && p.Name != "lines") {
+					if !p.Required || (p.Name != "line-items" && p.Name != "lines" && p.Name != "items") {
 						continue
 					}
 					if strings.TrimSpace(fm[p.Name]) == "" {

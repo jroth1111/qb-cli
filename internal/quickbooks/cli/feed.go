@@ -31,7 +31,7 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 		Use:   "feed",
 		Short: "Replay QuickBooks banking feeds",
 		Long: "qb feed <entity> <verb>.\n" +
-			"Wired: account list; rule get; txn list|get|population|import|update exclude|undo-excluded|categorise|match|split|batch-accept.\n" +
+			"Wired: account list; rule get|search|create|update|delete; txn list|get|population|import|update exclude|undo-excluded|categorise|match|split|batch-accept.\n" +
 			"olbTxnIds only. Test mutations: account 209. --dry-run never dials.",
 	}
 	account := &cobra.Command{Use: "account", Short: "Bank accounts"}
@@ -66,9 +66,9 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 	rule := &cobra.Command{Use: "rule", Short: "Bank rules"}
 	rule.AddCommand(newFeedRuleReadCmd(flags))
 	rule.AddCommand(newFeedRuleSearchCmd(flags))
-	for _, verb := range []string{"create", "delete", "update"} {
-		rule.AddCommand(newFeedMutationCmd(flags, "rule", verb, "rule "+verb+" (not wired)"))
-	}
+	rule.AddCommand(newFeedRuleSaveCmd(flags, "create", "QBO.FEED.RULE_CREATE"))
+	rule.AddCommand(newFeedRuleSaveCmd(flags, "update", "QBO.FEED.RULE_EDIT"))
+	rule.AddCommand(newFeedRuleDeleteCmd(flags))
 
 	rec := &cobra.Command{Use: "rec", Short: "Reconcile helpers"}
 	rec.AddCommand(newFeedMutationCmd(flags, "rec", "run", "rec auto-adjust (not wired)"))
@@ -800,6 +800,81 @@ func newFeedRuleSearchCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&query, "query", "", "substring match on rule name")
 	cmd.Flags().IntVar(&limit, "limit", 20, "max rules to return")
 	applyCatalogHelp(cmd, "QBO.FEED.RULE_SEARCH")
+	return cmd
+}
+
+// newFeedRuleSaveCmd wires `feed rule create|update` to the neo
+// lists/olbrules/save upsert the olbrules drawer uses. Update resolves the
+// rule's editSequence/ruleOrder through getRules before saving.
+func newFeedRuleSaveCmd(flags *rootFlags, use, id string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: "Save a bank rule (POST lists/olbrules/save)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := collectFlags(cmd)
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "feed rule " + use,
+					ID:      id,
+					Method:  "POST",
+					URL:     client.PlannedRuleSaveURL(),
+					Note:    "neo lists/olbrules/save upsert; not sent",
+					Flags:   fm,
+				})
+			}
+			if err := client.RequireSession(); err != nil {
+				return feedErr(flags, err)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayRuleSave(ctx, fm)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	for _, fd := range paramsFor(id) {
+		cmd.Flags().String(fd.Name, fd.Default, fd.Help)
+	}
+	applyCatalogHelp(cmd, id)
+	return cmd
+}
+
+// newFeedRuleDeleteCmd wires `feed rule delete` to neo lists/olbrules/delete.
+func newFeedRuleDeleteCmd(flags *rootFlags) *cobra.Command {
+	var id string
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a bank rule (POST lists/olbrules/delete)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := collectFlags(cmd)
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "feed rule delete",
+					ID:      "QBO.FEED.RULE_DELETE",
+					Method:  "POST",
+					URL:     client.PlannedRuleDeleteURL(),
+					Note:    "neo lists/olbrules/delete; not sent",
+					Flags:   fm,
+				})
+			}
+			if err := client.RequireSession(); err != nil {
+				return feedErr(flags, err)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayRuleDelete(ctx, fm)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "bank rule id to delete (required)")
+	applyCatalogHelp(cmd, "QBO.FEED.RULE_DELETE")
 	return cmd
 }
 

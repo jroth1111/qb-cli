@@ -1,6 +1,11 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
+	"github.com/spf13/cobra"
+)
 
 func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -61,7 +66,7 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	expenseEnt.AddCommand(expenseListEnt)
 	expenseUpdateEnt := &cobra.Command{Use: "update", Short: "update"}
 	expenseUpdateEnt.AddCommand(newStubCmd(flags, "expenses expense update", "edit", "expense edit (not wired)"))
-	expenseUpdateEnt.AddCommand(newStubCmd(flags, "expenses expense update", "recategorise", "expense recategorise (not wired)"))
+	expenseUpdateEnt.AddCommand(newExpenseRecategoriseCmd(flags))
 	expenseUpdateEnt.AddCommand(newStubCmd(flags, "expenses expense update", "split", "expense split (not wired)"))
 	expenseEnt.AddCommand(expenseUpdateEnt)
 	cmd.AddCommand(expenseEnt)
@@ -162,4 +167,60 @@ func newExpensesServiceMapCmds(flags *rootFlags) []*cobra.Command {
 	bill_pay_onboardingEnt := &cobra.Command{Use: "bill-pay-onboarding", Short: "bill-pay-onboarding"}
 	bill_pay_onboardingEnt.AddCommand(newStubCmd(flags, "expenses bill-pay-onboarding", "get", "bill-pay onboarding read (service map; not wired)"))
 	return []*cobra.Command{bill_payEnt, b2b_billpayEnt, b2b_networkEnt, bill_pay_onboardingEnt}
+}
+
+// newExpenseRecategoriseCmd wires `expenses expense update recategorise` to a
+// real v3 Purchase sparse update: the category account on account-based lines
+// is swapped to --category-id (optionally only --line-id), and --payee-id can
+// move the EntityRef. This is the same account swap the banking UI performs.
+func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
+	var (
+		id, catID, payee, lineID string
+	)
+	cmd := &cobra.Command{
+		Use:   "recategorise",
+		Short: "Recategorise a posted expense (v3 Purchase sparse update)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := map[string]string{}
+			if id != "" {
+				fm["id"] = id
+			}
+			if catID != "" {
+				fm["category-id"] = catID
+			}
+			if payee != "" {
+				fm["payee-id"] = payee
+			}
+			if lineID != "" {
+				fm["line-id"] = lineID
+			}
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "expenses expense update recategorise",
+					ID:      "QBO.EXPENSES.EXPENSE_RECATEGORISE",
+					Method:  "POST",
+					URL:     "https://qbo.intuit.com/api/v3/company/{realm}/purchase",
+					Note:    "v3 Purchase sparse update; not sent",
+					Flags:   fm,
+				})
+			}
+			if err := client.RequireSession(); err != nil {
+				return feedErr(flags, err)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayExpenseRecategorise(ctx, fm)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "v3 Purchase (expense) id to recategorise (required)")
+	cmd.Flags().StringVar(&catID, "category-id", "", "GL account id applied as the new category on account-based lines")
+	cmd.Flags().StringVar(&payee, "payee-id", "", "vendor/customer id applied as the new payee (EntityRef)")
+	cmd.Flags().StringVar(&lineID, "line-id", "", "only recategorise this Purchase line id")
+	applyCatalogHelp(cmd, "QBO.EXPENSES.EXPENSE_RECATEGORISE")
+	return cmd
 }

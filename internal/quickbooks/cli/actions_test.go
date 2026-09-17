@@ -101,7 +101,7 @@ func TestActionsCatalogCoversWiredReads(t *testing.T) {
 		{ID: "QBO.FEED.TXN_EXCLUDE", Domain: "feed", Risk: "R2", Mode: modeWired, Command: "feed txn update exclude"},
 		{ID: "QBO.FEED.TXN_UNDO_EXCLUDED", Domain: "feed", Risk: "R2", Mode: modeWired, Command: "feed txn update undo-excluded"},
 		{ID: "QBO.FEED.TXN_IMPORT", Domain: "feed", Risk: "R2", Mode: modeWired, Command: "feed txn import"},
-		{ID: "QBO.FEED.RULE_CREATE", Domain: "feed", Risk: "R4", Mode: modeBlocked, Command: "feed rule create"},
+		{ID: "QBO.FEED.RULE_CREATE", Domain: "feed", Risk: "R4", Mode: modeWired, Command: "feed rule create"},
 		{ID: "QBO.CUSTOMERS.CUSTOMER_CREATE", Domain: "customers", Risk: "R4", Mode: modeWired, Command: "customers customer create"},
 	}
 	for _, w := range want {

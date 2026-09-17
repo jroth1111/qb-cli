@@ -30,10 +30,10 @@ go build -o qb ./cmd/qb
 | Domain | Wired | Read | Command root |
 |---|---|---|---|
 | Accounting (COA, class, budget, journals, fixed assets, CDC) | 30 | 25 | `qb accounting` |
-| Expenses (bills, suppliers, cheques, time activities) | 23 | 16 | `qb expenses` |
+| Expenses (bills, suppliers, cheques, time activities) | 24 | 16 | `qb expenses` |
 | Sales (invoices, estimates, payments, sends, PDFs, sales orders) | 29 | 16 | `qb sales` |
 | Company (settings, users, lists, attachables, rates) | 12 | 18 | `qb company` |
-| Feed (banking classify/split/exclude/undo) | 7 | 10 | `qb feed` |
+| Feed (banking classify/split/exclude/undo) | 10 | 10 | `qb feed` |
 | Payroll (pay runs, STP, super) | 5 | 3 | `qb payroll` |
 | Tax (GST, BAS, TPAR, agencies, codes) | 2 | 5 | `qb tax` |
 | Inventory (items, purchase orders) | 10 | 8 | `qb inventory` |
@@ -45,7 +45,7 @@ go build -o qb ./cmd/qb
 
 `qb crm` and `qb salestx` are additional command trees outside the actions catalog. `salestx` includes live v3 sales transactions and tax-service operations; its plan IDs are command identifiers, not catalog entries.
 
-Totals: **130 wired, 146 read-only, 265 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+Totals: **137 wired, 146 read-only, 258 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
 
 Examples:
 

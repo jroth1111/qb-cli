@@ -90,7 +90,16 @@ func TestLiveNeoPost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	u := "https://qbo.intuit.com/api/neo/v1/company/" + c.realm + "/" + path
-	resp, err := c.postJSON(ctx, u, []byte(os.Getenv("QB_PROBE_BODY")))
+	var resp *http.Response
+	if os.Getenv("QB_PROBE_NEO_URIHOST") != "" {
+		method := os.Getenv("QB_PROBE_NEO_METHOD")
+		if method == "" {
+			method = http.MethodPost
+		}
+		resp, err = c.doURIHost(ctx, method, u, "qbo.intuit.com", []byte(os.Getenv("QB_PROBE_BODY")))
+	} else {
+		resp, err = c.postJSON(ctx, u, []byte(os.Getenv("QB_PROBE_BODY")))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

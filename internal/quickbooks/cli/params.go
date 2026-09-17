@@ -62,6 +62,45 @@ func paramsFor(id string) []paramDoc {
 	return canonicalTimeHelp(canonicalFileHelp(canonicalLineItemsHelp(out, id), id), id)
 }
 
+// ruleFlagDocs returns the save flags shared by rule create/edit; withID
+// swaps --name to required-on-edit semantics via the --id flag.
+func ruleFlagDocs(withID bool) []paramDoc {
+	out := []paramDoc{}
+	if withID {
+		out = append(out, p("id", "string", "bank rule id to update (required)", true, ""))
+		out = append(out, p("name", "string", "rule name; omitted keeps the existing name", false, ""))
+	} else {
+		out = append(out, p("name", "string", "display name for the bank rule (required)", true, ""))
+	}
+	return append(out,
+		p("money", "string", "transaction direction the rule matches: in or out (default out)", false, ""),
+		p("match", "string", "condition combination: all (default) or any", false, ""),
+		p("account-ids", "string", "comma-separated bank-feed account ids the rule applies to; omit for all accounts", false, ""),
+		p("category-id", "string", "GL account id applied as the transaction category", false, ""),
+		p("payee-id", "string", "vendor or customer id applied as the transaction payee", false, ""),
+		p("customer-id", "string", "customer id applied to matching transactions", false, ""),
+		p("class-id", "string", "class id applied to matching transactions", false, ""),
+		p("location-id", "string", "location id applied to matching transactions", false, ""),
+		p("memo", "string", "memo text applied to matching transactions", false, ""),
+		p("auto-add", "string", "true auto-posts matching pending transactions to the register", false, ""),
+		p("exclude", "string", "true makes this an exclude rule for matching pending rows", false, ""),
+		p("disabled", "string", "true saves the rule in a disabled state (off)", false, ""),
+	)
+}
+
+// ruleConditionFlagDocs returns the condition flags (bank text, description,
+// amount) shared by rule create/edit.
+func ruleConditionFlagDocs() []paramDoc {
+	return []paramDoc{
+		p("bank-text", "string", "match on bank text (statement detail as sent by the bank)", false, ""),
+		p("bank-text-op", "string", "bank-text operator: contains (default), is_exactly, does_not_contain", false, ""),
+		p("description", "string", "match on the bank transaction description text", false, ""),
+		p("description-op", "string", "description operator: contains (default), is_exactly, does_not_contain", false, ""),
+		p("amount", "string", "match on the bank transaction amount value", false, ""),
+		p("amount-op", "string", "amount operator: equals (default), does_not_equal, is_greater_than, is_less_than", false, ""),
+	}
+}
+
 func canonicalTimeHelp(ps []paramDoc, id string) []paramDoc {
 	if id != "QBO.EXPENSES.TIME_ACTIVITY_CREATE" && id != "QBO.EXPENSES.TIME_ACTIVITY_EDIT" && id != "QBO.PAYROLL.TIMESHEET_CREATE" && id != "QBO.PAYROLL.TIMESHEET_EDIT" {
 		return ps
@@ -114,7 +153,8 @@ func reportParamDocs(id, report string) []paramDoc {
 // parseSplitLines — overwriting them would lie in the other direction.
 func canonicalLineItemsHelp(ps []paramDoc, id string) []paramDoc {
 	for i, prm := range ps {
-		if prm.Name == "line-items" || (prm.Name == "lines" && id != "QBO.FEED.TXN_SPLIT") {
+		if prm.Name == "line-items" || (prm.Name == "lines" && id != "QBO.FEED.TXN_SPLIT") ||
+			(prm.Name == "items" && (id == "QBO.INVENTORY.PURCHASE_ORDER_CREATE" || id == "QBO.INVENTORY.PURCHASE_ORDER_EDIT")) {
 			ps[i].Help = "JSON array of v3 line objects (CSV rows are rejected, never coerced); set TaxCodeRef per line for GST; verify with --dry-run before posting"
 		}
 	}
@@ -196,6 +236,12 @@ func wiredParams(id string) ([]paramDoc, bool) {
 	switch id {
 	case "QBO.FEED.ACCOUNT_LIST":
 		return nil, true
+	case "QBO.GQL.MUTATE_BANK_DISCONNECT":
+		// The live contract is neo lists/account/save on GL ids, not the
+		// captured fitransactions op's olbAccountIds (403s in AU builds).
+		return []paramDoc{
+			p("id", "strings", "GL account id to disconnect, repeatable or comma-separated (required)", true, ""),
+		}, true
 	case "QBO.FEED.TXN_PENDING", "QBO.FEED.TXN_POSTED", "QBO.FEED.TXN_EXCLUDED":
 		return []paramDoc{
 			p("account-id", "string", "banking account id (see feed account list)", false, "204"),
@@ -245,6 +291,26 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("id", "string", "purchase order id to receive against (required)", true, ""),
 			p("items", "string", `JSON array of received lines, [{"line-id"|"item-id","qty":N}] (required)`, true, ""),
+		}, true
+	case "QBO.FEED.RULE_CREATE":
+		// Neo lists/olbrules/save upsert; the catalog's free-text conditions
+		// flag predates the captured conditionList/actionList wire model
+		// (2026-09-16).
+		return append(ruleFlagDocs(false), ruleConditionFlagDocs()...), true
+	case "QBO.FEED.RULE_EDIT":
+		return append(ruleFlagDocs(true), ruleConditionFlagDocs()...), true
+	case "QBO.FEED.RULE_DELETE":
+		return []paramDoc{
+			p("id", "string", "bank rule id to delete (required)", true, ""),
+		}, true
+	case "QBO.EXPENSES.EXPENSE_RECATEGORISE":
+		// v3 Purchase sparse update swapping AccountRef on account-based
+		// lines; the catalog's generic flag text predates the wired contract.
+		return []paramDoc{
+			p("id", "string", "v3 Purchase (posted expense) id to recategorise (required)", true, ""),
+			p("category-id", "string", "GL account id applied as the new category on account-based lines", false, ""),
+			p("payee-id", "string", "vendor or customer id applied as the new payee (EntityRef)", false, ""),
+			p("line-id", "string", "only recategorise this Purchase line id; omit for all account-based lines", false, ""),
 		}, true
 	case "QBO.ACCOUNTING.PREPAID_READ":
 		// Schedule fetch keyed solely by --source-id; the cobra command

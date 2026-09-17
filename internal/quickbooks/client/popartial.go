@@ -83,6 +83,9 @@ func ReplayPurchaseOrderPartial(ctx context.Context, flags map[string]string) (*
 		return nil, fmt.Errorf("purchase-order %s: %w", poID, err)
 	}
 	src := map[string]any{"txnId": poID, "txnType": "PURCHASE_ORDER", "version": version}
+	if d, ok := po["TxnDate"].(string); ok && d != "" {
+		src["txnDate"] = d
+	}
 	if v, ok := po["VendorRef"].(map[string]any); ok {
 		src["vendorId"] = fmt.Sprint(v["value"])
 	}

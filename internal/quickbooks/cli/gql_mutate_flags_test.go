@@ -222,40 +222,29 @@ func TestEffectiveMutationEndpointUsesRequestOverride(t *testing.T) {
 	}
 }
 
-func TestGqlBankDisconnectTrimsDisplayIds(t *testing.T) {
+// TestGqlBankDisconnectRidesNeo asserts the op never builds a GraphQL
+// envelope: the catalogued BankingDisconnectOlbAccounts mutation 403s, so the
+// command runs neo lists/account/save via spec.run instead.
+func TestGqlBankDisconnectRidesNeo(t *testing.T) {
 	spec := gqlMutationFlagSpecByVerb(t, "bank-disconnect")
+	if spec.run == nil {
+		t.Fatal("bank-disconnect lost its neo run path")
+	}
 	cmd := newGqlMutationFlagCmd(&rootFlags{}, spec)
 	cmd.SetOut(new(bytes.Buffer))
-	cmd.Flags().Set("olb-account-id", "12345:bktdig:123456789")
-	cmd.Flags().Set("olb-account-id", "555")
-	vars, err := spec.build(cmd)
-	if err != nil {
-		t.Fatalf("valid olb ids rejected: %v", err)
-	}
-	input, _ := vars["input"].(map[string]any)
-	if input == nil {
-		t.Fatalf("envelope missing input: %#v", vars)
-	}
-	ids, _ := input["olbAccountIds"].([]string)
-	if len(ids) != 2 || ids[0] != "123456789" || ids[1] != "555" {
-		t.Fatalf("olbAccountIds = %#v; want [123456789 555] (display-id suffix kept)", input["olbAccountIds"])
+	if _, err := spec.build(cmd); err == nil {
+		t.Fatal("build returned a GraphQL envelope for a neo-REST op")
 	}
 }
 
-// TestGqlBankDisconnectRequiresIds rejects the plausible bug of treating an
-// unset StringSlice as one empty string and sending {"olbAccountIds":[""]}.
+// TestGqlBankDisconnectRequiresIds asserts the run path rejects a missing
+// --id before any network work.
 func TestGqlBankDisconnectRequiresIds(t *testing.T) {
 	spec := gqlMutationFlagSpecByVerb(t, "bank-disconnect")
-	cmd := newGqlMutationFlagCmd(&rootFlags{}, spec)
+	cmd := newGqlMutationFlagCmd(&rootFlags{yes: true}, spec)
 	cmd.SetOut(new(bytes.Buffer))
-	if _, err := spec.build(cmd); err == nil || !strings.Contains(err.Error(), "--olb-account-id") {
+	if err := spec.run(cmd, &rootFlags{yes: true}); err == nil || !strings.Contains(err.Error(), "--id") {
 		t.Fatalf("missing ids accepted: %v", err)
-	}
-	cmd2 := newGqlMutationFlagCmd(&rootFlags{}, spec)
-	cmd2.SetOut(new(bytes.Buffer))
-	cmd2.Flags().Set("olb-account-id", "")
-	if _, err := spec.build(cmd2); err == nil {
-		t.Fatalf("blank id accepted: built %#v", func() any { v, _ := spec.build(cmd2); return v }())
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql"
 	"github.com/spf13/cobra"
 )
@@ -501,6 +502,10 @@ type gqlMutationFlagSpec struct {
 	// Empty means "use the catalog endpoint".
 	endpoint string
 	build    func(cmd *cobra.Command) (map[string]any, error)
+	// run replaces the GraphQL relay path entirely for ops whose live
+	// contract is a first-party REST call (e.g. bank-disconnect rides neo
+	// lists/account/save, not the captured fitransactions mutation).
+	run func(cmd *cobra.Command, flags *rootFlags) error
 }
 
 // gqlMutationFlagSpecTable is the single source of truth for the named
@@ -546,34 +551,57 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 			},
 		},
 		{
-			use:      "bank-disconnect",
-			opName:   "BankingDisconnectOlbAccounts",
-			short:    "Disconnect bank feed accounts (olbAccountId)",
-			endpoint: gql.FitTransactionsEndpoint,
-			long: "Disconnect one or more bank feed (OLB) accounts via\n" +
-				"BankingDisconnectOlbAccounts. Ids may be bare olbAccountIds or full\n" +
-				"`realm:bank:accountId` display ids — everything after the last ':' is\n" +
-				"sent, matching the webapp's parseOlbAccountIds behavior.\n\n" +
-				"Known drift (2026-09-16): this captured op 403s on fitransactions in\n" +
-				"current AU builds — the banking UI disconnect instead POSTs\n" +
-				"/api/neo/v1/company/{realm}/lists/account/save with\n" +
-				"disconnectAccount:true. The wired op is the documented GraphQL\n" +
-				"contract; where it is refused the neo path is the observed truth.",
-			example: "  qb gql mutate bank-disconnect --olb-account-id 12345:bktdig:123456789\n" +
-				"  qb gql mutate bank-disconnect --olb-account-id 111111 --olb-account-id 222222",
+			use:    "bank-disconnect",
+			opName: "BankingDisconnectOlbAccounts",
+			short:  "Disconnect bank feed on GL accounts (--id)",
+			long: "Disconnect the bank feed on one or more GL accounts via the\n" +
+				"first-party neo save the banking UI uses: GET\n" +
+				"/api/neo/v1/company/{realm}/lists/account/{id} then POST\n" +
+				"lists/account/save with disconnectAccount:true. Proven live on\n" +
+				"Test Company 2 (2026-09-16).\n\n" +
+				"The catalogued BankingDisconnectOlbAccounts (fitransactions)\n" +
+				"403s in current AU builds — this command wires the observed\n" +
+				"truth instead. DESTRUCTIVE: pending feed rows are dropped and\n" +
+				"reconnecting needs bank credentials.",
+			example: "  qb gql mutate bank-disconnect --id 44 --yes\n" +
+				"  qb gql mutate bank-disconnect --id 44 --id 45 --yes",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
-				raw, _ := cmd.Flags().GetStringSlice("olb-account-id")
+				return nil, fmt.Errorf("bank-disconnect rides neo REST, not the GraphQL op")
+			},
+			run: func(cmd *cobra.Command, flags *rootFlags) error {
+				raw, _ := cmd.Flags().GetStringSlice("id")
 				if len(raw) == 0 {
-					return nil, fmt.Errorf("--olb-account-id is required (repeatable)")
+					return exitInput(fmt.Errorf("--id is required (GL account id, repeatable)"))
 				}
-				ids := make([]string, 0, len(raw))
-				for _, id := range raw {
-					if parts := strings.Split(id, ":"); len(parts) > 1 {
-						id = parts[len(parts)-1]
-					}
-					ids = append(ids, id)
+				fm := collectFlags(cmd)
+				if flags.dryRun {
+					return writePlan(cmd, flags, planEnvelope{
+						Command: "gql mutate bank-disconnect",
+						ID:      "QBO.GQL.MUTATE_BANK_DISCONNECT",
+						Mode:    modeWired,
+						Method:  "POST",
+						URL:     client.PlannedBankDisconnectURL(),
+						Flags:   fm,
+						Note:    "neo lists/account/save disconnectAccount:true; not sent",
+					})
 				}
-				return map[string]any{"input": map[string]any{"olbAccountIds": ids}}, nil
+				if !flags.yes {
+					return &ExitError{Code: ExitInputError, Err: fmt.Errorf(
+						"disconnect is destructive: pending feed rows are dropped; pass --yes to execute"), Silent: flags.asJSON}
+				}
+				ctx, cancel := contextWithTimeout(cmd, flags.timeout)
+				defer cancel()
+				res, err := client.ReplayBankDisconnect(ctx, fm)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				if flags.asJSON {
+					enc := json.NewEncoder(cmd.OutOrStdout())
+					enc.SetIndent("", "  ")
+					return enc.Encode(res)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", res.Op, res.Entity, res.Item.ID)
+				return nil
 			},
 		},
 		{
@@ -752,6 +780,9 @@ func newGqlMutationFlagCmd(flags *rootFlags, spec gqlMutationFlagSpec) *cobra.Co
 		Long:  spec.long + "\n\nRuns " + spec.opName + " inside the authenticated browser tab.\nExample:\n" + spec.example,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if spec.run != nil {
+				return spec.run(cmd, flags)
+			}
 			vars, err := spec.build(cmd)
 			if err != nil {
 				return exitInput(err)
@@ -778,7 +809,7 @@ func gqlDeclareMutationFlags(cmd *cobra.Command, opName string) {
 		fs.String("parent-id", "", "parentAccountId for sub-accounts")
 		fs.String("currency", "", "currency code (default company currency)")
 	case "BankingDisconnectOlbAccounts":
-		fs.StringSlice("olb-account-id", nil, "OLB account id, repeatable; realm:bank:id suffixes trimmed (required)")
+		fs.StringSlice("id", nil, "GL account id to disconnect, repeatable (required)")
 	case "BatchUpdateProducts":
 		fs.String("products-json", "", "JSON array of Commerce_BatchUpdateProductInput rows, @file allowed (required)")
 	case "AssignDimensionsForProducts":

@@ -22,10 +22,10 @@ var ErrMissingMutateID = errors.New("mutate requires --id")
 // dropped (recording a $1 default line), so it is rejected loudly instead.
 var ErrCSVLineItems = errors.New("line-items must be a JSON array of v3 line objects (CSV rows are rejected, never coerced)")
 
-// CheckLineItemsJSON rejects non-JSON --line-items/--lines before any plan
-// or POST is built, so both dry-run and live paths fail fast on CSV input.
+// CheckLineItemsJSON rejects non-JSON --line-items/--lines/--items before any
+// plan or POST is built, so both dry-run and live paths fail fast on CSV input.
 func CheckLineItemsJSON(flags map[string]string) error {
-	raw := strings.TrimSpace(firstFlag(flags, "line-items", "lines"))
+	raw := strings.TrimSpace(firstFlag(flags, "line-items", "lines", "items"))
 	if raw == "" {
 		return nil
 	}
@@ -1132,6 +1132,9 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	}
 	if entity == "Bill" || entity == "VendorCredit" || entity == "PurchaseOrder" || entity == "ItemReceipt" {
 		copyExisting(out, existing, "VendorRef", "Line", "CurrencyRef")
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		}
 	}
 	if entity == "BillPayment" {
 		copyExisting(out, existing, "VendorRef", "APAccountRef", "PayType", "Line", "TotalAmt", "CurrencyRef")
@@ -1441,12 +1444,24 @@ func salesLines(flags map[string]string, amt float64, amtSet bool, item string) 
 	return lines
 }
 
+// lineItemsFlag parses the JSON line array shared by --line-items, --lines,
+// and the purchase-order --items alias (the generated catalog name). Returns
+// nil when absent or unparsable so callers can apply their default path.
+func lineItemsFlag(flags map[string]string) []map[string]any {
+	raw := strings.TrimSpace(firstFlag(flags, "line-items", "lines", "items"))
+	if raw == "" || !strings.HasPrefix(raw, "[") {
+		return nil
+	}
+	var parsed []map[string]any
+	if json.Unmarshal([]byte(raw), &parsed) != nil || len(parsed) == 0 {
+		return nil
+	}
+	return parsed
+}
+
 func expenseLines(flags map[string]string, amt float64, amtSet bool, acct string) []map[string]any {
-	if raw := firstFlag(flags, "line-items", "lines"); raw != "" && strings.HasPrefix(strings.TrimSpace(raw), "[") {
-		var parsed []map[string]any
-		if json.Unmarshal([]byte(raw), &parsed) == nil && len(parsed) > 0 {
-			return parsed
-		}
+	if lines := lineItemsFlag(flags); lines != nil {
+		return lines
 	}
 	if !amtSet {
 		amt = 1
