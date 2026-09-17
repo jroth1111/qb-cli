@@ -84,6 +84,7 @@ var v3Path = map[string]string{
 	"Class":                "class",
 	"CompanyCurrency":      "companycurrency",
 	"CompanyInfo":          "companyinfo",
+	"CreditCardCredit":     "creditcardcredit",
 	"CreditMemo":           "creditmemo",
 	"Customer":             "customer",
 	"Department":           "department",
@@ -97,6 +98,7 @@ var v3Path = map[string]string{
 	"JournalEntry":         "journalentry",
 	"Payment":              "payment",
 	"PaymentMethod":        "paymentmethod",
+	"Project":              "project",
 	"Preferences":          "preferences",
 	"Purchase":             "purchase",
 	"PurchaseOrder":        "purchaseorder",
@@ -678,6 +680,29 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			},
 		}
 
+	case "Project":
+		if name == "" {
+			return nil, fmt.Errorf("project create requires --name")
+		}
+		if cust == "" {
+			return nil, fmt.Errorf("project create requires --customer")
+		}
+		out["Name"] = name
+		out["CustomerRef"] = map[string]any{"value": cust}
+	case "CreditCardCredit":
+		ccAcct := firstFlag(flags, "credit-card-account", "cc-account")
+		if ccAcct == "" {
+			return nil, fmt.Errorf("credit-card-credit create requires --credit-card-account")
+		}
+		out["AccountRef"] = map[string]any{"value": ccAcct}
+		out["TxnDate"] = date
+		if vend != "" {
+			out["EntityRef"] = map[string]any{"value": vend}
+		}
+		if amtErr != nil {
+			return nil, amtErr
+		}
+		out["Line"] = expenseLines(flags, amt, amtSet, firstFlag(flags, "category-account", "account"))
 	case "Class", "Department":
 		if name == "" {
 			return nil, fmt.Errorf("%s create requires --name", entity)
@@ -1134,6 +1159,18 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		copyExisting(out, existing, "VendorRef", "Line", "CurrencyRef")
 		if lines := lineItemsFlag(flags); lines != nil {
 			out["Line"] = lines
+		}
+	}
+	if entity == "CreditCardCredit" {
+		copyExisting(out, existing, "AccountRef", "Line", "TxnDate", "EntityRef", "CurrencyRef")
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		}
+	}
+	if entity == "Project" {
+		copyExisting(out, existing, "CustomerRef", "Status", "Description")
+		if cust := firstFlag(flags, "customer"); cust != "" {
+			out["CustomerRef"] = map[string]any{"value": cust}
 		}
 	}
 	if entity == "BillPayment" {
@@ -1622,4 +1659,45 @@ func normalizeDate(s string) string {
 		return s[6:10] + "-" + s[3:5] + "-" + s[0:2]
 	}
 	return s
+}
+
+// voidableEntities maps CLI entity names to v3 entities that accept
+// ?operation=void. Void is only defined on posting transactions.
+var voidableEntities = map[string]string{
+	"invoice":          "Invoice",
+	"payment":          "Payment",
+	"salesreceipt":     "SalesReceipt",
+	"sales-receipt":    "SalesReceipt",
+	"purchase":         "Purchase",
+	"expense":          "Purchase",
+	"estimate":         "Estimate",
+	"bill":             "Bill",
+	"creditmemo":       "CreditMemo",
+	"credit-memo":      "CreditMemo",
+	"creditcardcredit": "CreditCardCredit",
+	"vendorcredit":     "VendorCredit",
+	"vendor-credit":    "VendorCredit",
+	"deposit":          "Deposit",
+	"transfer":         "Transfer",
+	"journalentry":     "JournalEntry",
+	"journal":          "JournalEntry",
+	"purchaseorder":    "PurchaseOrder",
+	"purchase-order":   "PurchaseOrder",
+	"refundreceipt":    "RefundReceipt",
+	"refund-receipt":   "RefundReceipt",
+	"cheque":           "Purchase",
+	"check":            "Purchase",
+}
+
+// VoidableEntity resolves a --entity flag value into a v3 entity name that
+// supports ?operation=void, or an error listing what is missing.
+func VoidableEntity(name string) (string, error) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return "", fmt.Errorf("void requires --entity (invoice, payment, salesreceipt, purchase, estimate, bill, ...)")
+	}
+	if ent, ok := voidableEntities[key]; ok {
+		return ent, nil
+	}
+	return "", fmt.Errorf("entity %q cannot be voided via v3; voidable: invoice, payment, salesreceipt, purchase, estimate, bill, creditmemo, vendorcredit, creditcardcredit, deposit, transfer, journalentry, purchaseorder, refundreceipt", name)
 }

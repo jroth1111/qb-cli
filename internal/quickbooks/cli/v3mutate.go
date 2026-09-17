@@ -43,6 +43,10 @@ var v3MutateByID = map[string]v3MutateSpec{
 
 	"QBO.ACCOUNTING.TRANSFER_DELETE":      {Entity: "Transfer", Op: "delete"},
 	"QBO.ACCOUNTING.TRANSFER_EDIT":        {Entity: "Transfer", Op: "update"},
+	"QBO.ACCOUNTING.PROJECT_CREATE":       {Entity: "Project", Op: "create"},
+	"QBO.ACCOUNTING.PROJECT_EDIT":         {Entity: "Project", Op: "update"},
+	"QBO.ACCOUNTING.TXN_VOID":             {Op: "void"},
+	"QBO.COMPANY.CURRENCY_EDIT":           {Entity: "CompanyCurrency", Op: "update"},
 	"QBO.COMPANY.ATTACHABLE_DELETE":       {Entity: "Attachable", Op: "delete"},
 	"QBO.COMPANY.ATTACHABLE_EDIT":         {Entity: "Attachable", Op: "update"},
 	"QBO.COMPANY.CURRENCY_CREATE":         {Entity: "CompanyCurrency", Op: "create"},
@@ -118,6 +122,7 @@ var v3MutateByID = map[string]v3MutateSpec{
 	"QBO.SALES.SALES_ORDER_CREATE":        {Entity: "SalesOrder", Op: "create"},
 	"QBO.SALES.SALES_ORDER_DELETE":        {Entity: "SalesOrder", Op: "delete"},
 	"QBO.SALES.SALES_ORDER_EDIT":          {Entity: "SalesOrder", Op: "update"},
+	"QBO.SALES.CREDIT_CARD_CREDIT_CREATE": {Entity: "CreditCardCredit", Op: "create"},
 	"QBO.TAX.TAX_AGENCY_CREATE":           {Entity: "TaxAgency", Op: "create"},
 }
 
@@ -145,6 +150,17 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 			if err := client.CheckLineItemsJSON(fm); err != nil {
 				return feedErr(flags, err)
 			}
+			entity := spec.Entity
+			if entity == "" {
+				var err error
+				entity, err = client.VoidableEntity(firstFlagString(fm, "entity", "txn-type"))
+				if err != nil {
+					return exitInput(err)
+				}
+			}
+			if fm["id"] == "" && fm["txn-id"] != "" {
+				fm["id"] = fm["txn-id"]
+			}
 			if spec.Op == "create" {
 				for _, p := range paramsFor(e.ID) {
 					if !p.Required || (p.Name != "line-items" && p.Name != "lines" && p.Name != "items") {
@@ -156,7 +172,7 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 				}
 			}
 			if flags.dryRun {
-				url := client.PlannedMutateURL(spec.Entity, spec.Op)
+				url := client.PlannedMutateURL(entity, spec.Op)
 				note := "v3 POST; not sent"
 				if spec.Entity == "Budget" && spec.Op == "create" {
 					url = client.PlannedBudgetCreateURL()
@@ -174,7 +190,7 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayMutate(ctx, spec.Entity, spec.Op, fm["id"], fm)
+			res, err := client.ReplayMutate(ctx, entity, spec.Op, fm["id"], fm)
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -223,8 +239,21 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 	ensureFlag(cmd, "address", "billing street address")
 	ensureFlag(cmd, "charge-date", "delayed charge date")
 	ensureFlag(cmd, "credit-date", "delayed credit date")
+	if spec.Entity == "" {
+		ensureFlag(cmd, "entity", "v3 entity to void: invoice, payment, salesreceipt, purchase, estimate, bill")
+	}
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
+}
+
+// firstFlagString returns the first non-empty flag value among names.
+func firstFlagString(fm map[string]string, names ...string) string {
+	for _, n := range names {
+		if v := strings.TrimSpace(fm[n]); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func ensureFlag(cmd *cobra.Command, name, help string) {
@@ -242,4 +271,48 @@ func collectFlags(cmd *cobra.Command) map[string]string {
 		out[f.Name] = f.Value.String()
 	})
 	return out
+}
+
+// newCustomFieldMutateCmd wires company custom-field create/update to the
+// spend-lists-xp CustomFieldDefinition mutations on smallbusiness.api.intuit.com.
+func newCustomFieldMutateCmd(flags *rootFlags, e primitiveEntry, command, op string) *cobra.Command {
+	use := verbOf(command)
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: command + " (smallbusiness " + op + "Common_CustomFieldDefinition)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := collectFlags(cmd)
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: command,
+					ID:      e.ID,
+					Mode:    modeWired,
+					Method:  "POST",
+					URL:     client.PlannedCustomFieldMutateURL(),
+					Flags:   fm,
+					Note:    "smallbusiness CustomFieldDefinition mutation; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayCustomFieldMutate(ctx, op, fm)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", res.Op, res.Entity, res.Item.ID)
+			return nil
+		},
+	}
+	attachParamFlags(cmd, e.ID)
+	ensureFlag(cmd, "id", "custom field definition id (update)")
+	ensureFlag(cmd, "name", "custom field name")
+	ensureFlag(cmd, "type", "field data type: text, dropdown, number, date")
+	ensureFlag(cmd, "entities", "comma-separated entity types the field applies to")
+	applyCatalogHelp(cmd, e.ID)
+	return cmd
 }

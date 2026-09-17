@@ -152,6 +152,18 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "ManagementFolio" {
 		return replayManagementFolio(ctx, id, query, limit)
 	}
+	if entity == "IDX" {
+		return replayIDX(ctx, id, query, limit)
+	}
+	if entity == "IMSPref" {
+		return replayIMSPref(ctx, id, query, limit)
+	}
+	if entity == "DimensionDefinition" {
+		return replayDimensionDefinitions(ctx, id, query, limit)
+	}
+	if entity == "Task" {
+		return replayTasks(ctx, id, query, limit)
+	}
 	act := ""
 	if len(active) > 0 {
 		act = active[0]

@@ -29,10 +29,10 @@ go build -o qb ./cmd/qb
 
 | Domain | Wired | Read | Command root |
 |---|---|---|---|
-| Accounting (COA, class, budget, journals, fixed assets, CDC) | 30 | 25 | `qb accounting` |
+| Accounting (COA, class, budget, journals, fixed assets, CDC) | 33 | 25 | `qb accounting` |
 | Expenses (bills, suppliers, cheques, time activities) | 24 | 16 | `qb expenses` |
-| Sales (invoices, estimates, payments, sends, PDFs, sales orders) | 29 | 16 | `qb sales` |
-| Company (settings, users, lists, attachables, rates) | 12 | 18 | `qb company` |
+| Sales (invoices, estimates, payments, sends, PDFs, sales orders) | 30 | 17 | `qb sales` |
+| Company (settings, users, lists, attachables, rates) | 15 | 19 | `qb company` |
 | Feed (banking classify/split/exclude/undo) | 10 | 10 | `qb feed` |
 | Payroll (pay runs, STP, super) | 5 | 3 | `qb payroll` |
 | Tax (GST, BAS, TPAR, agencies, codes) | 2 | 5 | `qb tax` |
@@ -41,11 +41,11 @@ go build -o qb ./cmd/qb
 | Reports + forecasts | 0 | 28 | `qb reports` |
 | GraphQL (captured webapp ops) | 8 | 3 | `qb gql` |
 | Cost groups, custom objects, accountant | 3 | 1 | `qb costgroups`, `qb customobjects`, `qb accountant` |
-| Integrations, advanced (service maps, batch) | 1 | 2 | `qb integrations`, `qb advanced` |
+| Integrations, advanced (service maps, batch) | 1 | 4 | `qb integrations`, `qb advanced` |
 
 `qb crm` and `qb salestx` are additional command trees outside the actions catalog. `salestx` includes live v3 sales transactions and tax-service operations; its plan IDs are command identifiers, not catalog entries.
 
-Totals: **137 wired, 146 read-only, 258 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+Totals: **144 wired, 150 read-only, 247 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
 
 Examples:
 

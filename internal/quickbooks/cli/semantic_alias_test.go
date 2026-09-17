@@ -58,6 +58,13 @@ var falseFixedAssetAliases = []struct {
 // mileage trips, feed rec report, and the expenses/sales overviews and
 // expense-claims single-entity stand-ins). Keep them all blocked until a
 // native contract exists.
+//
+// Five rows left this list 2026-09-17 when they were rewired to their real
+// contracts: PROJECT_CREATE/EDIT post the v3 Project entity (CustomerRef,
+// not a Customer write); TXN_VOID resolves --entity into any voidable v3
+// transaction's ?operation=void; CREDIT_CARD_CREDIT_CREATE posts the v3
+// CreditCardCredit entity; TASKS_READ runs the captured TaskManagementTasks
+// query instead of an Employee stand-in.
 var falseStandInAliases = []struct {
 	id      string
 	command string
@@ -68,16 +75,11 @@ var falseStandInAliases = []struct {
 	{"QBO.EXPENSES.MILEAGE_CREATE", "expenses mileage create"},
 	{"QBO.EXPENSES.MILEAGE_DELETE", "expenses mileage delete"},
 	{"QBO.EXPENSES.MILEAGE_EDIT", "expenses mileage update"},
-	{"QBO.ACCOUNTING.PROJECT_CREATE", "accounting project create"},
-	{"QBO.ACCOUNTING.PROJECT_EDIT", "accounting project update"},
-	{"QBO.ACCOUNTING.TXN_VOID", "accounting txn update"},
-	{"QBO.SALES.CREDIT_CARD_CREDIT_CREATE", "sales credit-card-credit create"},
 	{"QBO.COMPANY.TAG_READ", "company tag get"},
 	{"QBO.CUSTOMERS.APPOINTMENT_READ", "customers appointment get"},
 	{"QBO.CUSTOMERS.APPOINTMENT_SEARCH", "customers appointment search"},
 	{"QBO.CUSTOMERS.OPPORTUNITY_READ", "customers opportunity get"},
 	{"QBO.CUSTOMERS.OPPORTUNITY_SEARCH", "customers opportunity search"},
-	{"QBO.ADVANCED.TASKS_READ", "advanced tasks get"},
 	{"QBO.COMPANY.MARKETING_READ", "company marketing get"},
 	{"QBO.ACCOUNTING.MY_ACCOUNTANT_READ", "accounting my-accountant get"},
 	{"QBO.ACCOUNTING.RECONCILE_READ", "accounting reconcile get"},

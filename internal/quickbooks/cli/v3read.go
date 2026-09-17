@@ -46,6 +46,10 @@ var v3ByID = map[string]v3Spec{
 	"QBO.COMPANY.EXCHANGE_RATE_READ":              {Entity: "ExchangeRate"},
 	"QBO.COMPANY.EXCHANGE_RATE_SEARCH":            {Entity: "ExchangeRate"},
 	"QBO.COMPANY.CUSTOM_FIELD_READ":               {Entity: "CustomField"},
+	"QBO.COMPANY.DIMENSIONS_GRAPHQL_GET":          {Entity: "DimensionDefinition"},
+	"QBO.ADVANCED.TASKS_READ":                     {Entity: "Task"},
+	"QBO.INTEGRATIONS.IDX_GET":                    {Entity: "IDX"},
+	"QBO.SALES.COMMERCE_CONTROL_GET":              {Entity: "IMSPref"},
 	"QBO.COMPANY.FORM_STYLE_READ":                 {Entity: "FormStyle"},
 	"QBO.COMPANY.LIST_READ":                       {Entity: "ListsPrefs"},
 	"QBO.COMPANY.COMPANY_INFO_READ":               {Entity: "CompanyInfo"},
@@ -147,6 +151,12 @@ func maybeV3Cmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Comma
 	}
 	if e.ID == "QBO.ACCOUNTING.INTEGRATION_TXN_READ" {
 		return newAccountingIntegrationTxnReadCmd(flags)
+	}
+	if e.ID == "QBO.COMPANY.CUSTOM_FIELD_CREATE" {
+		return newCustomFieldMutateCmd(flags, e, command, "create")
+	}
+	if e.ID == "QBO.COMPANY.CUSTOM_FIELD_EDIT" {
+		return newCustomFieldMutateCmd(flags, e, command, "update")
 	}
 
 	if m := maybeV3MutateCmd(flags, e, command); m != nil {
@@ -250,6 +260,22 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 	if entity == "ManagementFolio" {
 		short = command + " (universalreportinsights GET /v1/folio management)"
 		dryNote = "universalreportinsights GET /v1/folio?locale=en-au; not sent"
+	}
+	if entity == "IDX" {
+		short = command + " (v4 graphql Connections)"
+		dryNote = "v4 graphql Connections POST; not sent"
+	}
+	if entity == "IMSPref" {
+		short = command + " (commercecontrol GetIMSPref)"
+		dryNote = "commercecontrol GetIMSPref POST; not sent"
+	}
+	if entity == "DimensionDefinition" {
+		short = command + " (v4 graphql GetCustomDimensionDefinitions)"
+		dryNote = "v4 graphql GetCustomDimensionDefinitions POST; not sent"
+	}
+	if entity == "Task" {
+		short = command + " (v4 graphql TaskManagementTasks)"
+		dryNote = "v4 graphql TaskManagementTasks POST; not sent"
 	}
 	cmd := &cobra.Command{
 		Use:   use,
