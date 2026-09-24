@@ -21,6 +21,17 @@ const egoSpaceName = "qb-gql"
 
 // egoLoginURL is opened when the space has no authenticated app tab yet.
 const egoLoginURL = "https://qbo.intuit.com/app/banking"
+
+func selectedEgoSpace() string {
+	if space := os.Getenv("QB_EGO_SPACE_ID"); space != "" {
+		return space
+	}
+	if space := os.Getenv("QB_EGO_SPACE"); space != "" {
+		return space
+	}
+	return egoSpaceName
+}
+
 const egoExecuteScript = `const fs = await import('node:fs');
 const outPath = process.env.QB_EGO_OUT;
 const endpoint = process.env.QB_EGO_ENDPOINT;
@@ -29,14 +40,18 @@ const headers = JSON.parse(process.env.QB_EGO_HEADERS || '{}');
 const body = process.env.QB_EGO_BODY || '';
 const loginURL = process.env.QB_EGO_LOGIN_URL;
 const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
+function isQBOApp(value) {
+ try { const u = new URL(value); return u.protocol === 'https:' && u.hostname === 'qbo.intuit.com' && !u.username && !u.password && u.pathname.startsWith('/app/') && !value.includes('UNAUTHENTICATED'); }
+ catch (_) { return false; }
+}
 function done(obj) { fs.writeFileSync(outPath, JSON.stringify(obj), {mode:0o600}); }
 function fail(msg, code) { try { done({ok:false,error:msg}); } catch (_) {} process.exit(code || 2); }
 if (!outPath || !endpoint) fail('missing browser request parameters', 2);
 const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKey);
 const tabs = await task.tabs();
-const existing = tabs.find(t => t.url.includes('qbo.intuit.com/app/'));
+const existing = tabs.find(t => isQBOApp(t.url));
 let page;
-if (existing) page = existing.label ? task.page(existing.label) : await task.adopt(existing.page);
+if (existing) page = existing.label ? task.page(existing.label) : await task.adopt(existing.targetId);
 else {
  const blank = tabs.find(t => t.label && t.url === 'about:blank');
  page = blank ? task.page(blank.label) : await task.newPage();
@@ -45,7 +60,7 @@ else {
 const info = await page.info();
 if (info && info.dialog) fail('need-login: dialog open', 3);
 const url = await page.url();
-if (!url.includes('qbo.intuit.com/app/') || url.includes('sign-in') || url.includes('UNAUTHENTICATED')) fail('need-login: no authenticated app tab', 3);
+if (!isQBOApp(url) || url.includes('sign-in')) fail('need-login: no authenticated app tab', 3);
 headers['content-type'] = 'application/json';
 headers['accept'] = 'application/json';
 const options = {method, headers, credentials:'include', timeout:Math.min(30000,Number(process.env.QB_EGO_TIMEOUT_MS || 30000))};
@@ -114,10 +129,7 @@ func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]s
 			timeoutMs = rem.Milliseconds()
 		}
 	}
-	space := os.Getenv("QB_EGO_SPACE_ID")
-	if space == "" {
-		space = egoSpaceName
-	}
+	space := selectedEgoSpace()
 	preamble := "process.env.QB_EGO_OUT = " + strconv.Quote(outPath) + ";\n" +
 		"process.env.QB_EGO_ENDPOINT = " + strconv.Quote(endpoint) + ";\n" +
 		"process.env.QB_EGO_HEADERS = " + strconv.Quote(string(hdrJSON)) + ";\n" +

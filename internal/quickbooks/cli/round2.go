@@ -211,6 +211,9 @@ func newAdvancedBatchRunCmd(flags *rootFlags) *cobra.Command {
 			defer cancel()
 			items, err := client.ReplayBatch(ctx, raw)
 			if err != nil {
+				if items != nil {
+					_ = json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"items": items, "success": false, "readback_required": true})
+				}
 				return feedErr(flags, err)
 			}
 			enc := json.NewEncoder(cmd.OutOrStdout())

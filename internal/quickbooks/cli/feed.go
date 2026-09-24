@@ -85,7 +85,35 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 	ach_transferEnt.AddCommand(newFeedMutationCmd(flags, "ach-transfer", "create", "ach-aws money movement (service map; not wired)"))
 	cmd.AddCommand(account, txn, rule, rec, bank_account_lookupEnt, ach_transferEnt)
 	cmd.AddCommand(newFeedServiceMapCmds(flags)...)
+	validateFeedArguments(cmd)
 	return cmd
+}
+
+// Feed leaves are flag-only. Without this guard, `--ids 1 2 3` silently
+// submitted only 1 while discarding the other positional arguments.
+func validateFeedArguments(cmd *cobra.Command) {
+	if cmd.Args == nil && (cmd.RunE != nil || cmd.Run != nil) {
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return fmt.Errorf("unexpected positional arguments; pass IDs comma-separated (--ids 1,2,3) or repeat --ids")
+			}
+			if cmd.Flags().Lookup("ids") != nil {
+				ids, err := cmd.Flags().GetStringSlice("ids")
+				if err != nil {
+					return err
+				}
+				for _, id := range ids {
+					if strings.ContainsAny(id, " \t\r\n") {
+						return fmt.Errorf("--ids must be comma-separated or repeated, not whitespace-separated")
+					}
+				}
+			}
+			return nil
+		}
+	}
+	for _, child := range cmd.Commands() {
+		validateFeedArguments(child)
+	}
 }
 
 func newFeedAccountsCmd(flags *rootFlags) *cobra.Command {

@@ -586,6 +586,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("account-id", "string", "GL/bank account id. Register is booked-state ground truth (posted, not For review)", false, "204"),
 			p("limit", "int", "max register rows", false, "20"),
+			p("offset", "int", "zero-based register row offset; a page is not a complete census", false, "0"),
 		}, true
 	case "QBO.REPORTS.AGED_PAYABLES_READ", "QBO.REPORTS.AGED_RECEIVABLES_READ", "QBO.REPORTS.GENERAL_LEDGER_READ", "QBO.REPORTS.TRIAL_BALANCE_READ", "QBO.REPORTS.PROFIT_LOSS_READ", "QBO.REPORTS.BALANCE_SHEET_READ", "QBO.REPORTS.VENDOR_BALANCE_READ", "QBO.REPORTS.CUSTOMER_BALANCE_READ", "QBO.REPORTS.CUSTOMER_SALES_READ", "QBO.REPORTS.VENDOR_EXPENSES_READ":
 		return []paramDoc{

@@ -26,10 +26,19 @@ const registerBaseURL = "https://qbo.intuit.com/api/neo/v1/company/%s/register/t
 
 // RegisterTxn is the secret-free projection of a QBO register transaction.
 type RegisterTxn struct {
-	ID          string  `json:"id"`
-	Date        string  `json:"date"`
-	Description string  `json:"description"`
-	Amount      float64 `json:"amount"`
+	ID            string  `json:"id"`
+	Date          string  `json:"date"`
+	Description   string  `json:"description"`
+	Amount        float64 `json:"amount"`
+	AccountID     string  `json:"account_id,omitempty"`
+	Account       string  `json:"account,omitempty"`
+	LineAccountID string  `json:"line_account_id,omitempty"`
+	ClassID       string  `json:"class_id,omitempty"`
+	Class         string  `json:"class,omitempty"`
+	TxnTypeID     string  `json:"txn_type_id,omitempty"`
+	TxnType       string  `json:"txn_type,omitempty"`
+	Sequence      string  `json:"sequence,omitempty"`
+	Memo          string  `json:"memo,omitempty"`
 }
 
 // RegisterResult is the JSON envelope returned by ReplayRegister.
@@ -51,18 +60,27 @@ type RegisterResult struct {
 // an empty transaction slice — the raw body is never included in the
 // result or any error. No secrets are returned.
 func ReplayRegister(ctx context.Context, accountID string, limit int) (*RegisterResult, error) {
+	return ReplayRegisterPage(ctx, accountID, 0, limit)
+}
+
+// ReplayRegisterPage preserves the register's explicit X-Range pagination.
+// Returned rows are a bounded page, never a completeness assertion.
+func ReplayRegisterPage(ctx context.Context, accountID string, offset, limit int) (*RegisterResult, error) {
+	if offset < 0 || (limit > 0 && offset > int(^uint(0)>>1)-limit) {
+		return nil, fmt.Errorf("invalid register offset/limit")
+	}
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
 	if limit < 1 {
 		limit = 1
 	}
-	res, err := replayRegisterOnce(ctx, accountID, limit)
+	res, err := replayRegisterOnce(ctx, accountID, offset, limit)
 	if err == nil || !allowInactiveFallback(accountID) || !isInactiveAccount(err) {
 		return res, err
 	}
 	if live, ok := otherLiveAccount(ctx, accountID); ok {
-		res, err = replayRegisterOnce(ctx, live, limit)
+		res, err = replayRegisterOnce(ctx, live, offset, limit)
 		if err == nil || !isInactiveAccount(err) {
 			return res, err
 		}
@@ -74,13 +92,13 @@ func ReplayRegister(ctx context.Context, accountID string, limit int) (*Register
 	}, nil
 }
 
-func replayRegisterOnce(ctx context.Context, accountID string, limit int) (*RegisterResult, error) {
+func replayRegisterOnce(ctx context.Context, accountID string, offset, limit int) (*RegisterResult, error) {
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
 	}
 	url := fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, accountID)
-	xRange := fmt.Sprintf("items=0-%d", limit-1)
+	xRange := fmt.Sprintf("items=%d-%d", offset, offset+limit-1)
 
 	resp, err := ac.get(ctx, url, xRange)
 	if err != nil {
@@ -113,14 +131,22 @@ func replayRegisterOnce(ctx context.Context, accountID string, limit int) (*Regi
 // for each transaction. The projection picks the first non-empty value in
 // each alias group.
 type rawRegisterTxn struct {
-	ID          flexibleString `json:"id"`
-	TxnID       flexibleString `json:"txnId"`
-	Date        string         `json:"date"`
-	TxnDate     string         `json:"txnDate"`
-	Amount      *float64       `json:"amount"`
-	Description string         `json:"description"`
-	Memo        string         `json:"memo"`
-	Payee       string         `json:"payee"`
+	ID            flexibleString `json:"id"`
+	TxnID         flexibleString `json:"txnId"`
+	Date          string         `json:"date"`
+	TxnDate       string         `json:"txnDate"`
+	Amount        *float64       `json:"amount"`
+	Description   string         `json:"description"`
+	Memo          string         `json:"memo"`
+	Payee         string         `json:"payee"`
+	AccountID     flexibleString `json:"accountId"`
+	Account       string         `json:"accountName"`
+	LineAccountID flexibleString `json:"lineAccountId"`
+	ClassID       flexibleString `json:"klassId"`
+	Class         string         `json:"klass"`
+	TxnTypeID     flexibleString `json:"txnTypeId"`
+	TxnType       string         `json:"txnTypeString"`
+	Sequence      flexibleString `json:"sequence"`
 }
 
 // extractRegisterTxns tries several plausible response envelopes and
@@ -174,10 +200,19 @@ func projectRegister(txns []rawRegisterTxn) *RegisterResult {
 			desc = t.Payee
 		}
 		out = append(out, RegisterTxn{
-			ID:          id,
-			Date:        date,
-			Description: desc,
-			Amount:      orZero(t.Amount),
+			ID:            id,
+			Date:          date,
+			Description:   desc,
+			Amount:        orZero(t.Amount),
+			AccountID:     t.AccountID.String(),
+			Account:       t.Account,
+			LineAccountID: t.LineAccountID.String(),
+			ClassID:       t.ClassID.String(),
+			Class:         t.Class,
+			TxnTypeID:     t.TxnTypeID.String(),
+			TxnType:       t.TxnType,
+			Sequence:      t.Sequence.String(),
+			Memo:          t.Memo,
 		})
 	}
 

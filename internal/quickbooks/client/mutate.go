@@ -1260,6 +1260,14 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		out["DueDate"] = normalizeDate(due)
 	}
 	if memo := firstFlag(flags, "memo", "notes"); memo != "" {
+		if entity == "Purchase" {
+			previous, _ := existing["PrivateNote"].(string)
+			merged, err := preserveManagedMemo(previous, memo)
+			if err != nil {
+				return nil, err
+			}
+			memo = merged
+		}
 		out["PrivateNote"] = memo
 	}
 	if d := transactionDateFlag(flags); d != "" {

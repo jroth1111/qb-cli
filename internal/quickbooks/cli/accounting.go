@@ -13,6 +13,7 @@ import (
 type registerFlags struct {
 	accountID string
 	limit     int
+	offset    int
 }
 
 func newAccountingRegisterCmd(flags *rootFlags) *cobra.Command {
@@ -26,7 +27,7 @@ func newAccountingRegisterCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayRegister(ctx, ff.accountID, ff.limit)
+			res, err := client.ReplayRegisterPage(ctx, ff.accountID, ff.offset, ff.limit)
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -36,6 +37,7 @@ func newAccountingRegisterCmd(flags *rootFlags) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID, "account id")
 	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max transactions to fetch")
+	cmd.Flags().IntVar(&ff.offset, "offset", 0, "zero-based register row offset; page until empty and check stable row identities")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.REGISTER_READ")
 	return cmd
 

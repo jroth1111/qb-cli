@@ -245,8 +245,8 @@ func CreateTaxCode(ctx context.Context, name, ratesJSON string) (map[string]any,
 // up to 25 per call) and returns the raw BatchItemResponse list. Items pass
 // through verbatim: {"bId":"1","Query":"select ..."} for reads,
 // {"bId":"2","operation":"create","Invoice":{...}} for writes. Verified
-// live TC2. A 200 with per-item Fault entries is still success at the HTTP
-// layer; callers inspect items.
+// live TC2. HTTP 200 is not batch success: every requested bId must return
+// exactly once without a Fault. Partial results accompany errors for readback.
 func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	trimmed := strings.TrimSpace(itemsJSON)
 	if after, ok := strings.CutPrefix(trimmed, "@"); ok {
@@ -265,6 +265,15 @@ func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	}
 	if len(items) > 25 {
 		return nil, fmt.Errorf("batch caps at 25 items (got %d)", len(items))
+	}
+	requested := map[string]bool{}
+	for _, item := range items {
+		obj, _ := item.(map[string]any)
+		id, _ := obj["bId"].(string)
+		if strings.TrimSpace(id) == "" || requested[id] {
+			return nil, fmt.Errorf("batch requires a unique non-empty string bId for every item")
+		}
+		requested[id] = true
 	}
 	ac, err := newAPIClient()
 	if err != nil {
@@ -299,6 +308,31 @@ func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("batch: %w", err)
+	}
+	if len(out.Items) != len(requested) {
+		return out.Items, fmt.Errorf("batch receipt count mismatch; inspect results and read back before retrying")
+	}
+	seen := map[string]bool{}
+	for _, item := range out.Items {
+		obj, _ := item.(map[string]any)
+		id, _ := obj["bId"].(string)
+		if !requested[id] || seen[id] {
+			return out.Items, fmt.Errorf("batch receipt identity mismatch; inspect results and read back before retrying")
+		}
+		seen[id] = true
+		if fault, ok := obj["Fault"]; ok && fault != nil {
+			return out.Items, fmt.Errorf("batch item %s failed; partial writes may exist, read back before retrying", id)
+		}
+		// An identity without a payload does not acknowledge the operation.
+		hasPayload := false
+		for key, value := range obj {
+			if key != "bId" && key != "Fault" && value != nil {
+				hasPayload = true
+			}
+		}
+		if !hasPayload {
+			return out.Items, fmt.Errorf("batch item %s has no result; read back before retrying", id)
+		}
 	}
 	return out.Items, nil
 }

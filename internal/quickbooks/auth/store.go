@@ -132,6 +132,9 @@ func loadAt(home string) (*TokenSet, error) {
 	if err := json.Unmarshal(data, &t); err != nil {
 		return nil, fmt.Errorf("parsing credentials: %w", err)
 	}
+	if err := t.restoreCapturedAliases(); err != nil {
+		return nil, err
+	}
 	return &t, nil
 }
 
