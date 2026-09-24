@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,13 +11,29 @@ import (
 	"testing"
 )
 
+func writeRecatRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Range") == "items=0-299" {
+		_, _ = w.Write([]byte(`[{"txnId":"51","sequence":0,"lineAccountId":204,"date":"2026-09-20","amount":-40,"clearState":1}]`))
+	} else {
+		_, _ = w.Write([]byte(`[]`))
+	}
+}
+
 // recatServer answers the v3 purchase GET and POST.
-func recatServer(t *testing.T, purchaseBody string) (*domServer, *map[string]any) {
+func recatServer(t *testing.T, purchaseBody string, registerOverride ...func(bool) string) (*domServer, *map[string]any) {
 	t.Helper()
 	var lastPost map[string]any
 	s := &domServer{t: t}
 	s.Server = httptest.NewServer(withPersistedV3(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/register/transactions") {
+			if len(registerOverride) > 0 && r.Header.Get("X-Range") == "items=0-299" {
+				_, _ = w.Write([]byte(registerOverride[0](lastPost != nil)))
+				return
+			}
+			writeRecatRegister(w, r)
+			return
+		}
 		if r.Method == http.MethodGet {
 			_, _ = w.Write([]byte(purchaseBody))
 			return
@@ -33,8 +50,36 @@ func recatServer(t *testing.T, purchaseBody string) (*domServer, *map[string]any
 	return s, &lastPost
 }
 
+func TestRecategoriseRejectsClearingStateChange(t *testing.T) {
+	saveUsable(t)
+	srv, submitted := recatServer(t, recatPurchaseFixture, func(posted bool) string {
+		state := "1"
+		if posted {
+			state = "0"
+		}
+		return `[{"txnId":"51","sequence":0,"lineAccountId":204,"date":"2026-09-20","amount":-40,"clearState":` + state + `}]`
+	})
+	interceptHTTP(t, srv.URL)
+	result, err := ReplayExpenseRecategorise(context.Background(), map[string]string{"id": "51", "category-id": "9"})
+	if result != nil || !errors.Is(err, ErrMutationUnverified) || *submitted == nil {
+		t.Fatalf("result=%v error=%v submitted=%v", result, err, *submitted)
+	}
+}
+
+func TestRecategoriseMissingClearingStateBlocksWrite(t *testing.T) {
+	saveUsable(t)
+	srv, submitted := recatServer(t, recatPurchaseFixture, func(bool) string {
+		return `[{"txnId":"51","sequence":0,"lineAccountId":204,"date":"2026-09-20","amount":-40}]`
+	})
+	interceptHTTP(t, srv.URL)
+	_, err := ReplayExpenseRecategorise(context.Background(), map[string]string{"id": "51", "category-id": "9"})
+	if !errors.Is(err, ErrReconciliationUnsafe) || *submitted != nil {
+		t.Fatalf("error=%v submitted=%v", err, *submitted)
+	}
+}
+
 const recatPurchaseFixture = `{"Purchase":{
-  "Id":"51","SyncToken":"1","PaymentType":"Cash",
+  "Id":"51","SyncToken":"1","PaymentType":"Cash","AccountRef":{"value":"204"},
   "EntityRef":{"value":"3","type":"Vendor"},
   "Line":[
     {"Id":"1","Amount":25,"DetailType":"AccountBasedExpenseLineDetail",
@@ -109,6 +154,10 @@ func TestRecategoriseRejectsMissingOrWrongReceipt(t *testing.T) {
 			saveUsable(t)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
+				if strings.Contains(r.URL.Path, "/register/transactions") {
+					writeRecatRegister(w, r)
+					return
+				}
 				if r.Method == http.MethodGet {
 					_, _ = w.Write([]byte(recatPurchaseFixture))
 				} else {

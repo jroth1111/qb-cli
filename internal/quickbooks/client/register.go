@@ -39,6 +39,8 @@ type RegisterTxn struct {
 	TxnType       string  `json:"txn_type,omitempty"`
 	Sequence      string  `json:"sequence,omitempty"`
 	Memo          string  `json:"memo,omitempty"`
+	// Raw server state, not a historical reconciliation certification.
+	ClearState string `json:"clear_state,omitempty"`
 }
 
 // RegisterResult is the JSON envelope returned by ReplayRegister.
@@ -147,6 +149,7 @@ type rawRegisterTxn struct {
 	TxnTypeID     flexibleString `json:"txnTypeId"`
 	TxnType       string         `json:"txnTypeString"`
 	Sequence      flexibleString `json:"sequence"`
+	ClearState    flexibleString `json:"clearState"`
 }
 
 // extractRegisterTxns tries several plausible response envelopes and
@@ -213,6 +216,7 @@ func projectRegister(txns []rawRegisterTxn) *RegisterResult {
 			TxnType:       t.TxnType,
 			Sequence:      t.Sequence.String(),
 			Memo:          t.Memo,
+			ClearState:    t.ClearState.String(),
 		})
 	}
 

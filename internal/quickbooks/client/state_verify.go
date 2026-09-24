@@ -180,6 +180,9 @@ func replayVerifiedStateChange(ctx context.Context, ac *apiClient, plan *Request
 		Record map[string]any
 	}{}
 	if from == "ACCEPTED" {
+		if err := preflightUnpostReconciliation(ctx, ac, req.Next.Account, before); err != nil {
+			return 0, err
+		}
 		for _, row := range before {
 			entries, _ := row["matchedQboTxns"].([]any)
 			for _, v := range entries {

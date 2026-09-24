@@ -41,10 +41,16 @@ func TestUnpostVerifiesReportedEntityDeletion(t *testing.T) {
 			posts := 0
 			row := feedRowFixture("9")
 			row["qboAccountId"] = "44"
-			row["matchedQboTxns"] = []any{map[string]any{"qboTxnId": "7", "txnFdmName": "Purchase"}}
+			row["matchedQboTxns"] = []any{map[string]any{"qboTxnId": "7", "txnFdmName": "Purchase", "clearState": "CLEARED"}}
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
+				case strings.Contains(r.URL.Path, "/register/transactions"):
+					if r.Header.Get("X-Range") == "items=0-299" {
+						_, _ = w.Write([]byte(`[{"txnId":"7","lineAccountId":"44","clearState":1}]`))
+					} else {
+						_, _ = w.Write([]byte(`[]`))
+					}
 				case strings.HasSuffix(r.URL.Path, "/getTransactions"):
 					items := []map[string]any{}
 					if (!posted && r.URL.Query().Get("reviewState") == "ACCEPTED") || (posted && r.URL.Query().Get("reviewState") == "PENDING") {

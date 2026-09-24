@@ -76,6 +76,9 @@ func TestReplayUnpostContract(t *testing.T) {
 	ms := newMutationServer(t, nil, nil)
 	row := feedRowFixture("9")
 	row["qboAccountId"] = "44"
+	row["matchedQboTxns"] = []any{map[string]any{"qboTxnId": "7", "txnFdmName": "Purchase", "clearState": "CLEARED"}}
+	ms.regRows = []map[string]any{{"txnId": "7", "lineAccountId": "44", "clearState": 1}}
+	ms.bookRecords = map[string]map[string]any{"7": {"Id": "7", "TotalAmt": 25.0}}
 	ms.acceptedItems = []map[string]any{row}
 	interceptHTTP(t, ms.URL)
 

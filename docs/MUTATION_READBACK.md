@@ -30,7 +30,7 @@ gate; they do not mutate ledger records.
 | V3 batch | All-item preflight, unique bIds, correlated receipts, per-mutation entity readback; partial results retained on failure |
 | Invoice write-off | Credit memo GET, apply-payment GET with both links, invoice balance/invariants, consumed credit memo balance |
 | Feed ADD/categorise/split | Accepted-state read, distinct linked accounting IDs, funding account/direction, category/Class/individual split amounts/memo, pending-state absence |
-| Feed exclude/undo/unpost | Destination presence, source absence, feed invariants, linked record preservation/deletion |
+| Feed exclude/undo/unpost | Destination presence, source absence, feed invariants, linked record preservation/deletion; unpost additionally requires explicitly CLEARED accounting links and independently observed non-reconciled register states before submission |
 | Match | Independent accepted feed/link and register readback |
 | Bank rules | Before/after snapshots, target rule fields or deletion, unrelated rule preservation |
 | Attachment note/link | Fresh Attachable GET proves Note and EntityRef and preserves other metadata |

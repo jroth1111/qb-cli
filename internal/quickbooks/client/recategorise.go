@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -65,6 +68,11 @@ func ReplayExpenseRecategorise(ctx context.Context, flags map[string]string) (*M
 			return nil, err
 		}
 	}
+	fundingID := expenseRefValue(existing["AccountRef"])
+	registerBefore, err := purchaseRegisterSnapshot(ctx, ac, fundingID, id)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrReconciliationUnsafe, err)
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -72,6 +80,13 @@ func ReplayExpenseRecategorise(ctx context.Context, flags map[string]string) (*M
 	u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/purchase?minorversion=73", ac.realm)
 	evidence, err := startMutationEvidence("recategorise", existing, raw)
 	if err != nil {
+		return nil, err
+	}
+	registerEvidence, err := json.Marshal(registerBefore)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(evidence, "register-before.json"), registerEvidence, 0600); err != nil {
 		return nil, err
 	}
 	submittingMutation(ctx)
@@ -92,6 +107,17 @@ func ReplayExpenseRecategorise(ctx context.Context, flags map[string]string) (*M
 		return nil, fmt.Errorf("recategorise returned no matching Purchase receipt; inspect live state before retrying")
 	}
 	if err := verifyV3Readback(ctx, ac, "Purchase", "update", id, existing, body, evidence); err != nil {
+		return nil, err
+	}
+	registerAfter, err := purchaseRegisterSnapshot(ctx, ac, fundingID, id)
+	if err != nil || !reflect.DeepEqual(registerBefore, registerAfter) {
+		return nil, fmt.Errorf("%w: purchase register identity, funding, amount, date or clearing state changed or unavailable; inspect before retrying (evidence %s)", ErrMutationUnverified, evidence)
+	}
+	registerEvidence, err = json.Marshal(registerAfter)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(evidence, "register-after.json"), registerEvidence, 0600); err != nil {
 		return nil, err
 	}
 	confirmMutation(ctx)

@@ -97,6 +97,10 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"homeCurrencyMatchingTxns": candidates, "olbTxn": row})
 	case strings.HasSuffix(r.URL.Path, "/register/transactions/"):
+		if r.Header.Get("X-Range") == "items=300-599" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
 		_ = json.NewEncoder(w).Encode(ms.regRows)
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/query"):
 		rows := []map[string]any{}
