@@ -83,3 +83,28 @@ No keeper or browser-refresh subprocess starts under
 `PRINTING_PRESS_VERIFY=1` or `PRINTING_PRESS_DOGFOOD=1`. Unit tests use isolated
 profiles and mock transports; a successful test run is not evidence of hours of
 live session uptime.
+
+## Adopting an existing browser session
+
+Use an explicit source to avoid falling back to a different browser:
+
+```sh
+qb login --source ego --ego-space qb-gql --target-id p5
+qb login --source relay --relay-url http://127.0.0.1:9224 --target-id TARGET
+qb login --source chrome --cdp-url http://127.0.0.1:9222 --target-id TARGET
+```
+
+These commands capture fresh authorization and scoped cookies from an existing
+QBO **Bank transactions** tab. They reload that tab, so finish any in-progress
+editing first. Omit `--target-id` only when exactly one banking tab exists.
+The company and user must be present and unchanged across capture. Explicit
+sources never fall back or combine cookies with another saved principal's
+headers. `auth remint` accepts the same flags. Ego spaces are never automatically
+claimed; user-control stops require the user's intervention. Chrome must already
+expose a CDP HTTP discovery endpoint; qb does not restart Chrome or decrypt profiles.
+
+Keep-alive starts by default (`--keep-alive=false` opts out). It makes read-only
+API probes and persists rotated cookies; it cannot override Intuit's absolute
+session expiry, MFA, revocation, or browser UI timeout. An Ego capture leaves the
+space open but background maintenance does not reload or reclaim Ego tabs. If
+maintenance reports `needs_login`, reauthenticate and repeat explicit capture.

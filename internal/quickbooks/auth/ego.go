@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,18 @@ import (
 )
 
 const egoCaptureScript = "ego_capture.js"
+
+//go:embed ego_existing.js
+var existingEgoScript []byte
+
+type existingEgoKey struct{}
+type existingEgoOptions struct{ space, target string }
+
+// WithExistingEgo selects an already authenticated tab. It never claims a
+// user-controlled space or launches a login flow.
+func WithExistingEgo(ctx context.Context, space, target string) context.Context {
+	return context.WithValue(ctx, existingEgoKey{}, existingEgoOptions{space, target})
+}
 
 // ErrEgoMissing is returned when the ego-browser CLI is not on PATH.
 var ErrEgoMissing = errors.New("ego-browser not found on PATH: install ego lite (ego-browser onboarding) or use --from-mitm / --no-open")
@@ -34,8 +47,16 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	if err != nil {
 		return nil, fmt.Errorf("locating ego capture script: %w", err)
 	}
-	scriptPath := filepath.Join(dir, egoCaptureScript)
-	script, err := os.ReadFile(scriptPath)
+	scriptName := egoCaptureScript
+	existing, existingOnly := ctx.Value(existingEgoKey{}).(existingEgoOptions)
+	if existingOnly {
+		scriptName = "ego_existing.js"
+	}
+	scriptPath := filepath.Join(dir, scriptName)
+	script := existingEgoScript
+	if !existingOnly {
+		script, err = os.ReadFile(scriptPath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", scriptPath, err)
 	}
@@ -71,12 +92,19 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	if space == "" {
 		space = os.Getenv("QB_EGO_SPACE")
 	}
+	if existingOnly {
+		space = existing.space
+	}
 	preamble := "process.env.QB_CAPTURE_OUT = " + strconv.Quote(outPath) + ";\n" +
 		"process.env.QB_KEEP_CAPTURE_SPACE = " + strconv.Quote(strconv.FormatBool(retainBrowser(ctx))) + ";\n" +
 		"process.env.QB_LOGIN_URL = " + strconv.Quote(loginURL) + ";\n" +
 		"process.env.QB_BANKING_URL = " + strconv.Quote(bankingURL) + ";\n" +
 		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
 		"process.env.QB_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
+	if existingOnly {
+		preamble += "const captureTarget = " + strconv.Quote(existing.target) + ";\n" +
+			"const identityExpression = " + strconv.Quote(IdentityJS) + ";\n"
+	}
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), script...))
 	cmd.Env = append(os.Environ(),

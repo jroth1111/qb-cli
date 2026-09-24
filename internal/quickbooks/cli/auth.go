@@ -140,6 +140,7 @@ persistent-profile Chromium, else ego Space.
 	cmd.Flags().StringVar(&lf.fromMitm, "from-mitm", "",
 		"optional mitmproxy dump instead of a live intercept")
 	cmd.Flags().Bool("keep-alive", true, "automatically maintain the captured session; --keep-alive=false disables startup")
+	addSourceFlags(cmd, lf)
 	return cmd
 }
 

@@ -23,6 +23,10 @@ type loginFlags struct {
 	loginURL string
 	noOpen   bool
 	fromMitm string
+	source   string
+	cdpURL   string
+	egoSpace string
+	targetID string
 }
 
 // captureATS intercepts one ATS Intuit_APIKey request via the OMP relay.
@@ -77,6 +81,7 @@ Cookie-only sessions are rejected. --json never prints secrets.`,
 	cmd.Flags().StringVar(&lf.fromMitm, "from-mitm", "",
 		"import credentials from a mitmproxy dump file (no Chrome/relay)")
 	cmd.Flags().Bool("keep-alive", true, "automatically maintain the captured session; --keep-alive=false disables startup")
+	addSourceFlags(cmd, lf)
 	return cmd
 }
 
@@ -86,6 +91,12 @@ var tryRelayRemint = auth.TryRelayRemint
 func runLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error {
 	if auth.IsHarness() {
 		return &ExitError{Code: ExitAuthError, Err: fmt.Errorf("session capture disabled under verification harness")}
+	}
+	if lf.source != "" && lf.source != "auto" {
+		return runSourceLogin(cmd, flags, lf)
+	}
+	if lf.cdpURL != "" || lf.targetID != "" || cmd.Flags().Changed("ego-space") {
+		return fmt.Errorf("--cdp-url, --ego-space and --target-id require an explicit --source")
 	}
 	if lf.fromMitm != "" {
 		return runLoginFromMitm(cmd, flags, lf)
