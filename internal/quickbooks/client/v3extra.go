@@ -279,11 +279,22 @@ func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	intents, err := prepareBatchReadback(ctx, ac, items)
+	if err != nil {
+		return nil, err
+	}
+	evidence, err := batchEvidence(items)
+	if err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(map[string]any{"BatchItemRequest": items})
 	if err != nil {
 		return nil, fmt.Errorf("batch body: %w", err)
 	}
 	u := "https://qbo.intuit.com/api/v3/company/" + ac.realm + "/batch?minorversion=73"
+	if len(intents) > 0 {
+		submittingMutation(ctx)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("batch request: %w", err)
@@ -308,6 +319,9 @@ func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("batch: %w", err)
+	}
+	if err := verifyBatchReadback(ctx, ac, out.Items, intents, requested, evidence); err != nil {
+		return out.Items, err
 	}
 	if len(out.Items) != len(requested) {
 		return out.Items, fmt.Errorf("batch receipt count mismatch; inspect results and read back before retrying")
@@ -334,5 +348,6 @@ func ReplayBatch(ctx context.Context, itemsJSON string) ([]any, error) {
 			return out.Items, fmt.Errorf("batch item %s has no result; read back before retrying", id)
 		}
 	}
+	confirmMutation(ctx)
 	return out.Items, nil
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -415,6 +417,10 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 	if err != nil {
 		return nil, err
 	}
+	beforeRules, err := ruleSnapshot(ctx, ac)
+	if err != nil {
+		return nil, fmt.Errorf("rule preflight snapshot: %w", err)
+	}
 	base := "https://qbo.intuit.com/api/neo/v1/company/" + ac.realm + "/"
 	id := -1
 	editSeq, order := 0, 0
@@ -445,6 +451,7 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 	if err != nil {
 		return nil, err
 	}
+	submittingMutation(ctx)
 	resp, err := ac.doURIHost(ctx, http.MethodPost, base+"lists/olbrules/save", "qbo.intuit.com", raw)
 	if err != nil {
 		return nil, fmt.Errorf("olbrules save: %w", err)
@@ -464,12 +471,58 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 		} `json:"olbRule"`
 	}
 	_ = json.Unmarshal(sraw, &out)
+	target := out.OlbRule.ID.String()
+	if target == "" || rawID != "" && target != rawID {
+		return nil, fmt.Errorf("%w: rule receipt identity", ErrMutationUnverified)
+	}
+	afterRules, err := ruleSnapshot(ctx, ac)
+	if err != nil {
+		return nil, fmt.Errorf("%w: rule readback: %v", ErrMutationUnverified, err)
+	}
+	rule, ok := afterRules[target]
+	if !ok {
+		return nil, fmt.Errorf("%w: saved rule absent", ErrMutationUnverified)
+	}
+	want := normalizedJSON(body).(map[string]any)
+	for _, key := range []string{"id", "editSequence", "ruleOrder"} {
+		delete(want, key)
+	}
+	if err := expectedFields(want, normalizedJSON(rule), "OlbRule"); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrMutationUnverified, err)
+	}
+	wantCount := len(beforeRules)
+	if rawID == "" {
+		wantCount++
+	}
+	if len(afterRules) != wantCount {
+		return nil, fmt.Errorf("%w: rule population changed", ErrMutationUnverified)
+	}
+	for key, old := range beforeRules {
+		if key == target {
+			continue
+		}
+		now, ok := afterRules[key]
+		old.RuleOrder = now.RuleOrder
+		old.EditSequence = now.EditSequence
+		if !ok || !reflect.DeepEqual(old, now) {
+			return nil, fmt.Errorf("%w: unrelated rule changed", ErrMutationUnverified)
+		}
+	}
+	omit := ""
+	if rawID == "" {
+		omit = target
+	}
+	if !reflect.DeepEqual(orderedRuleIDs(beforeRules, omit), orderedRuleIDs(afterRules, omit)) {
+		return nil, fmt.Errorf("%w: rule priority order changed", ErrMutationUnverified)
+	}
+	confirmMutation(ctx)
 	return &MutateResult{
-		Status: resp.StatusCode,
-		Op:     map[bool]string{true: "update", false: "create"}[id >= 0],
-		Entity: "OlbRule",
-		Note:   "neo lists/olbrules/save",
-		Item:   QueryItem{ID: out.OlbRule.ID.String(), Name: out.OlbRule.RuleName},
+		Status:   resp.StatusCode,
+		Op:       map[bool]string{true: "update", false: "create"}[id >= 0],
+		Entity:   "OlbRule",
+		Note:     "neo lists/olbrules/save",
+		Verified: true,
+		Item:     QueryItem{ID: out.OlbRule.ID.String(), Name: out.OlbRule.RuleName},
 	}, nil
 }
 
@@ -498,6 +551,7 @@ func ReplayRuleDelete(ctx context.Context, flags map[string]string) (*MutateResu
 	// The UI service calls batchDeleteByIds(ids), posting ids.join(" ") as
 	// the body. {"id":...} to /delete is not the live mutation contract.
 	raw := []byte(strconv.Itoa(n))
+	submittingMutation(ctx)
 	resp, err := ac.doURIHost(ctx, http.MethodPost, base+"lists/olbrules/batchDelete", "qbo.intuit.com", raw)
 	if err != nil {
 		return nil, fmt.Errorf("olbrules delete: %w", err)
@@ -527,14 +581,42 @@ func ReplayRuleDelete(ctx context.Context, flags map[string]string) (*MutateResu
 		if _, wasPresent := before[id]; !wasPresent {
 			return nil, fmt.Errorf("rule list changed outside target; inspect live state before retrying")
 		}
+		old, now := before[id], after[id]
+		old.RuleOrder = now.RuleOrder
+		old.EditSequence = now.EditSequence
+		if !reflect.DeepEqual(old, now) {
+			return nil, fmt.Errorf("%w: unrelated rule changed", ErrMutationUnverified)
+		}
 	}
+	if !reflect.DeepEqual(orderedRuleIDs(before, rawID), orderedRuleIDs(after, rawID)) {
+		return nil, fmt.Errorf("%w: unrelated rule priority changed", ErrMutationUnverified)
+	}
+	confirmMutation(ctx)
 	return &MutateResult{
-		Status: resp.StatusCode,
-		Op:     "delete",
-		Entity: "OlbRule",
-		Note:   "neo lists/olbrules/batchDelete; target removed in independent readback",
-		Item:   QueryItem{ID: rawID},
+		Status:   resp.StatusCode,
+		Op:       "delete",
+		Entity:   "OlbRule",
+		Note:     "neo lists/olbrules/batchDelete; target removed in independent readback",
+		Verified: true,
+		Item:     QueryItem{ID: rawID},
 	}, nil
+}
+
+func orderedRuleIDs(rows map[string]rawBankRule, omit string) []string {
+	ids := []string{}
+	for id := range rows {
+		if id != omit {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		a, b := atoiOrZero(rows[ids[i]].RuleOrder.String()), atoiOrZero(rows[ids[j]].RuleOrder.String())
+		if a == b {
+			return ids[i] < ids[j]
+		}
+		return a < b
+	})
+	return ids
 }
 
 // ruleSnapshot refuses an unparseable or page-ceiling result so a successful

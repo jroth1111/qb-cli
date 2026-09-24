@@ -45,10 +45,21 @@ func attachableEntityRef(txnType, txnID string) map[string]any {
 // postAttachable POSTs one Attachable body to the v3 entity endpoint and
 // returns the decoded Attachable object. Non-200 surfaces as ReplayError.
 func postAttachable(ctx context.Context, ac *apiClient, body map[string]any) (map[string]any, error) {
+	var before map[string]any
+	op := "create"
+	if id := jsonNumberString(body["Id"]); id != "" {
+		var err error
+		before, err = fetchV3(ctx, ac, "attachable", id)
+		if err != nil {
+			return nil, err
+		}
+		op = "update"
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("encoding attachable request: %w", err)
 	}
+	submittingMutation(ctx)
 	resp, err := ac.postJSON(ctx, attachableEntityURL(ac.realm), raw)
 	if err != nil {
 		return nil, fmt.Errorf("attachable post: %w", err)
@@ -67,6 +78,10 @@ func postAttachable(ctx context.Context, ac *apiClient, body map[string]any) (ma
 	if err := json.Unmarshal(out, &env); err != nil || env.Attachable == nil {
 		return nil, fmt.Errorf("attachable post: unexpected response shape")
 	}
+	if err := verifyV3Readback(ctx, ac, "Attachable", op, jsonNumberString(env.Attachable["Id"]), before, body, ""); err != nil {
+		return nil, err
+	}
+	confirmMutation(ctx)
 	return env.Attachable, nil
 }
 

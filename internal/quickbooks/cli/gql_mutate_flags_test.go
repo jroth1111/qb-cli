@@ -116,18 +116,16 @@ func TestGqlMutationFlagRequiredFlagsRejected(t *testing.T) {
 	}
 }
 
-// TestGqlCreateAccountValidatesAndReachesTransport proves the happy path
-// passes local validation and proceeds to the relay dial — on a dead relay
-// that surfaces as ExitRelayError, never ExitInputError.
-func TestGqlCreateAccountValidatesAndReachesTransport(t *testing.T) {
+// Arbitrary GraphQL writes without a readback adapter must not reach transport.
+func TestGqlCreateAccountBlocksBeforeTransport(t *testing.T) {
 	out, err := runGqlMutate(t, "create-account",
 		"--name", "Test Acct", "--subtype", "Checking", "--number", "1010", "--yes")
 	if err == nil {
 		t.Fatalf("create-account should fail on dead relay after building vars, got output: %s", out)
 	}
 	exitErr, ok := err.(*ExitError)
-	if !ok || exitErr.Code != ExitRelayError {
-		t.Fatalf("expected ExitRelayError from dead relay, got %T (%v)", err, err)
+	if !ok || exitErr.Code != ExitInputError || !strings.Contains(err.Error(), "readback") {
+		t.Fatalf("expected readback gate before relay, got %T (%v)", err, err)
 	}
 }
 
@@ -135,7 +133,7 @@ func TestGqlCreateAccountValidatesAndReachesTransport(t *testing.T) {
 // guarding a regression where build() silently drops empty strings and ships
 // an input the provider rejects server-side.
 func TestGqlCreateAccountRejectsBlankName(t *testing.T) {
-	_, err := runGqlMutate(t, "create-account", "--name", "", "--subtype", "Savings")
+	_, err := runGqlMutate(t, "create-account", "--name", "", "--subtype", "Savings", "--dry-run")
 	if err == nil || !strings.Contains(err.Error(), "--name") {
 		t.Fatalf("blank --name not rejected: %v", err)
 	}

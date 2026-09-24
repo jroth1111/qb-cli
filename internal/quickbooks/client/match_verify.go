@@ -90,6 +90,7 @@ func verifyMatchReadback(ctx context.Context, ac *apiClient, accountID string, b
 	for attempt := range 3 {
 		last = verifyMatchReadbackOnce(ctx, ac, accountID, before, registers, targets)
 		if last == nil {
+			confirmMutation(ctx)
 			return nil
 		}
 		if attempt < 2 {
@@ -169,6 +170,14 @@ func verifyMatchReadbackOnce(ctx context.Context, ac *apiClient, accountID strin
 		if !matchRegisterPreserved(old, now) {
 			return fmt.Errorf("register amount, attribution or clearing status changed unexpectedly for %s", t.TxnID)
 		}
+	}
+	ids := make([]string, 0, len(before))
+	for _, row := range before {
+		ids = append(ids, mapStr(row, "olbTxnId"))
+	}
+	pending, err := stateRows(ctx, ac, accountID, "PENDING", ids, false)
+	if err != nil || len(pending) != 0 {
+		return fmt.Errorf("matched rows remain pending or absence could not be proved")
 	}
 	return nil
 }

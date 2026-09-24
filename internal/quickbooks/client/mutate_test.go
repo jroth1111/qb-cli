@@ -760,7 +760,7 @@ func (s *writeoffServer) handler() http.Handler {
 func TestWriteoffAppliesCreditMemoToInvoice(t *testing.T) {
 	saveUsable(t)
 	s := &writeoffServer{}
-	srv := httptest.NewServer(s.handler())
+	srv := httptest.NewServer(withPersistedV3(s.handler()))
 	t.Cleanup(srv.Close)
 	interceptHTTP(t, srv.URL)
 

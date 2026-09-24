@@ -422,6 +422,7 @@ func postResolved(ctx context.Context, ac *apiClient, plan *RequestPlan, body []
 		return 0, fmt.Errorf("nil request plan")
 	}
 	url := strings.ReplaceAll(plan.URL, realmToken, ac.realm)
+	submittingMutation(ctx)
 	resp, err := ac.post(ctx, url, body)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", plan.op, err)
@@ -436,6 +437,9 @@ func postResolved(ctx context.Context, ac *apiClient, plan *RequestPlan, body []
 	}
 	if plan.op == "batchAcceptTransactions" {
 		if err := validateAcceptResponse(raw, body); err != nil {
+			return resp.StatusCode, err
+		}
+		if err := verifyAcceptReadback(ctx, ac, body, raw); err != nil {
 			return resp.StatusCode, err
 		}
 	}

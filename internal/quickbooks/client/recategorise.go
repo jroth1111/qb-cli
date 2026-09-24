@@ -70,6 +70,11 @@ func ReplayExpenseRecategorise(ctx context.Context, flags map[string]string) (*M
 		return nil, err
 	}
 	u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/purchase?minorversion=73", ac.realm)
+	evidence, err := startMutationEvidence("recategorise", existing, raw)
+	if err != nil {
+		return nil, err
+	}
+	submittingMutation(ctx)
 	resp, err := ac.postJSON(ctx, u, raw)
 	if err != nil {
 		return nil, fmt.Errorf("v3 purchase recategorise: %w", err)
@@ -86,7 +91,11 @@ func ReplayExpenseRecategorise(ctx context.Context, flags map[string]string) (*M
 	if item.ID != id {
 		return nil, fmt.Errorf("recategorise returned no matching Purchase receipt; inspect live state before retrying")
 	}
-	return &MutateResult{Status: resp.StatusCode, Op: "recategorise", Entity: "Purchase", Item: item}, nil
+	if err := verifyV3Readback(ctx, ac, "Purchase", "update", id, existing, body, evidence); err != nil {
+		return nil, err
+	}
+	confirmMutation(ctx)
+	return &MutateResult{Status: resp.StatusCode, Op: "recategorise", Entity: "Purchase", Item: item, Verified: true, Evidence: evidence}, nil
 }
 
 // Changing type can be irreversible through the same API; callers must opt in.

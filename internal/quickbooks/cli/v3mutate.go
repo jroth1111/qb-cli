@@ -141,8 +141,9 @@ func maybeV3MutateCmd(flags *rootFlags, e primitiveEntry, command string) *cobra
 func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3MutateSpec) *cobra.Command {
 	use := verbOf(command)
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: command + " (v3 " + spec.Op + ")",
+		Annotations: map[string]string{readbackAnnotation: "true"},
+		Use:         use,
+		Short:       command + " (v3 " + spec.Op + ")",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fm := collectFlags(cmd)
 			if err := client.CheckLineItemsJSON(fm); err != nil {
@@ -200,6 +201,9 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", res.Op, res.Entity, res.Item.ID)
 			return nil
 		},
+	}
+	if spec.Op == "send" || spec.Entity == "SalesOrder" || spec.Entity == "RecurringTransaction" || spec.Entity == "Budget" {
+		cmd.Annotations[readbackAnnotation] = "false"
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "target QBO id")

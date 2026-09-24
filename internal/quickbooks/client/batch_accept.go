@@ -312,6 +312,9 @@ func replayAccept(ctx context.Context, accountID string, olbTxnIDs []string, pla
 		if err := mutate(row); err != nil {
 			return 0, err
 		}
+		if row["acceptType"] != "ADD" {
+			return 0, fmt.Errorf("%w: non-ADD feed posting requires a dedicated accounting verifier", ErrReadbackUnavailable)
+		}
 	}
 	olbTxns := make([]any, 0, len(rows))
 	for _, row := range rows {

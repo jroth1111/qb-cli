@@ -7,6 +7,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -60,6 +62,7 @@ func UploadAttachable(ctx context.Context, filename string, content []byte) (*At
 	ac.applyHeaders(req, "")
 	req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
 	req.Header.Set("Accept", "application/json")
+	submittingMutation(ctx)
 	resp, err := impersonatedDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("attachable upload: %w", err)
@@ -76,6 +79,24 @@ func UploadAttachable(ctx context.Context, filename string, content []byte) (*At
 	if id == "" {
 		return nil, fmt.Errorf("attachable upload: unexpected response shape")
 	}
+	metadata, err := fetchV3(ctx, ac, "attachable", id)
+	if err != nil || jsonNumberString(metadata["Id"]) != id || metadata["FileName"] != filename {
+		return nil, fmt.Errorf("%w: Attachable/%s filename/identity not independently confirmed", ErrMutationUnverified, id)
+	}
+	temp, err := os.MkdirTemp("", "qb-attachment-readback-")
+	if err != nil {
+		return nil, fmt.Errorf("%w: uploaded Attachable/%s, cannot stage readback", ErrMutationUnverified, id)
+	}
+	defer func() { _ = os.RemoveAll(temp) }()
+	path := filepath.Join(temp, "download")
+	if _, err := DownloadAttachable(ctx, id, path); err != nil {
+		return nil, fmt.Errorf("%w: uploaded Attachable/%s readback failed: %v", ErrMutationUnverified, id, err)
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(actual, content) || name != filename {
+		return nil, fmt.Errorf("%w: Attachable/%s file bytes/name differ", ErrMutationUnverified, id)
+	}
+	confirmMutation(ctx)
 	return &AttachResult{Status: resp.StatusCode, ID: id, FileName: name, Bytes: len(content)}, nil
 }
 

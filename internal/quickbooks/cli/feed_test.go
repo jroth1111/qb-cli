@@ -286,7 +286,7 @@ func TestFeedImportBlockedAccountFailsFast(t *testing.T) {
 
 func TestFeedImportMissingCredentialsFails(t *testing.T) {
 	elapsed, err := runFeedVerb(t, "txn", "import", "--account-id", "209", "--description", "QB-CLI-TEST", "--amount", "0.01")
-	assertAuthExit(t, err, "")
+	assertInputExit(t, err, "") // no readback adapter: blocked before credential/network access
 	assertFast(t, elapsed)
 }
 

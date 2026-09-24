@@ -118,7 +118,7 @@ func newSTServer(t *testing.T, status int, respBody string) *stServer {
 }
 
 func (s *stServer) start(t *testing.T) string {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPersistedV3(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
 		s.lastPath = r.URL.Path
@@ -129,7 +129,7 @@ func (s *stServer) start(t *testing.T) string {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(s.status)
 		_, _ = w.Write([]byte(s.respBody))
-	}))
+	})))
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
@@ -219,14 +219,8 @@ func TestReplaySalestxSendCarriesRecipient(t *testing.T) {
 	interceptHTTP(t, base)
 
 	_, err := ReplaySalestxMutate(context.Background(), "invoice", "send", "188", map[string]string{"to": "a@b.co"})
-	if err != nil {
-		t.Fatalf("send: %v", err)
-	}
-	if !strings.HasSuffix(srv.lastPath, "/invoice/188/send") {
-		t.Fatalf("path = %q", srv.lastPath)
-	}
-	if !strings.Contains(srv.lastRaw, "sendTo=a%40b.co") {
-		t.Fatalf("query = %q, want sendTo", srv.lastRaw)
+	if !errors.Is(err, ErrReadbackUnavailable) || srv.calls != 0 {
+		t.Fatalf("unverifiable email was submitted: %v", err)
 	}
 }
 

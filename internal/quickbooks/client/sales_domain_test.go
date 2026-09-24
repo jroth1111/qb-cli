@@ -77,7 +77,7 @@ type sdServer struct {
 func newSDServer(t *testing.T, bodies map[string]string) *sdServer {
 	t.Helper()
 	s := &sdServer{t: t, bodies: bodies}
-	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
+	s.Server = httptest.NewServer(withPersistedV3(http.HandlerFunc(s.handle)))
 	t.Cleanup(s.Close)
 	return s
 }
@@ -706,19 +706,9 @@ func TestSalesDomainInvoiceVoidSendCopyPdf(t *testing.T) {
 	// send: POST /invoice/{id}/send with sendTo.
 	sendSrv := newSDServer(t, map[string]string{"POST /send": sdInvoiceFull})
 	interceptHTTP(t, sendSrv.URL)
-	res, err = ReplaySalestxMutate(ctx, "invoice", "send", "188", map[string]string{"to": "a@b.co"})
-	if err != nil {
-		t.Fatalf("invoice send: %v", err)
-	}
-	if res.Op != "send" || res.Item.ID != "188" {
-		t.Fatalf("send envelope = %+v", res)
-	}
-	snap = sendSrv.snap()
-	if !strings.HasSuffix(snap.Path, "/invoice/188/send") {
-		t.Fatalf("send path = %q", snap.Path)
-	}
-	if want := "minorversion=73&sendTo=a%40b.co"; snap.RawQuery != want {
-		t.Fatalf("send query = %q, want %q", snap.RawQuery, want)
+	_, err = ReplaySalestxMutate(ctx, "invoice", "send", "188", map[string]string{"to": "a@b.co"})
+	if !errors.Is(err, ErrReadbackUnavailable) || sendSrv.snap().Calls != 0 {
+		t.Fatalf("unverifiable email was submitted: %v", err)
 	}
 
 	// copy: fetch, strip server-managed fields, POST as a fresh create.
@@ -789,18 +779,8 @@ func TestSalesDomainEstimateSendCarriesRecipient(t *testing.T) {
 	srv := newSDServer(t, map[string]string{"POST /send": est})
 	interceptHTTP(t, srv.URL)
 
-	res, err := ReplaySalestxMutate(context.Background(), "estimate", "send", "9", map[string]string{"to": "quote@b.co"})
-	if err != nil {
-		t.Fatalf("estimate send: %v", err)
-	}
-	if res.Op != "send" || res.Entity != "Estimate" || res.Item.ID != "9" {
-		t.Fatalf("send envelope = %+v", res)
-	}
-	snap := srv.snap()
-	if !strings.HasSuffix(snap.Path, "/estimate/9/send") {
-		t.Fatalf("send path = %q", snap.Path)
-	}
-	if want := "minorversion=73&sendTo=quote%40b.co"; snap.RawQuery != want {
-		t.Fatalf("send query = %q, want %q", snap.RawQuery, want)
+	_, err := ReplaySalestxMutate(context.Background(), "estimate", "send", "9", map[string]string{"to": "quote@b.co"})
+	if !errors.Is(err, ErrReadbackUnavailable) || srv.snap().Calls != 0 {
+		t.Fatalf("unverifiable email was submitted: %v", err)
 	}
 }

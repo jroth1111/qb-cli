@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/gql"
 	"github.com/spf13/cobra"
 )
@@ -19,11 +20,12 @@ func newGqlMutateCmd(flags *rootFlags) *cobra.Command {
 	var rawVars []string
 	cmd := &cobra.Command{
 		Use:   "mutate [OpName|named] [--vars k=v ...]",
-		Short: "Execute a captured mutation (no name: list all)",
+		Short: "Inspect/preview captured mutations (live requires a readback adapter)",
 		Long: "Execute a captured GraphQL mutation inside the authenticated browser tab.\n\n" +
 			"Run without a name to list every captured mutation with its variable\n" +
 			"signature. Pass --vars k=v for each declared $k; variables the signature\n" +
-			"declares non-null are validated locally before any network attempt.",
+			"declares non-null are validated locally before any network attempt.\n" +
+			"Live arbitrary mutations are blocked until an independent readback adapter exists; use --dry-run or a verified typed command.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return runMutationList(cmd, flags.asJSON)
@@ -138,36 +140,7 @@ func runPreparedMutation(cmd *cobra.Command, flags *rootFlags, req gql.Request) 
 			"operation": req.Op.Name, "variables": req.Variables,
 		})
 	}
-	endpoint := effectiveMutationEndpoint(req)
-	ctx, cancel := contextWithTimeout(cmd, flags.timeout)
-	defer cancel()
-	resp, err := gql.Execute(ctx, req)
-	if err != nil {
-		return exitRelay(err)
-	}
-	if flags.asJSON {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(resp)
-	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "POST %s -> %d\n", endpoint, resp.Status)
-	var pretty map[string]any
-	if json.Unmarshal(resp.Body, &pretty) == nil {
-		b, _ := json.MarshalIndent(pretty, "", "  ")
-		fmt.Fprintln(out, string(b))
-	} else {
-		fmt.Fprintln(out, string(resp.Body))
-	}
-	if len(resp.Errors) > 0 {
-		msgs := make([]string, len(resp.Errors))
-		for i, e := range resp.Errors {
-			msgs[i] = e.Message
-		}
-		return fmt.Errorf("GraphQL errors: %s", strings.Join(msgs, "; "))
-	}
-	if resp.Status >= 400 {
-		return &ExitError{Code: ExitRelayError, Err: fmt.Errorf("HTTP %d from %s", resp.Status, endpoint)}
-	}
-	return nil
+	return &ExitError{Code: ExitInputError, Err: fmt.Errorf("%w: arbitrary GraphQL mutation requires an operation-specific verifier", client.ErrReadbackUnavailable)}
 }
 
 func effectiveMutationEndpoint(req gql.Request) string {

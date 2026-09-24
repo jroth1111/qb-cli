@@ -115,6 +115,7 @@ func newSalesTxV3Cmd(flags *rootFlags, entity, use, op string) *cobra.Command {
 		},
 	}
 	if isRead {
+		cmd.Annotations = map[string]string{"qb:read-only": "true"}
 		cmd.Short = command + " (v3 query)"
 		if !client.V3Queryable(v3Word(entity)) {
 			cmd.Short = command + " (unsupported: no v3 query context)"
@@ -123,6 +124,9 @@ func newSalesTxV3Cmd(flags *rootFlags, entity, use, op string) *cobra.Command {
 		cmd.Flags().StringVar(&query, "query", "", "substring match on doc number")
 		cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
 	} else {
+		if op != "send" {
+			cmd.Annotations = map[string]string{readbackAnnotation: "true"}
+		}
 		ff.bindWrite(cmd)
 	}
 	return cmd

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,13 +13,22 @@ import (
 func TestChequeCreateUsesNativeCheckPaymentType(t *testing.T) {
 	saveUsable(t)
 	var sent map[string]any
+	var persisted map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && persisted != nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"Purchase": persisted})
+			return
+		}
 		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/purchase") {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
 			t.Error(err)
 		}
+		persisted = map[string]any{}
+		maps.Copy(persisted, sent)
+		persisted["Id"], persisted["SyncToken"] = "8", "0"
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"Purchase":{"Id":"8","PaymentType":"Check","TotalAmt":1}}`))
 	}))

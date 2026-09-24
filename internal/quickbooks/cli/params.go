@@ -891,6 +891,10 @@ func documentedEntry(e primitiveEntry) primitiveEntry {
 	e.Usage = usageFor(e)
 	e.Params = paramsFor(e.ID)
 	e.Notes = notesFor(e)
+	if e.Mode == modeWired && e.Risk != "R0" {
+		e.Verification = "independent_readback_required"
+		e.Notes += " Live submission is blocked unless this command has a reviewed readback adapter; dry-run remains available. Receipt-only success is not verified completion."
+	}
 	e.Globals = globalParamDocs()
 	return e
 }

@@ -70,9 +70,15 @@ func TestCrmResponseWriteCommandsJSON(t *testing.T) {
 	stubCrmWrites(t, nil)
 	for _, tc := range crmWriteCases() {
 		t.Run(strings.Join(tc.args[:2], "-"), func(t *testing.T) {
-			args := append([]string{"crm"}, tc.args...)
-			args = append(args, "--json")
-			stdout, _, err := runQB(t, args...)
+			// Test the response formatter in isolation. The public root gate is
+			// separately required to block these unverified mutation adapters.
+			cmd := newCrmCmd(&rootFlags{asJSON: true})
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			stdout := out.String()
 			if err != nil {
 				t.Fatalf("command: %v; %s", err, stdout)
 			}
@@ -84,6 +90,17 @@ func TestCrmResponseWriteCommandsJSON(t *testing.T) {
 				t.Fatalf("got %v, want %s=%v", got, tc.key, tc.value)
 			}
 		})
+	}
+}
+
+func TestCrmPublicWritesBlockedWithoutReadback(t *testing.T) {
+	stubCrmWrites(t, nil)
+	for _, tc := range crmWriteCases() {
+		args := append([]string{"crm"}, tc.args...)
+		_, _, err := runQB(t, args...)
+		if !errors.Is(err, client.ErrReadbackUnavailable) {
+			t.Fatalf("unverified CRM command escaped gate: %v", err)
+		}
 	}
 }
 

@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -66,16 +67,21 @@ type domServer struct {
 
 	t *testing.T
 
-	mu       sync.Mutex
-	calls    int
-	lastMeth string
-	lastPath string
-	lastBody []byte
+	mu           sync.Mutex
+	calls        int
+	lastMeth     string
+	lastPath     string
+	lastBody     []byte
+	lastPostMeth string
+	lastPostPath string
+	lastPostBody []byte
+	persisted    map[string]any
+	deleted      bool
 }
 
 func newDomServer(t *testing.T, status int, respBody string) *domServer {
 	t.Helper()
-	s := &domServer{t: t}
+	s := &domServer{t: t, persisted: map[string]any{}}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var b []byte
 		if r.Body != nil {
@@ -87,10 +93,46 @@ func newDomServer(t *testing.T, status int, respBody string) *domServer {
 		s.lastMeth = r.Method
 		s.lastPath = r.URL.Path
 		s.lastBody = b
+		if r.Method == http.MethodPost {
+			s.lastPostMeth, s.lastPostPath, s.lastPostBody = r.Method, r.URL.Path, b
+			var submitted map[string]any
+			_ = json.Unmarshal(b, &submitted)
+			var receipt map[string]map[string]any
+			_ = json.Unmarshal([]byte(respBody), &receipt)
+			for entity, row := range receipt {
+				if r.URL.Query().Get("operation") == "delete" {
+					s.deleted = true
+					break
+				}
+				stored := map[string]any{}
+				maps.Copy(stored, row)
+				maps.Copy(stored, submitted)
+				s.persisted[entity] = stored
+				break
+			}
+		}
+		body := respBody
+		if r.Method == http.MethodGet {
+			if strings.HasSuffix(r.URL.Path, "/query") && s.deleted {
+				entity := "Class"
+				if query := r.URL.Query().Get("query"); query != "" {
+					if fields := strings.Fields(query); len(fields) >= 4 {
+						entity = fields[3]
+					}
+				}
+				body = `{"QueryResponse":{"` + entity + `":[]}}`
+			} else if !strings.HasSuffix(r.URL.Path, "/query") && !s.deleted {
+				for entity, row := range s.persisted {
+					encoded, _ := json.Marshal(map[string]any{entity: row})
+					body = string(encoded)
+					break
+				}
+			}
+		}
 		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(respBody))
+		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(s.Close)
 	return s
@@ -106,10 +148,20 @@ func (s *domServer) sentMap() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var m map[string]any
-	if err := json.Unmarshal(s.lastBody, &m); err != nil {
+	body := s.lastPostBody
+	if len(body) == 0 {
+		body = s.lastBody
+	}
+	if err := json.Unmarshal(body, &m); err != nil {
 		return nil
 	}
 	return m
+}
+
+func (s *domServer) postSnap() (meth, path string, body []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastPostMeth, s.lastPostPath, append([]byte(nil), s.lastPostBody...)
 }
 
 // domGQL is the minimal graphql envelope most captured readers project.
@@ -335,8 +387,9 @@ func TestCompanyDomainMutationsPostV3Bodies(t *testing.T) {
 			if res.Item.ID == "" {
 				t.Fatalf("%s must project the created id, got %+v", tc.name, res.Item)
 			}
-			calls, meth, path, body := postSrv.snap()
-			if calls == 0 || !strings.HasPrefix(meth, http.MethodPost) {
+			calls, _, _, _ := postSrv.snap()
+			meth, path, body := postSrv.postSnap()
+			if calls < 2 || !strings.HasPrefix(meth, http.MethodPost) {
 				t.Fatalf("%s calls = %d %s", tc.name, calls, meth)
 			}
 			if !strings.HasSuffix(path, "/"+strings.ToLower(tc.entity)) {
@@ -371,7 +424,11 @@ func TestCompanyDomainMutationsPostV3Bodies(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			switch r.Method {
 			case http.MethodGet:
-				_, _ = w.Write([]byte(`{"Class":{"Id":"61","SyncToken":"3"}}`))
+				if strings.HasSuffix(r.URL.Path, "/query") {
+					_, _ = w.Write([]byte(`{"QueryResponse":{"Class":[]}}`))
+				} else {
+					_, _ = w.Write([]byte(`{"Class":{"Id":"61","SyncToken":"3"}}`))
+				}
 			case http.MethodPost:
 				b, _ := io.ReadAll(r.Body)
 				_ = r.Body.Close()
@@ -406,7 +463,11 @@ func TestCompanyDomainMutationsPostV3Bodies(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			switch r.Method {
 			case http.MethodGet:
-				_, _ = w.Write([]byte(`{"CompanyCurrency":{"Id":"4","SyncToken":"1"}}`))
+				if strings.HasSuffix(r.URL.Path, "/query") {
+					_, _ = w.Write([]byte(`{"QueryResponse":{"CompanyCurrency":[]}}`))
+				} else {
+					_, _ = w.Write([]byte(`{"CompanyCurrency":{"Id":"4","SyncToken":"1"}}`))
+				}
 			default:
 				b, _ := io.ReadAll(r.Body)
 				var sent map[string]any
@@ -561,7 +622,11 @@ func TestCustomersDomainMutationsPostV3Bodies(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"Customer":{"Id":"23","SyncToken":"5"}}`))
+			if strings.HasSuffix(r.URL.Path, "/query") {
+				_, _ = w.Write([]byte(`{"QueryResponse":{"Customer":[]}}`))
+			} else {
+				_, _ = w.Write([]byte(`{"Customer":{"Id":"23","SyncToken":"5"}}`))
+			}
 		default:
 			b, _ := io.ReadAll(r.Body)
 			var m map[string]any
@@ -584,11 +649,17 @@ func TestCustomersDomainMutationsPostV3Bodies(t *testing.T) {
 	}
 
 	// update patches sparsely on top of the fetched row.
+	var updatedCustomer map[string]any
 	upSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"Customer":{"Id":"23","SyncToken":"5","DisplayName":"Old Name"}}`))
+			if updatedCustomer != nil {
+				encoded, _ := json.Marshal(map[string]any{"Customer": updatedCustomer})
+				_, _ = w.Write(encoded)
+			} else {
+				_, _ = w.Write([]byte(`{"Customer":{"Id":"23","SyncToken":"5","DisplayName":"Old Name"}}`))
+			}
 		default:
 			b, _ := io.ReadAll(r.Body)
 			var m map[string]any
@@ -597,6 +668,8 @@ func TestCustomersDomainMutationsPostV3Bodies(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			updatedCustomer = m
+			updatedCustomer["SyncToken"] = "6"
 			_, _ = w.Write([]byte(`{"Customer":{"Id":"23","SyncToken":"6","DisplayName":"Renamed"}}`))
 		}
 	}))
@@ -684,11 +757,20 @@ func TestPayrollDomainWritesUseEmployeeAndTimeActivity(t *testing.T) {
 		{"timesheet update", "TimeActivity", "update", "301", `{"TimeActivity":{"Id":"301","SyncToken":"2","Hours":3}}`, `{"TimeActivity":{"Id":"301","SyncToken":"3","Hours":4}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			var after map[string]any
+			deleted := false
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.Method {
 				case http.MethodGet:
-					_, _ = w.Write([]byte(tc.existing))
+					if strings.HasSuffix(r.URL.Path, "/query") && deleted {
+						_, _ = w.Write([]byte(`{"QueryResponse":{"` + tc.entity + `":[]}}`))
+					} else if after != nil {
+						encoded, _ := json.Marshal(map[string]any{tc.entity: after})
+						_, _ = w.Write(encoded)
+					} else {
+						_, _ = w.Write([]byte(tc.existing))
+					}
 				default:
 					b, _ := io.ReadAll(r.Body)
 					var sent map[string]any
@@ -704,6 +786,15 @@ func TestPayrollDomainWritesUseEmployeeAndTimeActivity(t *testing.T) {
 					if sent["Id"] != strings.TrimPrefix(tc.id, "") {
 						w.WriteHeader(http.StatusBadRequest)
 						return
+					}
+					if tc.op == "delete" {
+						deleted = true
+					} else {
+						var ack map[string]map[string]any
+						_ = json.Unmarshal([]byte(tc.ack), &ack)
+						after = map[string]any{}
+						maps.Copy(after, ack[tc.entity])
+						maps.Copy(after, sent)
 					}
 					_, _ = w.Write([]byte(tc.ack))
 				}
@@ -842,8 +933,14 @@ func TestInventoryDomainWritesPostV3Shapes(t *testing.T) {
 	}
 
 	// adjust create posts ItemAdjustmentLineDetail with ItemRef+QtyDiff.
+	var adjusted map[string]any
 	adjSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && adjusted != nil {
+			encoded, _ := json.Marshal(map[string]any{"InventoryAdjustment": adjusted})
+			_, _ = w.Write(encoded)
+			return
+		}
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/inventoryadjustment") {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -862,6 +959,8 @@ func TestInventoryDomainWritesPostV3Shapes(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		sent["Id"], sent["SyncToken"] = "159", "0"
+		adjusted = sent
 		_, _ = w.Write([]byte(`{"InventoryAdjustment":{"Id":"159","SyncToken":"0"}}`))
 	}))
 	t.Cleanup(adjSrv.Close)
@@ -939,11 +1038,16 @@ func TestInventoryDomainWritesPostV3Shapes(t *testing.T) {
 	}
 
 	// item delete + purchase-order delete share the SyncToken contract.
+	deletedItem := false
 	delSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"Item":{"Id":"77","SyncToken":"4"}}`))
+			if strings.HasSuffix(r.URL.Path, "/query") && deletedItem {
+				_, _ = w.Write([]byte(`{"QueryResponse":{"Item":[]}}`))
+			} else {
+				_, _ = w.Write([]byte(`{"Item":{"Id":"77","SyncToken":"4"}}`))
+			}
 		default:
 			b, _ := io.ReadAll(r.Body)
 			var sent map[string]any
@@ -952,6 +1056,7 @@ func TestInventoryDomainWritesPostV3Shapes(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			deletedItem = true
 			_, _ = w.Write([]byte(`{"Item":{"Id":"77","SyncToken":"4"}}`))
 		}
 	}))

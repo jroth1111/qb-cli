@@ -15,7 +15,7 @@ func recatServer(t *testing.T, purchaseBody string) (*domServer, *map[string]any
 	t.Helper()
 	var lastPost map[string]any
 	s := &domServer{t: t}
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.Server = httptest.NewServer(withPersistedV3(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet {
 			_, _ = w.Write([]byte(purchaseBody))
@@ -28,7 +28,7 @@ func recatServer(t *testing.T, purchaseBody string) (*domServer, *map[string]any
 		}
 		_ = json.Unmarshal(b, &lastPost)
 		_, _ = w.Write([]byte(`{"Purchase":{"Id":"51","SyncToken":"3"}}`))
-	}))
+	})))
 	t.Cleanup(s.Close)
 	return s, &lastPost
 }

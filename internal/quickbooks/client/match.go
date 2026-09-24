@@ -52,6 +52,7 @@ func ReplayMatch(ctx context.Context, accountID string, olbTxnIDs []string, matc
 	}
 	// Preserve the browser banking Accept header; forcing application/json
 	// changes content negotiation on this endpoint.
+	submittingMutation(ctx)
 	resp, err := ac.post(ctx, ac.neoFeedURL()+"/acceptTransactions", body)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrMatchVerification, err)

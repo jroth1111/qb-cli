@@ -24,6 +24,10 @@ func readMutationEntity(ctx context.Context, ac *apiClient, entity, id string) (
 		return nil, fmt.Errorf("invalid linked entity identity")
 	}
 	query := "SELECT * FROM " + entity + " WHERE Id = '" + id + "'"
+	switch entity {
+	case "Account", "Class", "Department", "Customer", "Vendor", "Employee", "Item", "Term", "PaymentMethod":
+		query += " AND Active IN (true, false)" // inactive is not proof of deletion
+	}
 	resp, err := ac.getJSON(ctx, "https://qbo.intuit.com/api/v3/company/"+ac.realm+"/query?minorversion=73&query="+url.QueryEscape(query), "")
 	if err != nil {
 		return nil, err
@@ -45,8 +49,16 @@ func readMutationEntity(ctx context.Context, ac *apiClient, entity, id string) (
 	}
 	var rows []map[string]any
 	if data := env.Query[entity]; len(data) > 0 {
+		if string(data) == "null" {
+			return nil, fmt.Errorf("entity query returned null, not proven absence")
+		}
 		if err = json.Unmarshal(data, &rows); err != nil {
 			return nil, err
+		}
+	}
+	for key := range env.Query {
+		if key != entity && key != "startPosition" && key != "maxResults" && key != "totalCount" {
+			return nil, fmt.Errorf("entity query returned a different resource")
 		}
 	}
 	if len(rows) == 0 {
@@ -189,6 +201,7 @@ func replayVerifiedStateChange(ctx context.Context, ac *apiClient, plan *Request
 	if err != nil {
 		return 0, err
 	}
+	submittingMutation(ctx)
 	resp, err := ac.post(ctx, strings.ReplaceAll(plan.URL, realmToken, ac.realm), plan.Body)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v (evidence %s)", ErrStateVerification, err, dir)
@@ -270,5 +283,6 @@ func replayVerifiedStateChange(ctx context.Context, ac *apiClient, plan *Request
 	if err = os.WriteFile(filepath.Join(dir, "verified.json"), evidence, 0600); err != nil {
 		return 200, fmt.Errorf("%w: verification persistence", ErrStateVerification)
 	}
+	confirmMutation(ctx)
 	return 200, nil
 }

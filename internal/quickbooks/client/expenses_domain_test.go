@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -77,13 +78,17 @@ type expServer struct {
 	t *testing.T
 	*httptest.Server
 
-	mu           sync.Mutex
-	getCalls     int
-	postCalls    int
-	lastMethod   string
-	lastPath     string
-	lastRawQuery string
-	lastBody     []byte
+	mu            sync.Mutex
+	getCalls      int
+	postCalls     int
+	lastMethod    string
+	lastPath      string
+	lastRawQuery  string
+	lastBody      []byte
+	lastPostPath  string
+	lastPostQuery string
+	persisted     map[string]any
+	deleted       bool
 
 	statusGet  int
 	statusPost int
@@ -99,6 +104,7 @@ func newExpServer(t *testing.T, getBody, postBody string) *expServer {
 		statusPost: http.StatusOK,
 		getBody:    getBody,
 		postBody:   postBody,
+		persisted:  map[string]any{},
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.Close)
@@ -109,18 +115,54 @@ func (s *expServer) handle(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	status, body := s.statusPost, s.postBody
-	if r.Method == http.MethodGet {
-		status, body = s.statusGet, s.getBody
-	}
 	s.mu.Lock()
 	s.lastMethod = r.Method
 	s.lastPath = r.URL.Path
 	s.lastRawQuery = r.URL.RawQuery
-	s.lastBody = b
 	if r.Method == http.MethodGet {
 		s.getCalls++
 	} else {
 		s.postCalls++
+		s.lastBody = b // preserve the submitted wire body across readback GETs.
+		s.lastPostPath = r.URL.Path
+		s.lastPostQuery = r.URL.RawQuery
+		var submitted map[string]any
+		_ = json.Unmarshal(b, &submitted)
+		var receipt map[string]map[string]any
+		_ = json.Unmarshal([]byte(s.postBody), &receipt)
+		for entity, row := range receipt {
+			if r.URL.Query().Get("operation") == "delete" {
+				s.deleted = true
+				break
+			}
+			stored := map[string]any{}
+			maps.Copy(stored, row)
+			maps.Copy(stored, submitted)
+			if r.URL.Query().Get("operation") == "void" {
+				stored["status"] = "Voided"
+				stored["TotalAmt"] = float64(0)
+			}
+			s.persisted[entity] = stored
+			break
+		}
+	}
+	if r.Method == http.MethodGet {
+		status, body = s.statusGet, s.getBody
+		if strings.HasSuffix(r.URL.Path, "/query") && s.deleted {
+			entity := "Bill"
+			if q, _ := url.ParseQuery(r.URL.RawQuery); q != nil {
+				if fields := strings.Fields(q.Get("query")); len(fields) >= 4 {
+					entity = fields[3]
+				}
+			}
+			body = `{"QueryResponse":{"` + entity + `":[]}}`
+		} else if !strings.HasSuffix(r.URL.Path, "/query") && !s.deleted {
+			for entity, row := range s.persisted {
+				encoded, _ := json.Marshal(map[string]any{entity: row})
+				body = string(encoded)
+				break
+			}
+		}
 	}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -133,7 +175,7 @@ func (s *expServer) handle(w http.ResponseWriter, r *http.Request) {
 func (s *expServer) snapshot() (method, path, rawQuery string, reqBody []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lastMethod, s.lastPath, s.lastRawQuery, append([]byte(nil), s.lastBody...)
+	return http.MethodPost, s.lastPostPath, s.lastPostQuery, append([]byte(nil), s.lastBody...)
 }
 
 // counts returns the number of GETs and POSTs seen so far.
@@ -371,8 +413,8 @@ func TestExpensesBillUpdateFetchesThenSparsePatches(t *testing.T) {
 		t.Fatalf("update envelope = %+v, want Bill 46 echoed from the POST response", res)
 	}
 	gets, posts := srv.counts()
-	if gets != 1 || posts != 1 {
-		t.Fatalf("update must GET the row then POST once; got %d gets, %d posts", gets, posts)
+	if gets != 2 || posts != 1 {
+		t.Fatalf("update must GET the row, POST once, then independently read back; got %d gets, %d posts", gets, posts)
 	}
 	expAssertV3Post(t, srv, "bill", "")
 	body := expBodyMap(t, srv.lastBody)
@@ -412,8 +454,8 @@ func TestExpensesBillDeleteAndVoidCarryOperationQuery(t *testing.T) {
 				t.Fatalf("envelope = %+v", res)
 			}
 			gets, posts := srv.counts()
-			if gets != 1 || posts != 1 {
-				t.Fatalf("%s must GET the row then POST once; got %d gets, %d posts", op, gets, posts)
+			if gets != 2 || posts != 1 {
+				t.Fatalf("%s must GET the row, POST once, then independently read back; got %d gets, %d posts", op, gets, posts)
 			}
 			expAssertV3Post(t, srv, "bill", op)
 			body := expBodyMap(t, srv.lastBody)

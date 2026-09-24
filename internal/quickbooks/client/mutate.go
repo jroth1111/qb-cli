@@ -117,11 +117,13 @@ var v3Path = map[string]string{
 
 // MutateResult is the secret-free envelope for a v3 write.
 type MutateResult struct {
-	Status int       `json:"status"`
-	Op     string    `json:"op"`
-	Entity string    `json:"entity"`
-	Item   QueryItem `json:"item"`
-	Note   string    `json:"note,omitempty"`
+	Status   int       `json:"status"`
+	Op       string    `json:"op"`
+	Entity   string    `json:"entity"`
+	Item     QueryItem `json:"item"`
+	Note     string    `json:"note,omitempty"`
+	Verified bool      `json:"verified"`
+	Evidence string    `json:"evidence,omitempty"`
 }
 
 // ReplayMutate POSTs a v3 create/update/delete/void against the session company.
@@ -152,8 +154,21 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 	if err := CheckLineItemsJSON(flags); err != nil {
 		return nil, err
 	}
+	if op == "send" || entity == "RecurringTransaction" || entity == "Budget" || entity == "SalesOrder" {
+		if (op == "send" || op == "writeoff") && strings.TrimSpace(id) == "" && strings.TrimSpace(flags["id"]) == "" {
+			return nil, ErrMissingMutateID
+		}
+		return nil, fmt.Errorf("%w: %s %s requires a compound/service-specific verifier", ErrReadbackUnavailable, entity, op)
+	}
+	var before map[string]any
 	fetchExisting := func(path, id string) (map[string]any, error) {
 		existing, err := fetchV3(ctx, ac, path, id)
+		if err == nil && jsonNumberString(existing["Id"]) != id {
+			return nil, fmt.Errorf("preflight entity identity mismatch")
+		}
+		if err == nil {
+			before = existing
+		}
 		if err == nil && cheque && existing["PaymentType"] != "Check" {
 			return nil, fmt.Errorf("purchase %s is not a cheque; expected PaymentType Check", id)
 		}
@@ -313,9 +328,14 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		// also posts a $0 payment that links the invoice to the new credit
 		// memo so the credit applies and the invoice settles.
 		writeoffApply = &writeoffLink{
-			invoiceID: id,
-			customer:  firstFlag(flags, "customer"),
-			amount:    parseAmount(flags["amount"]),
+			invoiceID:     id,
+			customer:      firstFlag(flags, "customer"),
+			amount:        parseAmount(flags["amount"]),
+			beforeInvoice: inv,
+		}
+		balance, valid := inv["Balance"].(float64)
+		if !valid || writeoffApply.amount <= 0 || writeoffApply.amount > balance {
+			return nil, fmt.Errorf("write-off requires an observed open balance covering the requested amount")
 		}
 	case "send":
 		if strings.TrimSpace(id) == "" {
@@ -369,9 +389,14 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 	if opQ != "" {
 		u += "&operation=" + opQ
 	}
+	evidence, err := startMutationEvidence("v3-"+op, map[string]any{"entity": entity, "id": id, "before": before}, raw)
+	if err != nil {
+		return nil, err
+	}
+	submittingMutation(ctx)
 	resp, err := ac.postJSON(ctx, u, raw)
 	if err != nil {
-		return nil, fmt.Errorf("v3 %s %s: %w", op, entity, err)
+		return nil, fmt.Errorf("%w: v3 %s %s: %v (evidence %s)", ErrMutationUnverified, op, entity, err, evidence)
 	}
 	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	got, err := readBody(resp)
@@ -382,20 +407,28 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(got)}
 	}
 	item := projectMutateItem(entity, got)
+	if id != "" && op != "create" && item.ID != id {
+		return nil, fmt.Errorf("%w: receipt target mismatch (evidence %s)", ErrMutationUnverified, evidence)
+	}
+	if err := verifyV3Readback(ctx, ac, entity, op, item.ID, before, body, evidence); err != nil {
+		return &MutateResult{Status: resp.StatusCode, Op: op, Entity: entity, Item: item, Evidence: evidence}, err
+	}
 	if writeoffApply != nil {
 		if err := applyWriteoffCredit(ctx, ac, writeoffApply, item); err != nil {
 			return nil, err
 		}
 	}
-	return &MutateResult{Status: resp.StatusCode, Op: op, Entity: entity, Item: item}, nil
+	confirmMutation(ctx)
+	return &MutateResult{Status: resp.StatusCode, Op: op, Entity: entity, Item: item, Verified: true, Evidence: evidence}, nil
 }
 
 // writeoffLink carries the invoice write-off target through the shared
 // mutate POST so the apply-payment can link the created credit memo.
 type writeoffLink struct {
-	invoiceID string
-	customer  string
-	amount    float64
+	invoiceID     string
+	customer      string
+	amount        float64
+	beforeInvoice map[string]any
 }
 
 // applyWriteoffCredit posts the $0 payment that links the write-off credit
@@ -429,6 +462,24 @@ func applyWriteoffCredit(ctx context.Context, ac *apiClient, link *writeoffLink,
 	}
 	if resp.StatusCode != http.StatusOK {
 		return &ReplayError{Status: resp.StatusCode, Message: "write-off apply payment: " + errorMessage(got)}
+	}
+	item := projectMutateItem("Payment", got)
+	if err := verifyV3Readback(ctx, ac, "Payment", "create", item.ID, nil, body, ""); err != nil {
+		return err
+	}
+	invoice, err := fetchV3(ctx, ac, "invoice", link.invoiceID)
+	if err != nil {
+		return fmt.Errorf("%w: write-off invoice readback: %v", ErrMutationUnverified, err)
+	}
+	want := normalizedJSON(link.beforeInvoice).(map[string]any)
+	want["Balance"] = want["Balance"].(float64) - link.amount
+	delete(want, "LinkedTxn") // applying the payment intentionally appends this linkage
+	if err := expectedFields(want, invoice, "Invoice"); err != nil {
+		return fmt.Errorf("%w: write-off invoice: %v", ErrMutationUnverified, err)
+	}
+	credit, err := fetchV3(ctx, ac, "creditmemo", cmItem.ID)
+	if err != nil || jsonNumberString(credit["Id"]) != cmItem.ID || credit["Balance"] != float64(0) {
+		return fmt.Errorf("%w: credit memo consumption not independently proved", ErrMutationUnverified)
 	}
 	return nil
 }
@@ -482,7 +533,7 @@ func fetchV3(ctx context.Context, ac *apiClient, path, id string) (map[string]an
 		return nil, err
 	}
 	for k, v := range wrap {
-		if k == "time" {
+		if !strings.EqualFold(k, path) {
 			continue
 		}
 		var obj map[string]any

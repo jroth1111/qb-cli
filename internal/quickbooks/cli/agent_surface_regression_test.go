@@ -71,7 +71,7 @@ func TestReminderRefusesHarnessSend(t *testing.T) {
 			t.Setenv("QB_HOME", t.TempDir())
 			t.Setenv(env, "1")
 			_, err := runCoverageRoot(t, "sales", "invoice", "run", "remind", "--id", "7", "--send")
-			if err == nil || !strings.Contains(err.Error(), "harness") {
+			if err == nil || (!strings.Contains(err.Error(), "harness") && !strings.Contains(err.Error(), "blocked before submission")) {
 				t.Fatalf("err=%v", err)
 			}
 		})

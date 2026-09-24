@@ -30,7 +30,32 @@ func ruleServer(t *testing.T, getRulesBody string) (*domServer, *map[string][]ma
 			_, _ = w.Write([]byte(getRulesBody))
 		case strings.HasSuffix(r.URL.Path, "/save"):
 			calls["save"] = append(calls["save"], m)
-			_, _ = w.Write([]byte(`{"olbRule":{"id":9,"ruleName":"x","validRule":true}}`))
+			stored := normalizedJSON(m).(map[string]any)
+			id := stored["id"]
+			if id == float64(-1) {
+				id = float64(9)
+			}
+			stored["id"] = id
+			var env map[string]any
+			_ = json.Unmarshal([]byte(getRulesBody), &env)
+			if env == nil {
+				env = map[string]any{}
+			}
+			rows, _ := env["rules"].([]any)
+			found := false
+			for i, row := range rows {
+				if obj, ok := row.(map[string]any); ok && obj["id"] == id {
+					rows[i] = stored
+					found = true
+				}
+			}
+			if !found {
+				rows = append(rows, stored)
+			}
+			env["rules"] = rows
+			updated, _ := json.Marshal(env)
+			getRulesBody = string(updated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"olbRule": map[string]any{"id": id, "ruleName": stored["ruleName"], "validRule": true}})
 		case strings.HasSuffix(r.URL.Path, "/delete"):
 			calls["delete"] = append(calls["delete"], m)
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -105,8 +130,8 @@ func TestRuleEditFetchesEditSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len((*calls)["getRules"]) != 1 {
-		t.Fatal("edit did not fetch existing rule")
+	if len((*calls)["getRules"]) != 3 {
+		t.Fatal("edit must take population preflight, target preflight and independent readback")
 	}
 	body := (*calls)["save"][0]
 	if body["id"] != float64(4) || body["editSequence"] != float64(3) || body["ruleOrder"] != float64(2) {

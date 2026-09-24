@@ -417,8 +417,8 @@ func TestMutateNumericWireContract(t *testing.T) {
 			t.Fatalf("bill update: %v", err)
 		}
 		gets, posts := srv.counts()
-		if gets != 1 || posts != 1 {
-			t.Fatalf("update must GET then POST once; gets=%d posts=%d", gets, posts)
+		if gets != 2 || posts != 1 {
+			t.Fatalf("update must GET, POST once, then GET readback; gets=%d posts=%d", gets, posts)
 		}
 		body := expBodyMap(t, srv.lastBody)
 		if got := numericField(t, body["TotalAmt"]); got != 0 {

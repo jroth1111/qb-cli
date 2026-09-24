@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -15,7 +16,7 @@ func phase2aServer(t *testing.T, getBody string) (*domServer, *map[string]any, *
 	var lastPost map[string]any
 	var lastQuery string
 	s := &domServer{t: t}
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.Server = httptest.NewServer(withPersistedV3(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		lastQuery = r.URL.RawQuery
 		if r.Method == http.MethodGet {
@@ -28,8 +29,19 @@ func phase2aServer(t *testing.T, getBody string) (*domServer, *map[string]any, *
 			_ = r.Body.Close()
 		}
 		_ = json.Unmarshal(b, &lastPost)
-		_, _ = w.Write([]byte(`{"Project":{"Id":"71","SyncToken":"1"}}`))
-	}))
+		entity := "Project"
+		for name, path := range v3Path {
+			if strings.HasSuffix(r.URL.Path, "/"+path) {
+				entity = name
+				break
+			}
+		}
+		id := jsonNumberString(lastPost["Id"])
+		if id == "" {
+			id = "71"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{entity: map[string]any{"Id": id, "SyncToken": "1"}})
+	})))
 	t.Cleanup(s.Close)
 	return s, &lastPost, &lastQuery
 }

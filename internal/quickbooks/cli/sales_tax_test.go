@@ -193,8 +193,12 @@ func TestSalestxWritesFailFastWithoutCreds(t *testing.T) {
 			root.SetArgs(append(args, "--home", t.TempDir()))
 			err := root.Execute()
 			var exitErr *ExitError
-			if !errors.As(err, &exitErr) || exitErr.Code != ExitAuthError {
-				t.Fatalf("err = %v, want ExitAuthError", err)
+			want := ExitAuthError
+			if args[1] == "gst" || args[1] == "bas" {
+				want = ExitInputError
+			}
+			if !errors.As(err, &exitErr) || exitErr.Code != want {
+				t.Fatalf("err = %v, want exit %d", err, want)
 			}
 		})
 	}
@@ -249,7 +253,7 @@ func TestSalestxTPARGenerateStaysNotWired(t *testing.T) {
 		t.Fatal("tpar generate without creds must fail (auth first)")
 	}
 	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != ExitAuthError {
-		t.Fatalf("err = %v, want ExitAuthError", err)
+	if !errors.As(err, &exitErr) || exitErr.Code != ExitInputError || !errors.Is(err, client.ErrReadbackUnavailable) {
+		t.Fatalf("err = %v, want unavailable readback gate", err)
 	}
 }

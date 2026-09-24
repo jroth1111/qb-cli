@@ -130,6 +130,9 @@ func newGqlRunCmd(flags *rootFlags, kind string) *cobra.Command {
 					"operation": op.Name, "variables": vars,
 				})
 			}
+			if op.Kind == "mutation" {
+				return exitInput(fmt.Errorf("%w: arbitrary GraphQL mutation", client.ErrReadbackUnavailable))
+			}
 			ctx, cancel := contextWithTimeout(cmd, flags.timeout)
 			defer cancel()
 			resp, err := gql.Execute(ctx, gql.Request{Op: op, Variables: vars})

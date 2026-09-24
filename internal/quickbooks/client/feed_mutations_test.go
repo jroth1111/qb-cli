@@ -37,6 +37,8 @@ type mutationServer struct {
 	statesRead        []string
 	suppressStateMove bool
 	regRows           []map[string]any
+	bookRecords       map[string]map[string]any
+	memoOverride      *string
 
 	mu      sync.Mutex
 	posts   []capturedPost
@@ -91,6 +93,14 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"homeCurrencyMatchingTxns": candidates, "olbTxn": row})
 	case strings.HasSuffix(r.URL.Path, "/register/transactions/"):
 		_ = json.NewEncoder(w).Encode(ms.regRows)
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/query"):
+		rows := []map[string]any{}
+		for id, record := range ms.bookRecords {
+			if strings.Contains(r.URL.Query().Get("query"), "'"+id+"'") {
+				rows = append(rows, record)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"QueryResponse": map[string]any{"Purchase": rows}})
 	case r.Method == http.MethodPost:
 		body, _ := io.ReadAll(r.Body)
 		ms.mu.Lock()
@@ -171,6 +181,38 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal(body, &req)
 			accepted := []map[string]any{}
 			for _, row := range req.List.Rows {
+				if !ms.suppressStateMove {
+					posted := shallowCopyMap(row)
+					posted["matchedQboTxns"] = []any{map[string]any{"qboTxnId": "900003", "txnFdmName": "Purchase"}}
+					ms.acceptedItems = append(ms.acceptedItems, posted)
+					for i, pending := range ms.feedItems {
+						if pending["olbTxnId"] == row["olbTxnId"] {
+							ms.feedItems = append(ms.feedItems[:i], ms.feedItems[i+1:]...)
+							break
+						}
+					}
+					add, _ := row["addAsQboTxn"].(map[string]any)
+					lines := []any{}
+					details := sliceObjects(add["details"])
+					for _, detail := range details {
+						lineDetail := map[string]any{"AccountRef": map[string]any{"value": detail["categoryId"]}}
+						if detail["klassId"] != nil {
+							lineDetail["ClassRef"] = map[string]any{"value": detail["klassId"]}
+						}
+						amount := detail["amount"]
+						if amount == nil {
+							amount = row["amount"]
+						}
+						lines = append(lines, map[string]any{"Amount": amount, "AccountBasedExpenseLineDetail": lineDetail})
+					}
+					if ms.bookRecords == nil {
+						ms.bookRecords = map[string]map[string]any{}
+					}
+					ms.bookRecords["900003"] = map[string]any{"Id": "900003", "TotalAmt": row["amount"], "Line": lines, "PrivateNote": add["txnMemo"]}
+					if ms.memoOverride != nil {
+						ms.bookRecords["900003"]["PrivateNote"] = *ms.memoOverride
+					}
+				}
 				accepted = append(accepted, map[string]any{"olbTxnId": row["olbTxnId"], "qboAccount": map[string]any{"accountId": req.Next.Account}, "addedQboTxns": []any{map[string]any{"qboTxnId": "900003"}}})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"acceptedTxns": accepted})

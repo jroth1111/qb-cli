@@ -91,6 +91,7 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 			"Groups: feed accounting expenses sales customers inventory payroll tax company reports advanced.\n" +
 			"Shape: qb <domain> <entity> <verb>. Verbs: list|get|search|create|update|delete|run|verify|export|import (copy on sales estimate/invoice). Wired: feed account list; feed txn list|get|population|verify|import|update exclude|undo-excluded|categorise|match|split|batch-accept; accounting register get.\n\n" +
 
+			"Mutations require independent live readback; check actions.verification. Unsupported writes are blocked before submission.\n" +
 			"Globals: --json --home --timeout --relay-url --dry-run --yes --no-input --quiet --audit-dir\n" +
 			"Dates are dd/MM/yyyy (en-AU). Feed mutations take olbTxnIds, never :ofx display ids.\n" +
 			"Select the company and account explicitly; numeric IDs are company-scoped. TC2 test account 44 is documented; 209 is inactive there. Import refuses 204 and 93.",
@@ -157,6 +158,7 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 	root.AddCommand(newCostGroupsCmd(flags))
 	root.AddCommand(newDocumentsCmd(flags))
 	root.AddCommand(newActionsCmd(flags))
+	installMutationGates(root, flags)
 	return root
 }
 

@@ -12,8 +12,8 @@ import (
 // primitiveMode is the wiring state of one catalog row.
 type primitiveMode string
 
-// Catalog modes: read and wired execute live; blocked documents flags then
-// refuses; excluded has no command.
+// Catalog modes describe wiring. Wired writes additionally require a reviewed
+// readback adapter; the verification field describes runtime availability.
 const (
 	modeRead     primitiveMode = "read"
 	modeWired    primitiveMode = "wired"
@@ -25,15 +25,16 @@ const (
 // and Globals are filled by documentedEntry, never stored in the table.
 // JSON keys match the `qb actions --json` contract agents parse.
 type primitiveEntry struct {
-	ID      string        `json:"id"`
-	Domain  string        `json:"domain"`
-	Risk    string        `json:"risk"`
-	Mode    primitiveMode `json:"mode"`
-	Command string        `json:"command,omitempty"`
-	Usage   string        `json:"usage,omitempty"`
-	Params  []paramDoc    `json:"params,omitempty"`
-	Notes   string        `json:"notes,omitempty"`
-	Globals []paramDoc    `json:"globals,omitempty"`
+	ID           string        `json:"id"`
+	Domain       string        `json:"domain"`
+	Risk         string        `json:"risk"`
+	Mode         primitiveMode `json:"mode"`
+	Command      string        `json:"command,omitempty"`
+	Usage        string        `json:"usage,omitempty"`
+	Params       []paramDoc    `json:"params,omitempty"`
+	Notes        string        `json:"notes,omitempty"`
+	Globals      []paramDoc    `json:"globals,omitempty"`
+	Verification string        `json:"verification,omitempty"`
 }
 
 // catalogPrimitives is the generated action catalog: every QBO primitive
@@ -599,7 +600,8 @@ func newActionsCmd(flags *rootFlags) *cobra.Command {
 		Short: "List catalogued QBO primitives",
 		Long: "Agent contract: qb actions --json lists every primitive with usage, params, and notes.\n" +
 			"Commands are qb <domain> <entity> <verb>. mode=read/wired honour flags.\n" +
-			"mode=blocked documents flags then returns not-wired. mode=excluded has no command.",
+			"mode=blocked documents flags then returns not-wired. mode=excluded has no command.\n" +
+			"Wired mutations without readback adapters are also blocked; inspect the JSON verification field.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if mode != "" && mode != "read" && mode != "wired" && mode != "blocked" && mode != "excluded" {
 				return &ExitError{Code: ExitInputError, Err: fmt.Errorf("unknown mode %q", mode)}
@@ -634,7 +636,15 @@ func filterModes(rows []primitiveEntry, m string) []primitiveEntry {
 func writeActionsJSON(cmd *cobra.Command, rows []primitiveEntry) error {
 	out := make([]primitiveEntry, 0, len(rows))
 	for _, e := range rows {
-		out = append(out, documentedEntry(e))
+		entry := documentedEntry(e)
+		if e.Mode == modeWired && e.Risk != "R0" {
+			target, _, err := cmd.Root().Find(strings.Fields(e.Command))
+			entry.Verification = "blocked_missing_readback"
+			if err == nil && target != nil && hasReadbackAdapter(target, e) {
+				entry.Verification = "independent_readback"
+			}
+		}
+		out = append(out, entry)
 	}
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
@@ -649,6 +659,14 @@ func writeActionsText(cmd *cobra.Command, rows []primitiveEntry) error {
 		fmt.Fprintf(out, "%-46s %-12s %-4s %-9s %s\n", e.ID, e.Domain, e.Risk, string(e.Mode), e.Command)
 		if u := usageFor(e); u != "" {
 			fmt.Fprintf(out, "    %s\n", strings.SplitN(u, "\n", 2)[0])
+		}
+		if e.Mode == modeWired && e.Risk != "R0" {
+			target, _, err := cmd.Root().Find(strings.Fields(e.Command))
+			state := "blocked: missing independent readback"
+			if err == nil && target != nil && hasReadbackAdapter(target, e) {
+				state = "independent readback required"
+			}
+			fmt.Fprintf(out, "    verification: %s\n", state)
 		}
 	}
 	return nil

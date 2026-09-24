@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -51,14 +52,19 @@ type acctDeepServer struct {
 
 	// lastQuery keeps the raw query string (operation=delete, minorversion,
 	// …); read it via callsFull() when a test asserts on query params.
-	lastQuery string
+	lastQuery     string
+	lastPostURL   string
+	lastPostQuery string
+	lastPostBody  []byte
+	persisted     map[string]map[string]any
+	deleted       map[string]bool
 
 	status map[string]int    // "METHOD /path" -> status
 	bodies map[string]string // "METHOD /path" -> response body
 }
 
 func newAcctDeepServer(t *testing.T, status map[string]int, bodies map[string]string) *acctDeepServer {
-	return &acctDeepServer{t: t, status: status, bodies: bodies}
+	return &acctDeepServer{t: t, status: status, bodies: bodies, persisted: map[string]map[string]any{}, deleted: map[string]bool{}}
 }
 
 // lookup resolves a request by METHOD + last path segment against the
@@ -93,7 +99,60 @@ func (s *acctDeepServer) handler() http.Handler {
 		_, _ = r.Body.Read(b)
 		_ = r.Body.Close()
 		s.lastBody = b
+		if r.Method == http.MethodPost {
+			s.lastPostURL, s.lastPostQuery, s.lastPostBody = r.URL.Path, r.URL.RawQuery, b
+			segs := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+			entityPath := segs[len(segs)-1]
+			var submitted map[string]any
+			_ = json.Unmarshal(b, &submitted)
+			if r.URL.Query().Get("operation") == "delete" {
+				s.deleted[entityPath] = true
+			} else if reply, ok := s.bodies["POST /"+entityPath]; ok {
+				var envelope map[string]map[string]any
+				_ = json.Unmarshal([]byte(reply), &envelope)
+				for _, row := range envelope {
+					stored := map[string]any{}
+					maps.Copy(stored, row)
+					maps.Copy(stored, submitted)
+					s.persisted[entityPath] = stored
+					break
+				}
+			}
+		}
 		s.mu.Unlock()
+		if r.Method == http.MethodGet {
+			s.mu.Lock()
+			if strings.HasSuffix(r.URL.Path, "/query") {
+				for path, absent := range s.deleted {
+					if absent {
+						entity := "Class"
+						if path == "department" {
+							entity = "Department"
+						}
+						body := `{"QueryResponse":{"` + entity + `":[]}}`
+						s.mu.Unlock()
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write([]byte(body))
+						return
+					}
+				}
+			} else {
+				segs := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				path := segs[len(segs)-2]
+				if row := s.persisted[path]; row != nil {
+					entity := "Class"
+					if path == "department" {
+						entity = "Department"
+					}
+					body, _ := json.Marshal(map[string]any{entity: row})
+					s.mu.Unlock()
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write(body)
+					return
+				}
+			}
+			s.mu.Unlock()
+		}
 		body, st := s.lookup(r.Method, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(st)
@@ -123,6 +182,9 @@ func (s *acctDeepServer) calls() (string, string, []byte) {
 func (s *acctDeepServer) callsFull() (string, string, string, []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.lastPostURL != "" {
+		return http.MethodPost, s.lastPostURL, s.lastPostQuery, append([]byte(nil), s.lastPostBody...)
+	}
 	return s.lastMeth, s.lastURL, s.lastQuery, s.lastBody
 }
 
@@ -537,8 +599,8 @@ func TestClassLocationMutateDeleteSendsOperationAndSyncToken(t *testing.T) {
 	for _, tc := range []struct {
 		entity, path, id string
 	}{
-		{"Class", "class", "K9"},
-		{"Department", "department", "D8"},
+		{"Class", "class", "9"},
+		{"Department", "department", "8"},
 	} {
 		fs := newAcctDeepServer(t,
 			map[string]int{
@@ -547,7 +609,7 @@ func TestClassLocationMutateDeleteSendsOperationAndSyncToken(t *testing.T) {
 			},
 			map[string]string{
 				"GET /" + tc.path:  fmt.Sprintf(`{%q:{"Id":%q,"SyncToken":"7","Name":"Gone"}}`, tc.entity, tc.id),
-				"POST /" + tc.path: `{}`,
+				"POST /" + tc.path: fmt.Sprintf(`{%q:{"Id":%q,"SyncToken":"7"}}`, tc.entity, tc.id),
 			},
 		)
 		interceptHTTP(t, fs.start(t))

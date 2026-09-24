@@ -147,11 +147,11 @@ func TestInventoryCreateValidationFailsFastLivePath(t *testing.T) {
 			t.Errorf("%v: expected auth failure without creds, got nil", args)
 			continue
 		}
-		if got := ClassifyExitCode(err); got != ExitAuthError {
-			t.Errorf("%v: exit = %d, want %d (auth); err=%v", args, got, ExitAuthError, err)
+		if got := ClassifyExitCode(err); got != ExitInputError {
+			t.Errorf("%v: exit = %d, want readback gate before submission; err=%v", args, got, err)
 		}
-		if !errors.Is(err, client.ErrNoCredentials) {
-			t.Errorf("%v: err = %v, want ErrNoCredentials chain", args, err)
+		if !errors.Is(err, client.ErrReadbackUnavailable) {
+			t.Errorf("%v: err = %v, want ErrReadbackUnavailable chain", args, err)
 		}
 	}
 }

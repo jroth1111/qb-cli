@@ -1,10 +1,12 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,50 +26,9 @@ func TestReplayTransferContract(t *testing.T) {
 	saveUsable(t)
 	ms := newMutationServer(t, []map[string]any{feedRowFixture("9")}, nil)
 	interceptHTTP(t, ms.URL)
-
-	status, err := ReplayTransfer(context.Background(), "44", []string{"9"}, "45")
-	if err != nil {
-		t.Fatalf("ReplayTransfer: %v", err)
-	}
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200", status)
-	}
-	post := ms.lastPost(t)
-	if !strings.HasSuffix(post.path, "/olb/ng/batchAcceptTransactions") || post.query != "acceptOnly=true" {
-		t.Fatalf("POST = %s?%s, want .../batchAcceptTransactions?acceptOnly=true", post.path, post.query)
-	}
-	body := decodePostBody(t, post)
-	info := body["nextTxnInfo"].(map[string]any)
-	if info["accountId"] != "44" || info["reviewState"] != "PENDING" {
-		t.Fatalf("nextTxnInfo = %+v", info)
-	}
-	row := olbTxnAt(t, body, 0)
-	if row["acceptType"] != "TRANSFER" {
-		t.Fatalf("acceptType = %v, want TRANSFER", row["acceptType"])
-	}
-	if row["transfer"] != true {
-		t.Fatalf("transfer = %v, want true", row["transfer"])
-	}
-	add := row["addAsQboTxn"].(map[string]any)
-	if add["txnTypeId"] != "26" {
-		t.Fatalf("addAsQboTxn.txnTypeId = %v, want 26", add["txnTypeId"])
-	}
-	if add["txnDate"] != "2026-08-23T00:00:00.000Z" {
-		t.Fatalf("addAsQboTxn.txnDate = %v, want row olbTxnDate", add["txnDate"])
-	}
-	details := add["details"].([]any)
-	if len(details) != 1 {
-		t.Fatalf("details = %v, want 1 destination entry", details)
-	}
-	d := details[0].(map[string]any)
-	if d["categoryId"] != "45" || d["billable"] != false || d["taxApplicableOn"] != "SALES" {
-		t.Fatalf("details[0] = %+v, want {categoryId:45,billable:false,taxApplicableOn:SALES}", d)
-	}
-	// Unknown feed-row fields must survive the round trip.
-	for _, field := range []string{"suggestionConfidence", "originalCategoryId", "mapOfAccounts"} {
-		if _, ok := row[field]; !ok {
-			t.Fatalf("feed-row field %q dropped from POST body", field)
-		}
+	_, err := ReplayTransfer(context.Background(), "44", []string{"9"}, "45")
+	if !errors.Is(err, ErrReadbackUnavailable) || ms.postCount() != 0 {
+		t.Fatalf("unverified transfer must be blocked before POST: %v", err)
 	}
 }
 
@@ -206,22 +167,58 @@ type attachServer struct {
 func newAttachServer(t *testing.T) *attachServer {
 	t.Helper()
 	as := &attachServer{}
+	var uploaded []byte
+	var saved map[string]any
 	as.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			switch {
+			case strings.Contains(r.URL.Path, "/download/"):
+				_, _ = w.Write([]byte("https://qbo.intuit.com/test-upload-content"))
+			case r.URL.Path == "/test-upload-content":
+				_, _ = w.Write(uploaded)
+			default:
+				if saved == nil {
+					saved = map[string]any{"Id": "1000000202", "FileName": "probe.txt", "SyncToken": "0"}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"Attachable": saved})
+			}
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		as.mu.Lock()
 		as.posts = append(as.posts, capturedPost{path: r.URL.Path, query: r.URL.RawQuery, body: body})
 		as.mu.Unlock()
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/upload"):
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			f, _, err := r.FormFile("file_content_0")
+			if err != nil {
+				t.Error(err)
+			} else {
+				uploaded, _ = io.ReadAll(f)
+				_ = f.Close()
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"AttachableResponse": []any{map[string]any{
 					"Attachable": map[string]any{"Id": "1000000202", "FileName": "probe.txt"},
 				}},
 			})
 		case strings.HasSuffix(r.URL.Path, "/attachable"):
+			var submitted map[string]any
+			_ = json.Unmarshal(body, &submitted)
+			if saved == nil {
+				saved = map[string]any{}
+			}
+			maps.Copy(saved, submitted)
+			id := jsonNumberString(submitted["Id"])
+			if id == "" {
+				id = "1000000203"
+			}
+			saved["Id"] = id
+			saved["SyncToken"] = "1"
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"Attachable": map[string]any{"Id": "1000000203", "SyncToken": "1"},
+				"Attachable": map[string]any{"Id": id, "SyncToken": "1"},
 			})
 		default:
 			w.WriteHeader(http.StatusNotFound)
