@@ -13,7 +13,10 @@ function qboURL(value) {
       (u.pathname === '/app/banking' || u.pathname === '/app/homepage');
   } catch { return false; }
 }
-const allTabs = await h.listTabs();
+// The typed inventory carries ledger labels; helpers.listTabs omits them.
+// Switch by target below without ever adopting a tracked page.
+const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKey);
+const allTabs = await task.tabs();
 const candidates = allTabs.filter(t => qboURL(t.url));
 const tabs = candidates.filter(t =>
   !captureTarget || t.label === captureTarget || t.targetId === captureTarget);

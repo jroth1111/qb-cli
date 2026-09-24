@@ -46,7 +46,7 @@ const ego={helpers:{
    if(scenario==='user-control') throw new Error('user control');
    return {id:3};
  },
- listTabs:async()=>scenario==='ambiguous'?[tab,tab]:[tab],
+ listTabs:async()=>{throw new Error('helper inventory loses tracked labels')},
  switchTab:async(target)=>{ assert.equal(target,'target'); return tab; },
  pageInfo:async()=>({url:currentURL,dialog:scenario==='dialog'}),
  gotoAndWait:async url=>{ assert.equal(url,'https://qbo.intuit.com/app/banking');currentURL=url;navigations++; },
@@ -63,9 +63,10 @@ const ego={helpers:{
 const fakeProcess={env:{QB_CAPTURE_OUT:out,QB_TIMEOUT_MS:'90000',QB_EGO_SPACE:scenario==='numeric-space'?'3':'qb-login'}};
 const logs=[];
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const run=new AsyncFunction('ego','process','captureTarget','identityExpression','Date','setTimeout','console',await fs.readFile(script,'utf8'));
+const run=new AsyncFunction('ego','taskSpace','process','captureTarget','identityExpression','Date','setTimeout','console',await fs.readFile(script,'utf8'));
+const taskSpace=async key=>{assert.equal(key,scenario==='numeric-space'?3:'qb-login');return {tabs:async()=>scenario==='ambiguous'?[tab,tab]:[tab]};};
 let failure;
-try { await run(ego,fakeProcess,scenario==='success'?'p5':'target','identity',{now:()=>ticks+=5000},f=>f(),{log:x=>logs.push(x)}); } catch(e) { failure=e; }
+try { await run(ego,taskSpace,fakeProcess,scenario==='success'?'p5':'target','identity',{now:()=>ticks+=5000},f=>f(),{log:x=>logs.push(x)}); } catch(e) { failure=e; }
 if(['success','tracked-no-label','untracked','numeric-space','homepage'].includes(scenario)) {
  assert.equal(failure,undefined);
  const result=JSON.parse(await fs.readFile(out,'utf8'));
