@@ -31,8 +31,8 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 		Use:   "feed",
 		Short: "Replay QuickBooks banking feeds",
 		Long: "qb feed <entity> <verb>.\n" +
-			"Wired: account list; rule get|search|create|update|delete; txn list|get|population|import|update exclude|undo-excluded|categorise|match|split|batch-accept.\n" +
-			"olbTxnIds only. Test mutations: account 209. --dry-run never dials.",
+			"Wired: account list; rule get|search|create|update|delete; txn list|get|population|import|update exclude|undo-excluded|categorise|match|split|batch-accept|unpost; run transfer|attach.\n" +
+			"olbTxnIds only. Test mutations: account 44 (CR-Test-Account). --dry-run never dials.",
 	}
 	account := &cobra.Command{Use: "account", Short: "Bank accounts"}
 	account.AddCommand(newFeedAccountsCmd(flags))
@@ -57,10 +57,10 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 	updateEnt.AddCommand(newFeedSplitCmd(flags))
 	updateEnt.AddCommand(newFeedBatchAcceptCmd(flags))
 	runEnt := &cobra.Command{Use: "run", Short: "Run feed operations"}
-	for _, op := range []string{"attach", "transfer", "tag"} {
-		runEnt.AddCommand(newFeedMutationCmd(flags, "txn run", op, op+" (not wired)"))
-	}
-	updateEnt.AddCommand(newFeedMutationCmd(flags, "txn update", "unpost", "unpost (not wired)"))
+	runEnt.AddCommand(newFeedTxnAttachCmd(flags))
+	runEnt.AddCommand(newFeedTransferCmd(flags))
+	runEnt.AddCommand(newFeedMutationCmd(flags, "txn run", "tag", "tag (blocked: tag writes ride the retired tag service)"))
+	updateEnt.AddCommand(newFeedUnpostCmd(flags))
 	txn.AddCommand(updateEnt, runEnt)
 	txn.AddCommand(newFeedImportCmd(flags))
 	rule := &cobra.Command{Use: "rule", Short: "Bank rules"}
@@ -71,9 +71,9 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 	rule.AddCommand(newFeedRuleDeleteCmd(flags))
 
 	rec := &cobra.Command{Use: "rec", Short: "Reconcile helpers"}
-	rec.AddCommand(newFeedMutationCmd(flags, "rec", "run", "rec auto-adjust (not wired)"))
+	rec.AddCommand(newFeedRecRunCmd(flags))
 	if e, ok := catalogByID("QBO.FEED.REC_REPORT"); ok && e.Mode != modeBlocked && e.Mode != modeExcluded {
-		rec.AddCommand(newV3ReportCmd(flags, e, "feed rec get", "BalanceSheet"))
+		rec.AddCommand(newFeedRecReportCmd(flags, e))
 	} else {
 		rec.AddCommand(newFeedMutationCmd(flags, "rec", "get", "rec report (not wired)"))
 	}
@@ -226,7 +226,7 @@ func newFeedLookupCmd(flags *rootFlags) *cobra.Command {
 					Silent: flags.asJSON,
 				}
 			}
-			if handled, err := dryRunGET(flags, cmd, "feed txn get", "QBO.FEED.TXN_LOOKUP", client.PlannedFeedURL(ff.accountID, "PENDING"), "lookup GETs pending+posted+excluded then filters; not sent"); handled {
+			if handled, err := dryRunGET(flags, cmd, "feed txn get", "QBO.FEED.TXN_LOOKUP", client.PlannedFeedURL(ff.accountID, "PENDING"), "lookup walks pending+posted+excluded to empty terminal pages; limit caps returned matches; not sent"); handled {
 				return err
 			}
 
@@ -243,7 +243,7 @@ func newFeedLookupCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
 		"banking account id (defaults to "+client.DefaultAccountID+")")
 	cmd.Flags().StringVar(&query, "query", "", "search query (matches id or description, case-insensitive)")
-	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max transactions to fetch")
+	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max matching rows returned; all three review states are fully searched")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_LOOKUP")
 	return cmd
 
@@ -369,7 +369,7 @@ func newFeedImportCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&ff.accountID, "account-id", "",
-		"CSV-import banking account id (209; refuses 204 and 93)")
+		"CSV-import banking account id (44 works on TC2; 209 is inactive; refuses 204 and 93)")
 	cmd.Flags().StringVar(&ff.date, "date", "",
 		"row date as dd/MM/yyyy (default today in Australia/Sydney)")
 	cmd.Flags().StringVar(&ff.description, "description", "",
@@ -459,13 +459,14 @@ func isImportHeader(rec []string) bool {
 // current SPA folds categorise into the accept call, setting
 // addAsQboTxn.details[0].categoryId on each full feed row. --ids are
 // olbTxnIds; --category is the QBO account/category id to post to; --class
-// is refused (no class field exists in the captured contract). Empty ids or
-// category fail before network.
+// sets the class, with "none" explicitly clearing it. Empty ids or category
+// fail before network.
 func newFeedCategoriseCmd(flags *rootFlags) *cobra.Command {
 	ff := &feedFlags{}
 	var (
 		category   string
 		classRef   string
+		memo       string
 		entityType string
 	)
 	cmd := &cobra.Command{
@@ -475,8 +476,15 @@ func newFeedCategoriseCmd(flags *rootFlags) *cobra.Command {
 				EntityType:  entityType,
 				CategoryRef: &client.RefValue{Value: category},
 			}
-			if classRef != "" {
-				detail.ClassRef = &client.RefValue{Value: classRef}
+			if cmd.Flags().Changed("class") {
+				value := classRef
+				if strings.EqualFold(strings.TrimSpace(value), "none") {
+					value = ""
+				}
+				detail.ClassRef = &client.RefValue{Value: value}
+			}
+			if cmd.Flags().Changed("memo") {
+				detail.Memo = &memo
 			}
 			if flags.dryRun {
 				plan, err := client.PlanCategorise(ff.accountID, ff.ids, detail)
@@ -505,7 +513,8 @@ func newFeedCategoriseCmd(flags *rootFlags) *cobra.Command {
 		"banking account id")
 	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to categorise (not :ofx display ids)")
 	cmd.Flags().StringVar(&category, "category", "", "account/category id to post to (e.g. 7)")
-	cmd.Flags().StringVar(&classRef, "class", "", "class id (rejected: no class field in the captured contract)")
+	cmd.Flags().StringVar(&classRef, "class", "", "class id; none clears the existing suggestion")
+	cmd.Flags().StringVar(&memo, "memo", "", "memo to persist on the posted transaction; omitted preserves existing text")
 	cmd.Flags().StringVar(&entityType, "entity-type", "Expense", "QBO entity type (Expense, Deposit)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_CATEGORISE")
 	return cmd
@@ -842,12 +851,12 @@ func newFeedRuleSaveCmd(flags *rootFlags, use, id string) *cobra.Command {
 	return cmd
 }
 
-// newFeedRuleDeleteCmd wires `feed rule delete` to neo lists/olbrules/delete.
+// newFeedRuleDeleteCmd wires `feed rule delete` to the UI's batchDelete route.
 func newFeedRuleDeleteCmd(flags *rootFlags) *cobra.Command {
 	var id string
 	cmd := &cobra.Command{
 		Use:   "delete",
-		Short: "Delete a bank rule (POST lists/olbrules/delete)",
+		Short: "Delete a bank rule (POST lists/olbrules/batchDelete)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fm := collectFlags(cmd)
 			if flags.dryRun {
@@ -856,7 +865,7 @@ func newFeedRuleDeleteCmd(flags *rootFlags) *cobra.Command {
 					ID:      "QBO.FEED.RULE_DELETE",
 					Method:  "POST",
 					URL:     client.PlannedRuleDeleteURL(),
-					Note:    "neo lists/olbrules/delete; not sent",
+					Note:    "neo lists/olbrules/batchDelete; not sent",
 					Flags:   fm,
 				})
 			}
@@ -999,4 +1008,224 @@ func feedStateCommand(use string) string {
 		return "feed txn population"
 	}
 	return "feed txn list " + use
+}
+
+// newFeedRecReportCmd implements `qb feed rec get`: the per-account
+// reconciliation session report via the captured Integration_Reconciliation
+// node read (replaces the former BalanceSheet stand-in).
+func newFeedRecReportCmd(flags *rootFlags, e primitiveEntry) *cobra.Command {
+	ff := &feedFlags{}
+	cmd := &cobra.Command{
+		Use:   "get",
+		Short: "reconciliation session report for an account",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if handled, err := dryRunGET(flags, cmd, "feed rec get", "QBO.FEED.REC_REPORT", client.PlannedReconcileURL(ff.accountID), "v4 Integration_Reconciliation node read; not sent"); handled {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayReconciliation(ctx, ff.accountID, "", ff.limit)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printQuery(cmd.OutOrStdout(), flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
+		"banking account id (defaults to "+client.DefaultAccountID+")")
+	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max rows")
+	applyCatalogHelp(cmd, e.ID)
+	return cmd
+}
+
+// newFeedRecRunCmd implements `qb feed rec run`: reconcileAction FINISH on
+// the account's open reconcile session — the UI's "accept the difference
+// and book an adjusting entry" path (verified live TC2 2026-09-19: session
+// closes and a DocNumber ADJ "Reconcile Adjustment" txn posts to the
+// adjusting account). Requires an open session (accounting reconcile
+// create); empty flags default from the session node read.
+func newFeedRecRunCmd(flags *rootFlags) *cobra.Command {
+	var (
+		accountID string
+		adjDate   string
+		adjAcct   string
+		rate      string
+		endDate   string
+	)
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Finish open reconcile session with an adjusting entry (FINISH)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				plan, err := client.PlanReconcileFinish(accountID, adjDate, adjAcct, rate, endDate)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				return writePlan(cmd, flags, planFromClient(cmd, "feed rec run", "QBO.FEED.REC_AUTO_ADJUST", modeWired, plan))
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayReconcileFinish(ctx, accountID, adjDate, adjAcct, rate, endDate)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&accountID, "account-id", "",
+		"bank account id with an open reconcile session (required)")
+	cmd.Flags().StringVar(&adjDate, "date", "",
+		"adjusting entry date yyyy-MM-dd (defaults to the statement ending date)")
+	cmd.Flags().StringVar(&adjAcct, "adjust-account", "",
+		"adjusting entry account — v3 account id or Relay node id (defaults to the account's Reconciliation Discrepancies account)")
+	cmd.Flags().StringVar(&rate, "exchange-rate", "",
+		"adjusting entry exchange rate (defaults to 1, the home-currency rate)")
+	cmd.Flags().StringVar(&endDate, "ending-date", "",
+		"statement ending date yyyy-MM-dd (defaults to the open session's date)")
+	applyCatalogHelp(cmd, "QBO.FEED.REC_AUTO_ADJUST")
+	return cmd
+}
+
+// newFeedUnpostCmd POSTs undoTransactions with reviewState ACCEPTED — the
+// Posted tab's Undo contract (verified live TC2 2026-09-19). Moves posted
+// feed rows back to pending and deletes the transaction the accept
+// created. --ids are olbTxnIds. Empty ids fail before network.
+func newFeedUnpostCmd(flags *rootFlags) *cobra.Command {
+	ff := &feedFlags{}
+	cmd := &cobra.Command{
+		Use:   "unpost",
+		Short: "Undo posted feed rows back to pending (POST undoTransactions)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				plan, err := client.PlanUnpost(ff.accountID, ff.ids)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				return writePlan(cmd, flags, planFromClient(cmd, "feed txn update unpost", "QBO.FEED.TXN_UNPOST", modeWired, plan))
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			if err := client.ReplayUnpost(ctx, ff.accountID, ff.ids); err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(map[string]any{"ok": true, "unposted": len(ff.ids)})
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "unposted %d olbTxnId(s) on account %s\n", len(ff.ids), ff.accountID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
+		"banking account id")
+	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to unpost (not :ofx display ids)")
+	applyCatalogHelp(cmd, "QBO.FEED.TXN_UNPOST")
+	return cmd
+}
+
+// newFeedTransferCmd POSTs batchAcceptTransactions?acceptOnly=true with each
+// pending row shaped as a transfer — the Transaction type=Transfer + Post
+// contract (verified live TC2 2026-09-19: acceptType TRANSFER, transfer:true,
+// addAsQboTxn.txnTypeId 26, details[0].categoryId = destination account).
+// --ids are olbTxnIds; --to-account-id is the destination bank/credit-card
+// account. Empty ids or destination fail before network.
+func newFeedTransferCmd(flags *rootFlags) *cobra.Command {
+	ff := &feedFlags{}
+	var toAccount string
+	cmd := &cobra.Command{
+		Use:   "transfer",
+		Short: "Post pending feed rows as transfers to another account (POST batchAcceptTransactions)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				plan, err := client.PlanTransfer(ff.accountID, ff.ids, toAccount)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				return writePlan(cmd, flags, planFromClient(cmd, "feed txn run transfer", "QBO.FEED.TXN_TRANSFER", modeWired, plan))
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			status, err := client.ReplayTransfer(ctx, ff.accountID, ff.ids, toAccount)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(map[string]any{"ok": true, "status": status, "transferred": len(ff.ids)})
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "transferred %d olbTxnId(s) on account %s to account %s\n", len(ff.ids), ff.accountID, toAccount)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
+		"banking account id")
+	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to post as transfers (not :ofx display ids)")
+	cmd.Flags().StringVar(&toAccount, "to-account-id", "", "destination bank/credit card account id (required)")
+	applyCatalogHelp(cmd, "QBO.FEED.TXN_TRANSFER")
+	return cmd
+}
+
+// newFeedTxnAttachCmd attaches a file and/or note to a posted QBO
+// transaction via the v3 Attachable entity (verified live TC2 2026-09-19):
+// --file uploads via POST /upload then sparse-links with AttachableRef;
+// --note alone creates a note-only attachable already linked. --id is the
+// posted transaction id and --txn-type its v3 entity type (Invoice, Bill,
+// Purchase, Transfer, ...). At least one of --note/--file is required.
+func newFeedTxnAttachCmd(flags *rootFlags) *cobra.Command {
+	var (
+		id      string
+		txnType string
+		note    string
+		file    string
+	)
+	cmd := &cobra.Command{
+		Use:   "attach",
+		Short: "Attach a file and/or note to a posted transaction (v3 upload + attachable link)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				plan, err := client.PlanTxnAttach(txnType, id, note, file)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				return writePlan(cmd, flags, planFromClient(cmd, "feed txn run attach", "QBO.FEED.TXN_ATTACH", modeWired, plan))
+			}
+			var content []byte
+			var filename string
+			if strings.TrimSpace(file) != "" {
+				raw, err := os.ReadFile(file)
+				if err != nil {
+					return feedErr(flags, fmt.Errorf("reading attach file: %w", err))
+				}
+				content = raw
+				filename = filepath.Base(file)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayTxnAttach(ctx, txnType, id, note, filename, content)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(res)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "attached %s %s to %s %s (attachable %s)\n",
+				res.FileName, res.Note, res.TxnType, res.TxnID, res.AttachableID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "posted transaction id to attach to (required)")
+	cmd.Flags().StringVar(&txnType, "txn-type", "", "v3 entity type of --id: Invoice, Bill, Purchase, Transfer, ... (required)")
+	cmd.Flags().StringVar(&note, "note", "", "note text to attach (optional when --file is given)")
+	cmd.Flags().StringVar(&file, "file", "", "file to upload and link — PDF/PNG/JPG/CSV/TXT")
+	applyCatalogHelp(cmd, "QBO.FEED.TXN_ATTACH")
+	return cmd
 }

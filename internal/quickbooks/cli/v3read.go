@@ -18,26 +18,31 @@ type v3Spec struct {
 }
 
 var v3ByID = map[string]v3Spec{
-	"QBO.ACCOUNTING.BUDGET_READ":                  {Entity: "Budget"},
-	"QBO.ACCOUNTING.BUDGET_SEARCH":                {Entity: "Budget"},
-	"QBO.ACCOUNTING.CLASS_READ":                   {Entity: "Class"},
-	"QBO.ACCOUNTING.CLASS_SEARCH":                 {Entity: "Class"},
-	"QBO.ACCOUNTING.COA_READ":                     {Entity: "Account"},
-	"QBO.ACCOUNTING.COA_SEARCH":                   {Entity: "Account"},
-	"QBO.ACCOUNTING.DEPARTMENT_READ":              {Entity: "Department"},
-	"QBO.ACCOUNTING.DEPARTMENT_SEARCH":            {Entity: "Department"},
-	"QBO.ACCOUNTING.DEPOSIT_READ":                 {Entity: "Deposit"},
-	"QBO.ACCOUNTING.JOURNAL_READ":                 {Entity: "JournalEntry"},
-	"QBO.ACCOUNTING.LOCATION_READ":                {Entity: "Department"},
-	"QBO.ACCOUNTING.RECURRING_READ":               {Entity: "RecurringTransaction"},
-	"QBO.ACCOUNTING.RECURRING_SEARCH":             {Entity: "RecurringTransaction"},
-	"QBO.ACCOUNTING.TRANSFER_READ":                {Entity: "Transfer"},
-	"QBO.ACCOUNTING.PROJECT_READ":                 {Entity: "Customer"},
-	"QBO.ACCOUNTING.PROJECT_SEARCH":               {Entity: "Customer"},
+	"QBO.ACCOUNTING.BUDGET_READ":         {Entity: "Budget"},
+	"QBO.ACCOUNTING.BUDGET_SEARCH":       {Entity: "Budget"},
+	"QBO.ACCOUNTING.BUDGET_PLANNING_GET": {Entity: "BudgetPlanning"},
+	"QBO.ACCOUNTING.CLASS_READ":          {Entity: "Class"},
+	"QBO.ACCOUNTING.CLASS_SEARCH":        {Entity: "Class"},
+	"QBO.ACCOUNTING.COA_READ":            {Entity: "Account"},
+	"QBO.ACCOUNTING.COA_SEARCH":          {Entity: "Account"},
+	"QBO.ACCOUNTING.DEPARTMENT_READ":     {Entity: "Department"},
+	"QBO.ACCOUNTING.DEPARTMENT_SEARCH":   {Entity: "Department"},
+	"QBO.ACCOUNTING.DEPOSIT_READ":        {Entity: "Deposit"},
+	"QBO.ACCOUNTING.FIXED_ASSET_READ":    {Entity: "FixedAsset"},
+	"QBO.ACCOUNTING.FIXED_ASSET_SEARCH":  {Entity: "FixedAsset"},
+	"QBO.ACCOUNTING.JOURNAL_READ":        {Entity: "JournalEntry"},
+	"QBO.ACCOUNTING.LOCATION_READ":       {Entity: "Department"},
+	"QBO.ACCOUNTING.RECURRING_READ":      {Entity: "RecurringTransaction"},
+	"QBO.ACCOUNTING.RECURRING_SEARCH":    {Entity: "RecurringTransaction"},
+	"QBO.ACCOUNTING.TRANSFER_READ":       {Entity: "Transfer"},
+
 	"QBO.ACCOUNTING.PREPAID_READ":                 {Entity: "PrepaidSchedule"},
 	"QBO.ACCOUNTING.REVENUE_RECOGNITION_READ":     {Entity: "RevenueRecognition"},
+	"QBO.ACCOUNTING.RECONCILE_READ":               {Entity: "Reconciliation"},
+	"QBO.ACCOUNTING.TAXCONFIG_MIRROR_GET":         {Entity: "TaxConfigGroup"},
 	"QBO.ADVANCED.CUSTOM_ROLES_READ":              {Entity: "Role"},
 	"QBO.ADVANCED.WORKFLOWS_READ":                 {Entity: "Workflow"},
+	"QBO.INTEGRATIONS.WORKFLOW_AUTOMATION_GET":    {Entity: "Workflow"},
 	"QBO.COMPANY.ATTACHABLE_READ":                 {Entity: "Attachable"},
 	"QBO.COMPANY.ATTACHABLE_SEARCH":               {Entity: "Attachable"},
 	"QBO.COMPANY.ATTACHMENT_READ":                 {Entity: "Attachable"},
@@ -57,7 +62,16 @@ var v3ByID = map[string]v3Spec{
 	"QBO.COMPANY.PAYMENT_METHOD_READ":             {Entity: "PaymentMethod"},
 	"QBO.COMPANY.PREFERENCES_READ":                {Entity: "Preferences"},
 	"QBO.COMPANY.ROLE_READ":                       {Entity: "Role"},
+	"QBO.COMPANY.MARKETING_READ":                  {Entity: "MarketingOffer"},
+	"QBO.COMPANY.TAG_READ":                        {Entity: "Tag"},
 	"QBO.COMPANY.SETTINGS_READ":                   {Entity: "Preferences"},
+	"QBO.COMPANY.USER_READ":                       {Entity: "IdentityUser"},
+	"QBO.COMPANY.IDENTITY_GET":                    {Entity: "IdentityAccount"},
+	"QBO.COMPANY.SETTINGS_FACADE_GET":             {Entity: "SettingsFacade"},
+	"QBO.COMPANY.CUSTOM_EXTENSIONS_LIST":          {Entity: "CustomExtension"},
+	"QBO.COMPANY.EXPERIMENT_ASSIGNMENT_GET":       {Entity: "ExperimentAssignment"},
+	"QBO.TAX.EXPERIMENT_ASSIGNMENT_GET":           {Entity: "ExperimentAssignment"},
+	"QBO.EXPENSES.PAYMENT_ACCOUNT_GET":            {Entity: "PaymentAccount"},
 	"QBO.CUSTOMERS.CUSTOMER_READ":                 {Entity: "Customer"},
 	"QBO.CUSTOMERS.CUSTOMER_SEARCH":               {Entity: "Customer"},
 	"QBO.CUSTOMERS.CUSTOMER_TYPE_READ":            {Entity: "CustomerType"},
@@ -77,14 +91,17 @@ var v3ByID = map[string]v3Spec{
 	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_SEARCH":     {Entity: "CreditCardPayment"},
 	"QBO.EXPENSES.EXPENSE_READ":                   {Entity: "Purchase"},
 	"QBO.EXPENSES.EXPENSE_SEARCH":                 {Entity: "Purchase"},
-	"QBO.EXPENSES.RECEIPT_READ":                   {Entity: "Attachable"},
-	"QBO.EXPENSES.RECEIPT_SEARCH":                 {Entity: "Attachable"},
 	"QBO.EXPENSES.SUPPLIER_READ":                  {Entity: "Vendor"},
 	"QBO.EXPENSES.SUPPLIER_SEARCH":                {Entity: "Vendor"},
 	"QBO.EXPENSES.TIME_ACTIVITY_READ":             {Entity: "TimeActivity"},
 	"QBO.EXPENSES.TIME_ACTIVITY_SEARCH":           {Entity: "TimeActivity"},
 	"QBO.EXPENSES.VENDOR_CREDIT_READ":             {Entity: "VendorCredit"},
 	"QBO.EXPENSES.PURCHASE_SEARCH":                {Entity: "Purchase"},
+	"QBO.EXPENSES.OVERVIEW_READ":                  {Entity: "ExpensesOverview"},
+	"QBO.EXPENSES.BILL_PAY_ONBOARDING_GET":        {Entity: "BillPayOnboarding"},
+	"QBO.EXPENSES.STAGETXN_GET":                   {Entity: "StageTransaction"},
+	"QBO.EXPENSES.B2B_BILLPAY_GET":                {Entity: "B2BBillpay"},
+	"QBO.EXPENSES.B2B_NETWORK_GET":                {Entity: "B2BNetwork"},
 	"QBO.INVENTORY.ADJUST_READ":                   {Entity: "InventoryAdjustment"},
 	"QBO.INVENTORY.ADJUST_SEARCH":                 {Entity: "InventoryAdjustment"},
 	"QBO.INVENTORY.ITEM_READ":                     {Entity: "Item"},
@@ -95,6 +112,7 @@ var v3ByID = map[string]v3Spec{
 	"QBO.INVENTORY.OVERVIEW_SEARCH":               {Entity: "InventoryOverviewSearch"},
 	"QBO.INVENTORY.PURCHASE_ORDER_READ":           {Entity: "PurchaseOrder"},
 	"QBO.INVENTORY.PURCHASE_ORDER_SEARCH":         {Entity: "PurchaseOrder"},
+	"QBO.INVENTORY.WAREHOUSE_SERVICE_GET":         {Entity: "InventoryLocation"},
 	"QBO.PAYROLL.EMPLOYEE_READ":                   {Entity: "Employee"},
 	"QBO.PAYROLL.EMPLOYEE_SEARCH":                 {Entity: "Employee"},
 	"QBO.PAYROLL.TIMESHEET_READ":                  {Entity: "TimeActivity"},
@@ -110,10 +128,17 @@ var v3ByID = map[string]v3Spec{
 	"QBO.SALES.SALES_ORDER_SEARCH":                {Entity: "SalesOrder"},
 	"QBO.SALES.HUB_READ":                          {Entity: "SalesHub"},
 	"QBO.SALES.HUB_SEARCH":                        {Entity: "SalesHub"},
+	"QBO.SALES.OVERVIEW_READ":                     {Entity: "SalesOverview"},
+	"QBO.SALES.SALESTXN_RISK_GET":                 {Entity: "SalesTxnRisk"},
+	"QBO.SALES.QBONLINE_GRAPHQL_GET":              {Entity: "QBOnlineGraphql"},
 	"QBO.TAX.CODE_READ":                           {Entity: "TaxCode"},
 	"QBO.TAX.CODE_SEARCH":                         {Entity: "TaxCode"},
 	"QBO.TAX.TAX_AGENCY_READ":                     {Entity: "TaxAgency"},
 	"QBO.TAX.TAX_RATE_READ":                       {Entity: "TaxRate"},
+	"QBO.TAX.BAS_READ":                            {Entity: "TaxReturn"},
+	"QBO.TAX.IAS_READ":                            {Entity: "TaxReturn"},
+	"QBO.TAX.INDIRECT_REPORTS_GET":                {Entity: "TaxLiability"},
+	"QBO.TAX.NEXUS_GET":                           {Entity: "TaxJurisdiction"},
 	"QBO.TAX.TPAR_READ":                           {Report: "TAXABLE_PAYMENTS"},
 	"QBO.REPORTS.REPORT_READ":                     {Report: "ProfitAndLoss"},
 	"QBO.REPORTS.CASH_FLOW_READ":                  {Report: "CashFlow"},
@@ -143,6 +168,8 @@ var v3ByID = map[string]v3Spec{
 	"QBO.REPORTS.ACCOUNT_LIST_READ":               {Report: "AccountList"},
 	"QBO.REPORTS.CUSTOM_READ":                     {Entity: "Folio"},
 	"QBO.REPORTS.MANAGEMENT_READ":                 {Entity: "ManagementFolio"},
+	"QBO.REPORTS.FORECAST_READ":                   {Entity: "BusinessForecast"},
+	"QBO.REPORTS.PERFORMANCE_READ":                {Entity: "PerformanceMetric"},
 }
 
 func maybeV3Cmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Command {
@@ -157,6 +184,88 @@ func maybeV3Cmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Comma
 	}
 	if e.ID == "QBO.COMPANY.CUSTOM_FIELD_EDIT" {
 		return newCustomFieldMutateCmd(flags, e, command, "update")
+	}
+	if e.ID == "QBO.COMPANY.CUSTOM_FIELD_DELETE" {
+		return newCustomFieldDeleteCmd(flags, e, command)
+	}
+	switch e.ID {
+	case "QBO.ACCOUNTING.PROJECT_CREATE", "QBO.ACCOUNTING.PROJECT_EDIT",
+		"QBO.ACCOUNTING.PROJECT_READ", "QBO.ACCOUNTING.PROJECT_SEARCH":
+		return newProjectCmd(flags, e, command)
+	case "QBO.EXPENSES.MILEAGE_READ", "QBO.EXPENSES.MILEAGE_SEARCH":
+		return newMileageCmd(flags, e, command)
+	case "QBO.EXPENSES.MILEAGE_CREATE":
+		return newTripMutateCmd(flags, e, command, "create")
+	case "QBO.EXPENSES.MILEAGE_EDIT":
+		return newTripMutateCmd(flags, e, command, "update")
+	case "QBO.EXPENSES.MILEAGE_DELETE":
+		return newTripMutateCmd(flags, e, command, "delete")
+	case "QBO.ACCOUNTING.RECONCILE_CREATE":
+		return newReconcileCreateCmd(flags, e, command)
+	case "QBO.ACCOUNTING.FIXED_ASSET_CREATE":
+		return newFixedAssetCmd(flags, e, command, "create")
+	case "QBO.ACCOUNTING.FIXED_ASSET_EDIT":
+		return newFixedAssetCmd(flags, e, command, "update")
+	case "QBO.ACCOUNTING.FIXED_ASSET_DELETE":
+		return newFixedAssetCmd(flags, e, command, "delete")
+	case "QBO.COMPANY.SETTINGS_EDIT":
+		return newSettingsUpdateCmd(flags, e, command)
+	case "QBO.COMPANY.CURRENCY_EDIT":
+		return newCurrencyRateCmd(flags, e, command)
+	case "QBO.COMPANY.CURRENCY_DELETE":
+		return newCurrencyDeleteCmd(flags, e, command)
+	case "QBO.ADVANCED.RECLASSIFY_RUN":
+		return newReclassifyCmd(flags, e, command)
+	case "QBO.COMPANY.FORM_STYLE_EDIT":
+		return newFormStyleUpdateCmd(flags, e, command)
+	case "QBO.SALES.INVOICE_FORM_DELETE":
+		return newFormStyleDeleteCmd(flags, e, command)
+	case "QBO.ADVANCED.BACKUP_CREATE":
+		return newBackupCreateCmd(flags, e, command)
+	case "QBO.COMPANY.CUSTOMERS_IMPORT":
+		return newCustomersImportCmd(flags, e, command)
+	case "QBO.COMPANY.SUPPLIERS_IMPORT":
+		return newSuppliersImportCmd(flags, e, command)
+	case "QBO.COMPANY.BILLS_IMPORT", "QBO.EXPENSES.BILL_IMPORT":
+		return newBillsImportCmd(flags, e, command)
+	case "QBO.SALES.INVOICE_LIST_CREATE":
+		return newInvoicesImportCmd(flags, e, command)
+	case "QBO.COMPANY.COA_IMPORT":
+		return newCoaImportCmd(flags, e, command)
+	case "QBO.COMPANY.ITEMS_IMPORT":
+		return newItemsImportCmd(flags, e, command)
+	case "QBO.EXPENSES.RECEIPT_UPLOAD":
+		return newReceiptUploadCmd(flags, e, command)
+	case "QBO.EXPENSES.RECEIPT_EXPENSE_CREATE":
+		return newReceiptExpenseCreateCmd(flags, e, command)
+	case "QBO.SALES.STATEMENT_CREATE":
+		return newStatementCreateCmd(flags, e, command)
+	case "QBO.EXPENSES.EXPENSE_SPLIT":
+		return newExpenseSplitCmd(flags, e, command)
+	case "QBO.EXPENSES.CHEQUE_REPRINT":
+		return newChequeExportCmd(flags, e, command)
+	case "QBO.SALES.TIME_INVOICE_CREATE":
+		return newTimeInvoiceCmd(flags, e, command)
+	case "QBO.SALES.INVOICE_REMIND":
+		return newInvoiceRemindCmd(flags, e, command)
+	case "QBO.SALES.CREDIT_CARD_CREDIT_CREATE":
+		return newCreditCardCreditCmd(flags, e, command)
+	case "QBO.SALES.INVOICE_PROGRESS":
+		return newInvoiceProgressCmd(flags, e, command)
+	case "QBO.SALES.DELAYED_CHARGE_CREATE":
+		return newDelayedChargeCmd(flags, e, command, "charge")
+	case "QBO.SALES.DELAYED_CREDIT_CREATE":
+		return newDelayedChargeCmd(flags, e, command, "credit")
+	case "QBO.CUSTOMERS.CUSTOMER_MERGE":
+		return newMergeCmd(flags, e, command, "Customer")
+	case "QBO.EXPENSES.SUPPLIER_MERGE":
+		return newMergeCmd(flags, e, command, "Vendor")
+	case "QBO.EXPENSES.CHEQUE_BOUNCE":
+		return newChequeBounceCmd(flags, e, command)
+	case "QBO.CUSTOMERS.CUSTOMER_CREDIT_TRANSFER":
+		return newCreditTransferCmd(flags, e, command)
+	case "QBO.COMPANY.CURRENCY_REVALUE":
+		return newCurrencyRevalueCmd(flags, e, command)
 	}
 
 	if m := maybeV3MutateCmd(flags, e, command); m != nil {
@@ -184,6 +293,10 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 	if entity == "SalesOrder" {
 		short = command + " (commercecontrol GetSalesOrders)"
 		dryNote = "commercecontrol GetSalesOrders POST; not sent"
+	}
+	if entity == "Tag" {
+		short = command + " (tags.api GET tags)"
+		dryNote = "tags.api GET tags; not sent"
 	}
 	if entity == "RevenueRecognition" {
 		short = command + " (sbseggraphqlorch accountingDeferredTransactionLineDetailsOp)"
@@ -253,6 +366,10 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 		short = command + " (roles.api accountRoles)"
 		dryNote = "roles.api accountRoles POST; not sent"
 	}
+	if entity == "MarketingOffer" {
+		short = command + " (personalization.api ipd placement)"
+		dryNote = "personalization.api POST /v1/experience/ipd/placement/<id>; not sent"
+	}
 	if entity == "FormStyle" {
 		short = command + " (txnsrendering /v2/customizations)"
 		dryNote = "txnsrendering GET /v2/customizations; not sent"
@@ -276,6 +393,22 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 	if entity == "Task" {
 		short = command + " (v4 graphql TaskManagementTasks)"
 		dryNote = "v4 graphql TaskManagementTasks POST; not sent"
+	}
+	if entity == "TaxReturn" {
+		short = command + " (v4 graphql indirect-tax taxReturns)"
+		dryNote = "v4 graphql node__indirect_tax_ui_qbo POST; not sent"
+	}
+	if entity == "BusinessForecast" {
+		short = command + " (planningforecasting getAllBusinessForecasts)"
+		dryNote = "planningforecasting getAllBusinessForecasts POST; not sent"
+	}
+	if entity == "PerformanceMetric" {
+		short = command + " (universalreportinsights /v1/metrics)"
+		dryNote = "universalreportinsights POST /v1/metrics/<Metric>; not sent"
+	}
+	if entity == "FixedAsset" {
+		short = command + " (assetservice financeAssets)"
+		dryNote = "assetservice financeAssets POST; not sent"
 	}
 	cmd := &cobra.Command{
 		Use:   use,

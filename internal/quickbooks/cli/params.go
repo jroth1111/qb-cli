@@ -59,6 +59,19 @@ func paramsFor(id string) []paramDoc {
 	} else {
 		out = inferredParams(id)
 	}
+	if id == "QBO.EXPENSES.EXPENSE_EDIT" {
+		out = append(out, p("memo", "string", "replace the non-empty expense memo; omitted preserves it", false, ""))
+	}
+	if id == "QBO.SALES.INVOICE_REMIND" {
+		out = append(out, p("send", "bool", "explicitly send a real email; default is preview; verification harnesses refuse sending", false, "false"), p("to", "string", "explicit recipient email; otherwise invoice/customer email", false, ""))
+	}
+	if id == "QBO.FEED.TXN_CATEGORISE" {
+		for i := range out {
+			if out[i].Name == "class" {
+				out[i].Help = "class id; none clears the existing suggestion; omitted preserves it"
+			}
+		}
+	}
 	return canonicalTimeHelp(canonicalFileHelp(canonicalLineItemsHelp(out, id), id), id)
 }
 
@@ -94,6 +107,8 @@ func ruleConditionFlagDocs() []paramDoc {
 	return []paramDoc{
 		p("bank-text", "string", "match on bank text (statement detail as sent by the bank)", false, ""),
 		p("bank-text-op", "string", "bank-text operator: contains (default), is_exactly, does_not_contain", false, ""),
+		p("bank-text-exclude", "string", "additional bank-text Does not contain condition (for example FEE); combines with --bank-text using ALL", false, ""),
+		p("bank-text-exclude-2", "string", "second bank-text Does not contain condition; requires --bank-text and --bank-text-exclude", false, ""),
 		p("description", "string", "match on the bank transaction description text", false, ""),
 		p("description-op", "string", "description operator: contains (default), is_exactly, does_not_contain", false, ""),
 		p("amount", "string", "match on the bank transaction amount value", false, ""),
@@ -151,8 +166,21 @@ func reportParamDocs(id, report string) []paramDoc {
 // CSV rows are wrong and must not reach agents. Exempted: feed split lines,
 // which are genuinely comma-separated categoryId=amount pairs parsed by
 // parseSplitLines — overwriting them would lie in the other direction.
+// Delayed charge/credit line-items are also corrected here, but to their own
+// truth: {item, qty?, rate?, amount?} rows parsed by parseDelayedLines —
+// not v3 line objects, and not the generated "item or account ... GST" text
+// (the v4 non-posting contract carries products/services only).
 func canonicalLineItemsHelp(ps []paramDoc, id string) []paramDoc {
+	delayed := id == "QBO.SALES.DELAYED_CHARGE_CREATE" || id == "QBO.SALES.DELAYED_CREDIT_CREATE"
 	for i, prm := range ps {
+		if id == "QBO.SALES.CREDIT_CARD_CREDIT_CREATE" && prm.Name == "line-items" {
+			ps[i].Help = "JSON array of {account, amount, description?} rows (v4 credit-card-credit contract)"
+			continue
+		}
+		if delayed && prm.Name == "line-items" {
+			ps[i].Help = "JSON array of {item, qty?, rate?, amount?, description?} — item is a product/service name or id; amount defaults to qty*rate, qty to 1"
+			continue
+		}
 		if prm.Name == "line-items" || (prm.Name == "lines" && id != "QBO.FEED.TXN_SPLIT") ||
 			(prm.Name == "items" && (id == "QBO.INVENTORY.PURCHASE_ORDER_CREATE" || id == "QBO.INVENTORY.PURCHASE_ORDER_EDIT")) {
 			ps[i].Help = "JSON array of v3 line objects (CSV rows are rejected, never coerced); set TaxCodeRef per line for GST; verify with --dry-run before posting"
@@ -242,6 +270,16 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("id", "strings", "GL account id to disconnect, repeatable or comma-separated (required)", true, ""),
 		}, true
+	case "QBO.COMPANY.MARKETING_READ":
+		// In-product marketing offers ride personalization.api
+		// /v1/experience/ipd/placement/{placement} — captured 2026-09-19 on
+		// /app/usermgt (AdvancedShellBanner → live offer row). --id selects
+		// the placement; --limit maps to numberOfRecommendations.
+		return []paramDoc{
+			p("id", "string", "placement name (AdvancedShellBanner, UserMgtTop, QBOModalInterrupters, ...) — defaults to AdvancedShellBanner", false, ""),
+			p("query", "string", "substring match on offer name, CTA text, or body copy (case-insensitive)", false, ""),
+			p("limit", "int", "max offers to return (maps to the service's numberOfRecommendations)", false, "20"),
+		}, true
 	case "QBO.FEED.TXN_PENDING", "QBO.FEED.TXN_POSTED", "QBO.FEED.TXN_EXCLUDED":
 		return []paramDoc{
 			p("account-id", "string", "banking account id (see feed account list)", false, "204"),
@@ -257,6 +295,48 @@ func wiredParams(id string) ([]paramDoc, bool) {
 	case "QBO.FEED.TXN_VERIFY":
 		return []paramDoc{
 			p("account-id", "string", "banking account id to completeness-check against the server count", false, "204"),
+		}, true
+	case "QBO.FEED.REC_AUTO_ADJUST":
+		// FinishReconcile on the account's open session — the UI's
+		// "accept the difference, book an adjusting entry" path. Field set
+		// decoded from the reconcile-ui bundle and proven live TC2
+		// 2026-09-19: reconcileAction FINISH + adjustingEntryDate +
+		// adjustingEntryAccount{id} + adjustingEntryExchangeRate +
+		// effectiveStatementEndingDate; session closes and a DocNumber ADJ
+		// "Reconcile Adjustment" txn posts.
+		return []paramDoc{
+			p("account-id", "string", "bank account id with an open reconcile session (required)", true, ""),
+			p("date", "string", "adjusting entry date yyyy-MM-dd (defaults to the statement ending date)", false, ""),
+			p("adjust-account", "string", "adjusting entry account — v3 account id or Relay node id (defaults to the account's Reconciliation Discrepancies account)", false, ""),
+			p("exchange-rate", "string", "adjusting entry exchange rate (defaults to 1, the home-currency rate)", false, ""),
+			p("ending-date", "string", "statement ending date yyyy-MM-dd (defaults to the open session's date)", false, ""),
+		}, true
+	case "QBO.FEED.TXN_UNPOST":
+		// undoTransactions with nextTxnInfo.reviewState ACCEPTED — the
+		// Posted tab's Undo contract (verified live TC2 2026-09-19).
+		return []paramDoc{
+			p("ids", "strings", "posted transaction ids to undo back to pending — olbTxnId only, never display :ofx ids", true, ""),
+			p("account-id", "string", "connected bank/credit-card account that owns the rows", false, "204"),
+		}, true
+	case "QBO.FEED.TXN_TRANSFER":
+		// batchAcceptTransactions?acceptOnly=true with acceptType TRANSFER,
+		// transfer:true, addAsQboTxn.txnTypeId 26 and details[0].categoryId
+		// as the destination account (verified live TC2 2026-09-19).
+		return []paramDoc{
+			p("ids", "strings", "pending transaction ids to post as transfers — olbTxnId only, never display :ofx ids", true, ""),
+			p("to-account-id", "string", "destination bank/credit card account id (required)", true, ""),
+			p("account-id", "string", "connected bank/credit-card account that owns the rows", false, "204"),
+		}, true
+	case "QBO.FEED.TXN_ATTACH":
+		// v3 Attachable link on a posted transaction: --file rides
+		// POST /upload + sparse POST /attachable AttachableRef; --note
+		// alone creates a note attachable already linked (verified live
+		// TC2 2026-09-19 on Invoice 7).
+		return []paramDoc{
+			p("id", "string", "posted transaction id to attach to — target QBO record id (not a bank-feed :ofx display id)", true, ""),
+			p("txn-type", "string", "v3 entity type of --id: Invoice, Bill, Purchase, Transfer, ... (required)", true, ""),
+			p("note", "string", "note text to attach (optional when --file is given)", false, ""),
+			p("file", "string", "file to upload and link — PDF/PNG/JPG/CSV/TXT; at least one of --note/--file is required", false, ""),
 		}, true
 	case "QBO.FEED.TXN_POPULATION_ALL":
 		return []paramDoc{
@@ -309,8 +389,13 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("id", "string", "v3 Purchase (posted expense) id to recategorise (required)", true, ""),
 			p("category-id", "string", "GL account id applied as the new category on account-based lines", false, ""),
+			p("class-id", "string", "Class id on the selected line; none clears its Class; requires --line-id", false, ""),
+			p("expected-sync-token", "string", "abort before mutation if the Purchase SyncToken differs from this expected value", false, ""),
+			p("expected-category-id", "string", "abort if the selected line category changed", false, ""),
+			p("expected-class-id", "string", "abort if the selected line Class changed; none for blank", false, ""),
 			p("payee-id", "string", "vendor or customer id applied as the new payee (EntityRef)", false, ""),
 			p("line-id", "string", "only recategorise this Purchase line id; omit for all account-based lines", false, ""),
+			p("repair-credit-card-type", "bool", "explicitly convert a legacy Check funded by a verified credit-card account to CreditCard; may not be reversible", false, "false"),
 		}, true
 	case "QBO.ACCOUNTING.PREPAID_READ":
 		// Schedule fetch keyed solely by --source-id; the cobra command
@@ -382,19 +467,54 @@ func wiredParams(id string) ([]paramDoc, bool) {
 			p("billable", "string", "mark a line billable to a customer/project", false, ""),
 			p("project", "string", "assign line items to a project", false, ""),
 		}, true
+	case "QBO.EXPENSES.GIFT_CERTIFICATE_CREATE":
+		// v3 Purchase cash expense whose line posts to an Other Current
+		// Asset (prepaid voucher) account instead of an expense account.
+		// Verified live TC2 2026-09-19: supplier 3, cash side bank 44,
+		// OCA line account 80, PaymentType Cash — deleted afterwards via
+		// the form-delete path (v3 delete/void unsupported on AU build).
+		return []paramDoc{
+			p("supplier", "string", "supplier/vendor id the voucher was bought from (required)", true, ""),
+			p("amount", "string", "AUD face value, held as a prepaid asset until redeemed (required)", true, ""),
+			p("payment-account", "string", "bank or credit card account the voucher was paid from (required)", true, ""),
+			p("asset-account", "string", "Other Current Asset account carrying the voucher until redemption (required)", true, ""),
+			p("date", "string", "purchase date dd/MM/yyyy (defaults to today)", false, ""),
+		}, true
 	case "QBO.EXPENSES.BILL_PAYMENT_DELETE":
 		return []paramDoc{
 			p("id", "string", "target bill-payment id to delete, unapplying it from the bill (required)", true, ""),
 		}, true
 	case "QBO.SALES.CREDIT_CARD_CREDIT_CREATE":
-		// Purchase-backed like cheque/expense: the builder demands the
-		// cash side and a distinct category account at runtime.
+		// v4 transaction-form contract (v3 creditcardcredit unsupported on
+		// this build): one header account — the card — and per-line category
+		// accounts. --account is a cash-side alias like cheque/expense;
+		// --category-account defaults line rows that omit `account`.
 		return []paramDoc{
 			p("credit-card-account", "string", "credit card account the credit is recorded against (required)", true, ""),
 			p("date", "string", "date of the credit as dd/MM/yyyy (required)", true, ""),
-			p("account", "string", "cash-side account id, usually the same card account (required)", true, ""),
-			p("category-account", "string", "expense/category account id, must differ from the cash side (required)", true, ""),
-			p("line-items", "string", "JSON array of v3 line objects (required)", true, ""),
+			p("account", "string", "cash-side alias for the card account — must resolve to the same account when both are given", false, ""),
+			p("category-account", "string", "default expense/category account for --line-items rows that omit account", false, ""),
+			p("line-items", "string", "JSON array of {account, amount, description?} rows (required)", true, ""),
+		}, true
+	case "QBO.SALES.INVOICE_PROGRESS":
+		// v4 progress-invoice contract: a partial SALE_INVOICE consuming an
+		// estimate via links.sources. --estimate carries the source quote;
+		// --id is a record-id alias for it; --percent picks the billed share.
+		return []paramDoc{
+			p("estimate", "string", "source quote id or doc number — progress invoicing must be enabled in Sales settings (required)", true, ""),
+			p("percent", "string", "percent of the quote to bill on this invoice (default 100)", false, ""),
+			p("id", "string", "record-id alias for --estimate", false, ""),
+		}, true
+	case "QBO.EXPENSES.CHEQUE_BOUNCE":
+		// v3 JournalEntry reversal (AU doc procedure — no form bounce action
+		// exists): --id is the v3 Payment id whose cheque bounced. The
+		// declared set {id,date,fee} matches firstParams, so only the help
+		// text is authored here — and the gen help takes precedence anyway;
+		// keep this case so the wired contract is explicit.
+		return []paramDoc{
+			p("id", "string", "v3 Payment id for the bounced cheque (required)", true, ""),
+			p("date", "string", "reversal date dd/MM/yyyy (default today)", false, ""),
+			p("fee", "string", "bank bounce fee amount — debits the 'Bank charges and fees' account (optional)", false, ""),
 		}, true
 	case "QBO.ACCOUNTING.JOURNAL_CREATE":
 		// Bulk-create path: one --items-json array, not per-entry flags.
@@ -419,7 +539,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("query", "string", "substring match on id, olbTxnId, or description (hyphens fold to spaces)", true, ""),
 			p("account-id", "string", "banking account id", false, "204"),
-			p("limit", "int", "max rows per review state", false, "20"),
+			p("limit", "int", "max matching rows returned after all pages are searched", false, "20"),
 		}, true
 	case "QBO.FEED.TXN_EXCLUDE", "QBO.FEED.TXN_UNDO_EXCLUDED":
 		return []paramDoc{
@@ -431,6 +551,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 			p("ids", "strings", "pending downloaded olbTxnIds to categorise and post — never display ids like 32371:ofx", true, ""),
 			p("category", "string", "account/category id to post to — drives P&L and BAS/GST reporting (e.g. 7)", true, ""),
 			p("class", "string", "class id to assign (optional; classes segment reports by department or location)", false, ""),
+			p("memo", "string", "memo to persist on the posted transaction; omitted preserves existing text", false, ""),
 			p("entity-type", "string", "QBO entity created for the row (default Expense; Deposit for income rows)", false, "Expense"),
 			p("account-id", "string", "connected bank/credit-card account that owns the feed row", false, "204"),
 		}, true
@@ -455,7 +576,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		}, true
 	case "QBO.FEED.TXN_IMPORT":
 		return []paramDoc{
-			p("account-id", "string", "CSV-import account only (209). Refuses live OAuth 204 and 93. Cannot import to a subaccount", true, ""),
+			p("account-id", "string", "explicit CSV-import account from feed account list; TC2 test account 44 works, 209 is inactive there; refuses 204 and 93", true, ""),
 			p("file", "string", "CSV bank-statement file staged via uploadCsvFile then processed row by row (optional)", false, ""),
 			p("description", "string", "bank description for single-row import without --file (label test rows)", true, ""),
 			p("amount", "string", "numeric amount for single-row import; income positive, expense negative", true, ""),
@@ -682,6 +803,12 @@ func notesFor(e primitiveEntry) string {
 }
 
 func auHelpNote(id string) string {
+	if id == "QBO.EXPENSES.RECEIPT_DELETE" || id == "QBO.EXPENSES.RECEIPT_READ" || id == "QBO.EXPENSES.RECEIPT_SEARCH" {
+		return "OCR receipts use financialdocument/stagetransactions, not v3 Attachable IDs. This alias is blocked until a complete staged-receipt read/delete contract is verified. Use the receipts UI; company attachable commands operate on a different resource."
+	}
+	if id == "QBO.FEED.TXN_UNPOST" {
+		return "Posted Undo returns the feed row to Pending and can delete the expense created when it was posted. It is not the expense editor's preserving Unmatch action. When the accounting record must remain, use the expense editor's online banking match control and verify the retained record. Undoing a reconciled row can unbalance the reconciliation."
+	}
 	if s := auNoteAll[id]; s != "" {
 		return s
 	}

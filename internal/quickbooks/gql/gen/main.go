@@ -32,6 +32,7 @@ const (
 	EndpointWarehouse  = routes.EndpointWarehouse
 	EndpointCommerce   = routes.EndpointCommerceControl
 	EndpointSpendLists = routes.EndpointSpendLists
+	EndpointCES        = routes.EndpointCES
 
 	KindQuery    = "query"
 	KindMutation = "mutation"

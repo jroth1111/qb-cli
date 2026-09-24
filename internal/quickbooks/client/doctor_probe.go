@@ -16,8 +16,25 @@ func ProbeSession(ctx context.Context) (ok bool, httpStatus int, detail string) 
 		return false, 0, "no usable credentials: " + err.Error()
 	}
 	// A diagnostic observes the saved session, without renewing it or opening
-	// another browser when the server reports expired credentials.
-	resp, err := ac.doStdlibJSON(ctx, http.MethodGet, ac.baseURL()+"/getInitialData", nil, "")
+	// another browser when the server reports expired credentials. Mirrors
+	// ReplayAccounts: the legacy ATS path can reject a session the neo feed
+	// endpoint still accepts, so the probe tries both before declaring stale.
+	ac.skipRemint = true
+	ok, status, detail := probeGetInitialData(ctx, ac, ac.baseURL()+"/getInitialData")
+	if ok || status == 0 {
+		return ok, status, detail
+	}
+	ok, status, detail = probeGetInitialData(ctx, ac, ac.neoFeedURL()+"/getInitialData")
+	if ok {
+		return true, status, detail + " (neo fallback)"
+	}
+	return false, status, detail
+}
+
+func probeGetInitialData(ctx context.Context, ac *apiClient, url string) (bool, int, string) {
+	// ac.get rides the impersonated transport — the neo endpoint rejects the
+	// plain stdlib client (500/403) even on a healthy session.
+	resp, err := ac.get(ctx, url, "")
 	if err != nil {
 		return false, 0, "transport error: " + err.Error()
 	}

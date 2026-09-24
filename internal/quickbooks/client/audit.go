@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -11,42 +12,56 @@ import (
 
 // AuditEvent is the secret-free projection of an audit-log row.
 type AuditEvent struct {
-	ID        string `json:"id,omitempty"`
-	Date      string `json:"date,omitempty"`
-	User      string `json:"user,omitempty"`
-	EventType string `json:"eventType,omitempty"`
-	Name      string `json:"name,omitempty"`
+	TransactionSnapshot json.RawMessage `json:"transactionSnapshot,omitempty"`
+	EntityID            string          `json:"entityId,omitempty"`
+	TransactionDate     string          `json:"transactionDate,omitempty"`
+	Amount              string          `json:"amount,omitempty"`
+	ID                  string          `json:"id,omitempty"`
+	Date                string          `json:"date,omitempty"`
+	User                string          `json:"user,omitempty"`
+	EventType           string          `json:"eventType,omitempty"`
+	Name                string          `json:"name,omitempty"`
 }
 
 // AuditResult is the JSON envelope returned by ReplayAuditLog.
+type AuditPageInfo struct {
+	TotalLogs  int `json:"totalLogs"`
+	StartIndex int `json:"startIndex"`
+	Size       int `json:"size"`
+}
+
 type AuditResult struct {
-	Status int            `json:"status"`
-	Counts map[string]int `json:"counts"`
-	Events []AuditEvent   `json:"events"`
+	PageInfo  *AuditPageInfo `json:"pageInfo,omitempty"`
+	Truncated bool           `json:"truncated,omitempty"`
+	Status    int            `json:"status"`
+	Counts    map[string]int `json:"counts"`
+	Events    []AuditEvent   `json:"events"`
 }
 
 type rawAuditEvent struct {
-	ID          string `json:"id"`
-	EventId     string `json:"eventId"`
-	Date        string `json:"date"`
-	EventDate   string `json:"eventDate"`
-	Timestamp   string `json:"timestamp"`
-	CreatedDate string `json:"createdDate"`
-	User        string `json:"user"`
-	UserName    string `json:"userName"`
-	UserEmail   string `json:"userEmail"`
-	EventType   string `json:"eventType"`
-	Type        string `json:"type"`
-	Action      string `json:"action"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	EntityName  string `json:"entityName"`
-	Who         struct {
+	TransactionSnapshot json.RawMessage `json:"-"`
+	ID                  string          `json:"id"`
+	EventId             string          `json:"eventId"`
+	Date                string          `json:"date"`
+	EventDate           string          `json:"eventDate"`
+	Timestamp           string          `json:"timestamp"`
+	CreatedDate         string          `json:"createdDate"`
+	User                string          `json:"user"`
+	UserName            string          `json:"userName"`
+	UserEmail           string          `json:"userEmail"`
+	EventType           string          `json:"eventType"`
+	Type                string          `json:"type"`
+	Action              string          `json:"action"`
+	Name                string          `json:"name"`
+	Description         string          `json:"description"`
+	EntityName          string          `json:"entityName"`
+	Who                 struct {
 		UserID  string `json:"userId"`
 		AuthID  string `json:"authId"`
 		Profile string `json:"profileId"`
 	} `json:"who"`
 	What struct {
+		IdempotenceKey          string         `json:"idempotenceKey"`
 		QBOAuditID              string         `json:"qboAuditId"`
 		TaskID                  string         `json:"taskId"`
 		EventType               string         `json:"eventType"`
@@ -145,10 +160,15 @@ func auditThisMonthWindow() (from, to string) {
 
 // AuditFilter selects rows after the captured /v1/audit/logs POST.
 type AuditFilter struct {
-	Limit     int
-	EventType string
-	User      string
-	Query     string
+	EntityID         string
+	IncludeSnapshots bool
+	FromDate         string
+	ToDate           string
+	Offset           int
+	Limit            int
+	EventType        string
+	User             string
+	Query            string
 }
 
 // ReplayAuditLog POSTs /v1/audit/logs as captured from /app/auditlog.
@@ -158,6 +178,10 @@ func ReplayAuditLog(ctx context.Context, limit int) (*AuditResult, error) {
 }
 
 func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, error) {
+	fromDate, toDate, err := auditWindow(f)
+	if err != nil {
+		return nil, err
+	}
 	limit := f.Limit
 	if limit < 1 {
 		limit = 20
@@ -174,19 +198,19 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 	if err != nil {
 		return nil, err
 	}
-	fromDate, toDate := auditThisMonthWindow()
+
 	eventTypes := []any{}
 	if f.EventType != "" {
 		eventTypes = []any{f.EventType}
 	}
 	body, err := json.Marshal(map[string]any{
 		"realmId":                  ac.realm,
-		"offset":                   0,
+		"offset":                   f.Offset,
 		"pageSize":                 page,
 		"sortOrder":                "desc",
 		"entities":                 auditEntities,
 		"userIds":                  []any{},
-		"entityId":                 "",
+		"entityId":                 f.EntityID,
 		"listTypeIds":              []any{},
 		"actionTypeIds":            []any{},
 		"eventTypes":               eventTypes,
@@ -221,7 +245,7 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 		return nil, fmt.Errorf("audit logs: %w", err)
 	}
 	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
-	raw, err := readBody(resp)
+	raw, err := readAuditBody(resp)
 	if err != nil {
 		return nil, fmt.Errorf("reading audit logs: %w", err)
 	}
@@ -230,15 +254,29 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 	}
 	evs, ok := extractAuditEvents(raw)
 	if !ok {
-		return &AuditResult{
-			Status: resp.StatusCode,
-			Counts: map[string]int{"bytes": len(raw)},
-			Events: []AuditEvent{},
-		}, nil
+		return nil, fmt.Errorf("audit logs: unrecognized response shape (%d bytes)", len(raw))
 	}
 	out := projectAudit(evs)
+	for i, e := range evs {
+		if f.EntityID != "" && out.Events[i].EntityID != f.EntityID {
+			return nil, fmt.Errorf("audit logs: server returned an event outside requested entity %s", f.EntityID)
+		}
+		if f.IncludeSnapshots && len(e.TransactionSnapshot) > 0 && string(e.TransactionSnapshot) != "null" {
+			if e.TransactionSnapshot[0] != '{' {
+				return nil, fmt.Errorf("audit logs: transaction snapshot is not an object")
+			}
+			out.Events[i].TransactionSnapshot = e.TransactionSnapshot
+		}
+	}
+	var envelope struct {
+		PageInfo *AuditPageInfo `json:"pageInfo"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil {
+		out.PageInfo = envelope.PageInfo
+	}
 	out.Events = filterAuditEvents(out.Events, f)
 	if len(out.Events) > limit {
+		out.Truncated = true
 		out.Events = out.Events[:limit]
 	}
 	out.Counts = map[string]int{"events": len(out.Events)}
@@ -277,12 +315,12 @@ func extractAuditEvents(body []byte) ([]rawAuditEvent, bool) {
 func projectAudit(in []rawAuditEvent) *AuditResult {
 	out := make([]AuditEvent, 0, len(in))
 	for _, e := range in {
-		date := firstNonEmpty(e.When.CreatedDate, e.When.UpdatedDate, e.Date, e.EventDate, e.Timestamp, e.CreatedDate)
+		date := firstNonEmpty(e.When.UpdatedDate, e.When.CreatedDate, e.Date, e.EventDate, e.Timestamp, e.CreatedDate)
 		user := firstNonEmpty(e.Who.UserID, e.Who.AuthID, e.Who.Profile, e.User, e.UserName, e.UserEmail)
 		et := firstNonEmpty(e.What.EventType, e.What.GroupEventType, e.EventType, e.Type, e.Action)
 		name := auditDisplayName(e)
-		id := firstNonEmpty(e.What.QBOAuditID, e.What.TaskID, e.ID, e.EventId)
-		out = append(out, AuditEvent{ID: id, Date: date, User: user, EventType: et, Name: name})
+		id := firstNonEmpty(e.What.QBOAuditID, e.What.IdempotenceKey, e.What.TaskID, e.ID, e.EventId)
+		out = append(out, AuditEvent{ID: id, Date: date, User: user, EventType: et, Name: name, EntityID: anyString(e.What.Entity["ELEMENTID"]), TransactionDate: anyString(e.What.Entity["TX_DATE"]), Amount: anyString(e.What.Entity["TX_AMOUNT"])})
 	}
 
 	return &AuditResult{
@@ -357,4 +395,42 @@ func filterAuditEvents(in []AuditEvent, f AuditFilter) []AuditEvent {
 		out = append(out, e)
 	}
 	return out
+}
+
+func auditWindow(f AuditFilter) (string, string, error) {
+	if f.Offset < 0 {
+		return "", "", fmt.Errorf("audit offset must be non-negative")
+	}
+	if f.FromDate == "" && f.ToDate == "" {
+		a, b := auditThisMonthWindow()
+		return a, b, nil
+	}
+	if f.FromDate == "" || f.ToDate == "" {
+		return "", "", fmt.Errorf("audit from and to must be supplied together as RFC3339 timestamps")
+	}
+	a, err := time.Parse(time.RFC3339Nano, f.FromDate)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid audit from: %w", err)
+	}
+	b, err := time.Parse(time.RFC3339Nano, f.ToDate)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid audit to: %w", err)
+	}
+	if b.Before(a) {
+		return "", "", fmt.Errorf("audit to precedes from")
+	}
+	return a.UTC().Format(time.RFC3339Nano), b.UTC().Format(time.RFC3339Nano), nil
+}
+
+// Audit events can include large snapshots that exceed ordinary API responses.
+func readAuditBody(resp *http.Response) ([]byte, error) {
+	const limit = 16 << 20
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > limit {
+		return nil, fmt.Errorf("audit response exceeds %d bytes; request a smaller page", limit)
+	}
+	return body, nil
 }

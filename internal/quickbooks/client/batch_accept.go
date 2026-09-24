@@ -347,51 +347,6 @@ func ReplayBatchAccept(ctx context.Context, accountID string, olbTxnIDs []string
 
 // --- match (acceptTransactions) shaping ------------------------------------
 
-// buildMatchBody builds the observed acceptTransactions body. Each feed row
-// collapses to the reduced entry shape {acceptType,id,olbTxnDate,
-// qboAccountId,selectedMatches} — the SPA does not echo the whole row here.
-// matchTxns are resolved against the account register so every sent field
-// (txnTypeId, qboTxnSeqId, txnSyncToken, paymentAmount) comes from a live
-// read rather than a guessed default.
-func buildMatchBody(accountID string, rows, regRows []map[string]any, matchTxns []MatchTxn) ([]byte, error) {
-	matched := make([]any, 0, len(matchTxns))
-	for _, m := range matchTxns {
-		reg := findRegisterRow(regRows, m.TxnID)
-		if reg == nil {
-			return nil, fmt.Errorf("%w: %s (account %s register)", ErrMatchTargetNotFound, m.TxnID, accountID)
-		}
-		entry, err := matchEntryFromRegister(reg, m.TxnID)
-		if err != nil {
-			return nil, err
-		}
-		matched = append(matched, entry)
-	}
-	olbTxns := make([]any, 0, len(rows))
-	for _, row := range rows {
-		for _, field := range []string{"id", "olbTxnDate"} {
-			if mapStr(row, field) == "" {
-				return nil, fmt.Errorf("%w: %s (feed row)", ErrMatchFieldMissing, field)
-			}
-		}
-		acct := mapStr(row, "qboAccountId")
-		if acct == "" {
-			acct = accountID
-		}
-		olbTxns = append(olbTxns, map[string]any{
-			"acceptType":   "MATCH",
-			"id":           mapStr(row, "id"),
-			"olbTxnDate":   mapStr(row, "olbTxnDate"),
-			"qboAccountId": acct,
-			"selectedMatches": map[string]any{
-				"matchedTxns":  matched,
-				"addAdjQboTxn": nil,
-				"addAsQboTxn":  nil,
-			},
-		})
-	}
-	return json.Marshal(map[string]any{"olbTxns": olbTxns})
-}
-
 // findRegisterRow locates a register transaction by txnId (numeric or
 // string form both match the caller's id).
 func findRegisterRow(regRows []map[string]any, id string) map[string]any {
@@ -401,31 +356,6 @@ func findRegisterRow(regRows []map[string]any, id string) map[string]any {
 		}
 	}
 	return nil
-}
-
-// matchEntryFromRegister projects one register row onto the observed
-// selectedMatches.matchedTxns entry shape. txnTypeId, sequence and
-// editSequence are required fields; a register row that lacks them fails
-// rather than fabricating contract data.
-func matchEntryFromRegister(reg map[string]any, qboTxnID string) (map[string]any, error) {
-	entry := map[string]any{"qboTxnId": qboTxnID}
-	for _, pair := range [][2]string{
-		{"txnTypeId", "txnTypeId"},
-		{"qboTxnSeqId", "sequence"},
-		{"txnSyncToken", "editSequence"},
-	} {
-		v := jsonNumberString(reg[pair[1]])
-		if v == "" {
-			return nil, fmt.Errorf("%w: %s (register txn %s)", ErrMatchFieldMissing, pair[1], qboTxnID)
-		}
-		entry[pair[0]] = v
-	}
-	amt, ok := registerPaymentAmount(reg)
-	if !ok {
-		return nil, fmt.Errorf("%w: payment/deposit amount (register txn %s)", ErrMatchFieldMissing, qboTxnID)
-	}
-	entry["paymentAmount"] = strconv.FormatFloat(amt, 'f', 2, 64)
-	return entry, nil
 }
 
 // registerPaymentAmount returns the amount the register row applies: the

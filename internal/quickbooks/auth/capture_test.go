@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 )
 
 func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
+	var disabled atomic.Bool
 	var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
@@ -29,6 +31,7 @@ func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
 		}
 		defer conn.Close()
 		sid := "SESS1"
+		var navigationID int64
 		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
@@ -41,10 +44,26 @@ func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
 			switch msg.Method {
 			case "Target.attachToTarget":
 				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{"sessionId":"` + sid + `"}`)})
-			case "Network.enable", "Fetch.enable", "Fetch.continueRequest", "Target.detachFromTarget":
+			case "Network.enable", "Fetch.enable", "Target.detachFromTarget":
+				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{}`)})
+			case "Fetch.disable":
+				disabled.Store(true)
 				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{}`)})
 			case "Page.navigate":
-				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{"frameId":"f"}`)})
+				navigationID = msg.ID
+				document, _ := json.Marshal(map[string]any{"requestId": "DOCUMENT", "request": map[string]any{"url": BankingCaptureURL, "headers": map[string]any{}}})
+				_ = conn.WriteJSON(cdpMsg{Method: "Fetch.requestPaused", Params: document, SessionID: sid})
+				// Navigation cannot commit until its intercepted document is resumed.
+			case "Fetch.continueRequest":
+				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{}`)})
+				var request struct {
+					RequestID string `json:"requestId"`
+				}
+				_ = json.Unmarshal(msg.Params, &request)
+				if request.RequestID != "DOCUMENT" {
+					continue
+				}
+				_ = conn.WriteJSON(cdpMsg{ID: navigationID, Result: json.RawMessage(`{"frameId":"f"}`)})
 				paused, _ := json.Marshal(map[string]any{
 					"requestId": "R1",
 					"request": map[string]any{
@@ -71,8 +90,18 @@ func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
 					},
 				})
 				_ = conn.WriteJSON(cdpMsg{Method: "Fetch.requestPaused", Params: apiPaused, SessionID: sid})
-			case "Network.getAllCookies", "Network.getCookies":
-				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{"cookies":[{"name":"qbo.ticket","value":"v","domain":".qbo.intuit.com","path":"/","secure":true,"httpOnly":true}]}`)})
+			case "Network.getAllCookies":
+				t.Error("requested unrelated browser cookie jar")
+				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{"cookies":[]}`)})
+			case "Network.getCookies":
+				var scope struct {
+					URLs []string `json:"urls"`
+				}
+				_ = json.Unmarshal(msg.Params, &scope)
+				if len(scope.URLs) != 1 || scope.URLs[0] != "https://qbo.intuit.com/" {
+					t.Error("cookie request is not QBO-scoped")
+				}
+				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Result: json.RawMessage(`{"cookies":[{"name":"qbo.ticket","value":"v","domain":".qbo.intuit.com","path":"/","secure":true,"httpOnly":true},{"name":"unrelated","value":"synthetic-other-site-cookie","domain":".example.org","path":"/"}]}`)})
 			default:
 				_ = conn.WriteJSON(cdpMsg{ID: msg.ID, Error: &cdpErr{Message: "unknown " + msg.Method}})
 			}
@@ -84,6 +113,9 @@ func TestCaptureATSFromRelayFakeCDP(t *testing.T) {
 	cap, err := CaptureATSFromRelay(ctx, srv.URL, "PAGE1", BankingCaptureURL)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !disabled.Load() {
+		t.Fatal("Fetch interception left enabled")
 	}
 	if !isIntuitAPIKey(headerGet(cap.Headers, "authorization")) {
 		t.Fatal("missing Intuit_APIKey")

@@ -1,6 +1,11 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
+	"github.com/spf13/cobra"
+)
 
 func newCustomersCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -40,7 +45,9 @@ func newCustomersCmd(flags *rootFlags) *cobra.Command {
 	overviewEnt.AddCommand(newStubCmd(flags, "customers overview", "get", "overview read (not wired)"))
 	cmd.AddCommand(overviewEnt)
 	proposalEnt := &cobra.Command{Use: "proposal", Short: "proposal"}
-	proposalEnt.AddCommand(newStubCmd(flags, "customers proposal", "create", "proposal create (not wired)"))
+	proposalEnt.AddCommand(newProposalCreateCmd(flags))
+	proposalEnt.AddCommand(newProposalUpdateCmd(flags))
+	proposalEnt.AddCommand(newProposalDeleteCmd(flags))
 	proposalEnt.AddCommand(newStubCmd(flags, "customers proposal", "get", "proposal read (not wired)"))
 	proposalEnt.AddCommand(newStubCmd(flags, "customers proposal", "search", "proposal search (not wired)"))
 	cmd.AddCommand(proposalEnt)
@@ -50,7 +57,7 @@ func newCustomersCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(reviewEnt)
 	// Service map (2026-08-24): never-triggered production services, blocked.
 	proposal_svcEnt := &cobra.Command{Use: "proposal-svc", Short: "proposal-svc"}
-	proposal_svcEnt.AddCommand(newStubCmd(flags, "customers proposal-svc", "create", "crm-proposal-svc proposal (service map; not wired)"))
+	proposal_svcEnt.AddCommand(newProposalSvcCreateCmd(flags))
 	cmd.AddCommand(proposal_svcEnt)
 	sales_agentEnt := &cobra.Command{Use: "sales-agent", Short: "sales-agent"}
 	sales_agentEnt.AddCommand(newStubCmd(flags, "customers sales-agent", "get", "AI sales-agent conversations (service map; not wired)"))
@@ -77,5 +84,141 @@ func newCustomersCmd(flags *rootFlags) *cobra.Command {
 	reviewsEnt := &cobra.Command{Use: "reviews", Short: "reviews"}
 	reviewsEnt.AddCommand(newStubCmd(flags, "customers reviews", "get", "reviews.api.intuit.com/v4/graphql get (service map; not wired)"))
 	cmd.AddCommand(reviewsEnt)
+	return cmd
+}
+
+// newProposalCreateCmd implements `customers proposal create`: POST
+// /v1/proposals on crm-proposal-svc. Live-proven on TC2 — the service
+// auto-names drafts "Proposal {id}"; --title is forwarded but the
+// service-assigned display name wins.
+func newProposalCreateCmd(flags *rootFlags) *cobra.Command {
+	var customer, contactType, title string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a proposal draft (crm-proposal-svc POST /v1/proposals)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "customers proposal create", ID: "QBO.CUSTOMERS.PROPOSAL_CREATE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedProposalURL(),
+					Flags: localFlagMap(cmd), Note: "POST {contactId,contactType}; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayProposalCreate(ctx, customer, contactType, title)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&customer, "customer", "", "customer/lead contact id the proposal is addressed to (required)")
+	cmd.Flags().StringVar(&contactType, "contact-type", "CUSTOMER", "contact type (CUSTOMER or LEAD)")
+	cmd.Flags().StringVar(&title, "title", "", "proposal title (service assigns 'Proposal {id}' as the display name)")
+	_ = cmd.MarkFlagRequired("customer")
+	applyCatalogHelp(cmd, "QBO.CUSTOMERS.PROPOSAL_CREATE")
+	return cmd
+}
+
+// newProposalUpdateCmd implements `customers proposal update`: fetch by
+// refId UUID, apply overrides, PUT the full object back (the service
+// requires a complete body). Asymmetric ids: update keys by refId.
+func newProposalUpdateCmd(flags *rootFlags) *cobra.Command {
+	var id, title string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update a proposal (crm-proposal-svc GET+PUT /v1/proposals/{refId})",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "customers proposal update", ID: "QBO.CUSTOMERS.PROPOSAL_EDIT",
+					Mode: modeWired, Method: "PUT",
+					URL:   client.PlannedProposalURL(),
+					Flags: localFlagMap(cmd), Note: "GET /v1/proposals/{refId} then PUT full body; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayProposalUpdate(ctx, id, title)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "proposal refId UUID (required — not the numeric id)")
+	cmd.Flags().StringVar(&title, "title", "", "new title (service keeps auto 'Proposal {id}' display name)")
+	_ = cmd.MarkFlagRequired("id")
+	applyCatalogHelp(cmd, "QBO.CUSTOMERS.PROPOSAL_EDIT")
+	return cmd
+}
+
+// newProposalDeleteCmd implements `customers proposal delete`: DELETE
+// /v1/proposals/{numericId} — the service expects the numeric id here
+// (refId is rejected), and the delete is a soft flag (isDeleted:true).
+func newProposalDeleteCmd(flags *rootFlags) *cobra.Command {
+	var id string
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a proposal (crm-proposal-svc DELETE /v1/proposals/{numericId})",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "customers proposal delete", ID: "QBO.CUSTOMERS.PROPOSAL_DELETE",
+					Mode: modeWired, Method: "DELETE",
+					URL:   client.PlannedProposalURL(),
+					Flags: localFlagMap(cmd), Note: "DELETE /v1/proposals/{numericId}; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayProposalDelete(ctx, id)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "numeric proposal id (required — not the refId UUID)")
+	_ = cmd.MarkFlagRequired("id")
+	applyCatalogHelp(cmd, "QBO.CUSTOMERS.PROPOSAL_DELETE")
+	return cmd
+}
+
+// newProposalSvcCreateCmd implements `customers proposal-svc create` — the
+// service-map row for the same crm-proposal-svc surface.
+func newProposalSvcCreateCmd(flags *rootFlags) *cobra.Command {
+	var customer, contactType string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "crm-proposal-svc proposal create (service map; same POST /v1/proposals)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "customers proposal-svc create", ID: "QBO.CUSTOMERS.PROPOSAL_SVC_CREATE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedProposalURL(),
+					Flags: localFlagMap(cmd), Note: "POST {contactId,contactType}; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayProposalCreate(ctx, customer, contactType, "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&customer, "customer", "", "customer/lead contact id (required)")
+	cmd.Flags().StringVar(&contactType, "contact-type", "CUSTOMER", "contact type (CUSTOMER or LEAD)")
+	_ = cmd.MarkFlagRequired("customer")
+	applyCatalogHelp(cmd, "QBO.CUSTOMERS.PROPOSAL_SVC_CREATE")
 	return cmd
 }

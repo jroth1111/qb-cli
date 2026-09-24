@@ -19,11 +19,11 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	billEnt := &cobra.Command{Use: "bill", Short: "bill"}
 	billEnt.AddCommand(newStubCmd(flags, "expenses bill", "create", "bill create (not wired)"))
 	billEnt.AddCommand(newStubCmd(flags, "expenses bill", "delete", "bill delete (not wired)"))
-	billEnt.AddCommand(newStubCmd(flags, "expenses bill", "import", "bill import (not wired)"))
+	billEnt.AddCommand(newStubCmd(flags, "expenses bill", "import", "bill import"))
 	billEnt.AddCommand(newStubCmd(flags, "expenses bill", "get", "bill read (not wired)"))
 	billEnt.AddCommand(newStubCmd(flags, "expenses bill", "search", "bill search (not wired)"))
 	billFormEnt := &cobra.Command{Use: "form", Short: "form"}
-	billFormEnt.AddCommand(newStubCmd(flags, "expenses bill form", "delete", "bill-form delete (not wired)"))
+	billFormEnt.AddCommand(newFormDeleteCmd(flags, "expenses bill form delete", "bill", "PURCHASE_BILL", "QBO.EXPENSES.BILL_FORM_DELETE"))
 	billListEnt := &cobra.Command{Use: "list", Short: "list"}
 	billListEnt.AddCommand(newStubCmd(flags, "expenses bill list", "create", "bill-list create (not wired)"))
 	billListEnt.AddCommand(newStubCmd(flags, "expenses bill list", "edit", "bill-list edit (not wired)"))
@@ -46,7 +46,7 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	chequeUpdateEnt.AddCommand(newStubCmd(flags, "expenses cheque update", "edit", "cheque edit (not wired)"))
 	chequeUpdateEnt.AddCommand(newStubCmd(flags, "expenses cheque update", "bounce", "cheque bounce (not wired)"))
 	chequeEnt.AddCommand(chequeUpdateEnt)
-	chequeEnt.AddCommand(newStubCmd(flags, "expenses cheque", "export reprint", "cheque reprint (not wired)"))
+	chequeEnt.AddCommand(newStubCmd(flags, "expenses cheque", "export", "cheque reprint"))
 	cmd.AddCommand(chequeEnt)
 	ccpEnt := &cobra.Command{Use: "credit-card-payment", Short: "credit-card-payment"}
 	ccpEnt.AddCommand(newStubCmd(flags, "expenses credit-card-payment", "get", "credit-card-payment read"))
@@ -58,7 +58,7 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	expenseEnt.AddCommand(newStubCmd(flags, "expenses expense", "get", "expense read (not wired)"))
 	expenseEnt.AddCommand(newStubCmd(flags, "expenses expense", "search", "expense search (not wired)"))
 	expenseFormEnt := &cobra.Command{Use: "form", Short: "form"}
-	expenseFormEnt.AddCommand(newStubCmd(flags, "expenses expense form", "delete", "expense-form delete (not wired)"))
+	expenseFormEnt.AddCommand(newFormDeleteCmd(flags, "expenses expense form delete", "expense", "PURCHASE", "QBO.EXPENSES.EXPENSE_FORM_DELETE"))
 	expenseEnt.AddCommand(expenseFormEnt)
 	expenseListEnt := &cobra.Command{Use: "list", Short: "list"}
 	expenseListEnt.AddCommand(newStubCmd(flags, "expenses expense list", "create", "expense-list create (not wired)"))
@@ -67,21 +67,21 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	expenseUpdateEnt := &cobra.Command{Use: "update", Short: "update"}
 	expenseUpdateEnt.AddCommand(newStubCmd(flags, "expenses expense update", "edit", "expense edit (not wired)"))
 	expenseUpdateEnt.AddCommand(newExpenseRecategoriseCmd(flags))
-	expenseUpdateEnt.AddCommand(newStubCmd(flags, "expenses expense update", "split", "expense split (not wired)"))
+	expenseUpdateEnt.AddCommand(newStubCmd(flags, "expenses expense update", "split", "expense split"))
 	expenseEnt.AddCommand(expenseUpdateEnt)
 	cmd.AddCommand(expenseEnt)
 	gift_certificateEnt := &cobra.Command{Use: "gift-certificate", Short: "gift-certificate"}
 	gift_certificateEnt.AddCommand(newStubCmd(flags, "expenses gift-certificate", "create", "gift-certificate create (not wired)"))
 	cmd.AddCommand(gift_certificateEnt)
 	mileageEnt := &cobra.Command{Use: "mileage", Short: "mileage"}
-	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "create", "mileage create (not wired)"))
-	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "delete", "mileage delete (not wired)"))
-	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "update", "mileage edit (not wired)"))
-	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "get", "mileage read (not wired)"))
-	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "search", "mileage search (not wired)"))
+	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "create", "mileage create (trips updateTrips_Trip)"))
+	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "delete", "mileage delete (trips updateTrips_Trip)"))
+	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "update", "mileage edit (trips updateTrips_Trip)"))
+	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "get", "mileage read"))
+	mileageEnt.AddCommand(newStubCmd(flags, "expenses mileage", "search", "mileage search"))
 	cmd.AddCommand(mileageEnt)
 	overviewEnt := &cobra.Command{Use: "overview", Short: "overview"}
-	overviewEnt.AddCommand(newStubCmd(flags, "expenses overview", "get", "overview read (not wired)"))
+	overviewEnt.AddCommand(newStubCmd(flags, "expenses overview", "get", "dashboardframework EXPENSES_DASHBOARD read"))
 	cmd.AddCommand(overviewEnt)
 	purchaseEnt := &cobra.Command{Use: "purchase", Short: "purchase"}
 	purchaseEnt.AddCommand(newStubCmd(flags, "expenses purchase", "search", "purchase search (not wired)"))
@@ -90,10 +90,10 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	receiptEnt.AddCommand(newStubCmd(flags, "expenses receipt", "delete", "receipt delete (not wired)"))
 	receiptEnt.AddCommand(newStubCmd(flags, "expenses receipt", "get", "receipt read (not wired)"))
 	receiptEnt.AddCommand(newStubCmd(flags, "expenses receipt", "search", "receipt search (not wired)"))
-	receiptEnt.AddCommand(newStubCmd(flags, "expenses receipt", "import", "receipt upload (not wired)"))
+	receiptEnt.AddCommand(newStubCmd(flags, "expenses receipt", "import", "receipt upload"))
 	cmd.AddCommand(receiptEnt)
 	receipt_expenseEnt := &cobra.Command{Use: "receipt-expense", Short: "receipt-expense"}
-	receipt_expenseEnt.AddCommand(newStubCmd(flags, "expenses receipt-expense", "create", "receipt-expense create (not wired)"))
+	receipt_expenseEnt.AddCommand(newStubCmd(flags, "expenses receipt-expense", "create", "receipt-expense create"))
 	cmd.AddCommand(receipt_expenseEnt)
 	supplierEnt := &cobra.Command{Use: "supplier", Short: "supplier"}
 	supplierEnt.AddCommand(newStubCmd(flags, "expenses supplier", "create", "supplier create (not wired)"))
@@ -126,7 +126,7 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	spendmgmtEnt.AddCommand(newStubCmd(flags, "expenses spendmgmt", "get", "spendmgmt.api.intuit.com/graphql get (service map; not wired)"))
 	cmd.AddCommand(spendmgmtEnt)
 	stagetxnEnt := &cobra.Command{Use: "stagetxn", Short: "stagetxn"}
-	stagetxnEnt.AddCommand(newStubCmd(flags, "expenses stagetxn", "get", "stagetransactions.api.intuit.com/stage/entities get (service map; not wired)"))
+	stagetxnEnt.AddCommand(newStubCmd(flags, "expenses stagetxn", "get", "stagetransactions /stage/entities read"))
 	cmd.AddCommand(stagetxnEnt)
 	stagetxn_testEnt := &cobra.Command{Use: "stagetxn-test", Short: "stagetxn-test"}
 	stagetxn_testEnt.AddCommand(newStubCmd(flags, "expenses stagetxn-test", "get", "stagetransactions-test.api.intuit.com/stage/entities get (service map; not wired)"))
@@ -135,7 +135,7 @@ func newExpensesCmd(flags *rootFlags) *cobra.Command {
 	txn_ingestionEnt.AddCommand(newStubCmd(flags, "expenses txn-ingestion", "post", "txn-ingestion-svc.api.intuit.com/v1 post (service map; not wired)"))
 	cmd.AddCommand(txn_ingestionEnt)
 	payment_accountEnt := &cobra.Command{Use: "payment-account", Short: "payment-account"}
-	payment_accountEnt.AddCommand(newStubCmd(flags, "expenses payment-account", "get", "paymentaccount.api.intuit.com get (service map; not wired)"))
+	payment_accountEnt.AddCommand(newStubCmd(flags, "expenses payment-account", "get", "paymentaccount-sbg /v2/accounts"))
 	cmd.AddCommand(payment_accountEnt)
 	payments_fundingEnt := &cobra.Command{Use: "payments-funding", Short: "payments-funding"}
 	payments_fundingEnt.AddCommand(newStubCmd(flags, "expenses payments-funding", "get", "paymentsfunding-aws.api.intuit.com get (service map; not wired)"))
@@ -161,12 +161,53 @@ func newExpensesServiceMapCmds(flags *rootFlags) []*cobra.Command {
 	bill_payEnt := &cobra.Command{Use: "bill-pay-service", Short: "bill-pay-service"}
 	bill_payEnt.AddCommand(newStubCmd(flags, "expenses bill-pay-service", "create", "online bill pay (service map; not wired)"))
 	b2b_billpayEnt := &cobra.Command{Use: "b2b-billpay", Short: "b2b-billpay"}
-	b2b_billpayEnt.AddCommand(newStubCmd(flags, "expenses b2b-billpay", "get", "B2B bill pay read (service map; not wired)"))
+	b2b_billpayEnt.AddCommand(newStubCmd(flags, "expenses b2b-billpay", "get", "b2bbillpay paymentApproval read"))
 	b2b_networkEnt := &cobra.Command{Use: "b2b-network", Short: "b2b-network"}
-	b2b_networkEnt.AddCommand(newStubCmd(flags, "expenses b2b-network", "get", "B2B network read (service map; not wired)"))
+	b2b_networkEnt.AddCommand(newStubCmd(flags, "expenses b2b-network", "get", "b2bnetworkservice directory/attributes read"))
 	bill_pay_onboardingEnt := &cobra.Command{Use: "bill-pay-onboarding", Short: "bill-pay-onboarding"}
-	bill_pay_onboardingEnt.AddCommand(newStubCmd(flags, "expenses bill-pay-onboarding", "get", "bill-pay onboarding read (service map; not wired)"))
+	bill_pay_onboardingEnt.AddCommand(newStubCmd(flags, "expenses bill-pay-onboarding", "get", "bill-pay-onboarding-svc bill-payment-eligibility read"))
 	return []*cobra.Command{bill_payEnt, b2b_billpayEnt, b2b_networkEnt, bill_pay_onboardingEnt}
+}
+
+// newFormDeleteCmd wires `expenses <entity> form delete` to the captured v4
+// form-delete mutation (updateTransactions_Transaction with deleted:true +
+// header.closeBooksPassword), proven on the expense form's More → Delete flow.
+func newFormDeleteCmd(flags *rootFlags, command, entity, txnType, catalogID string) *cobra.Command {
+	var id string
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a " + entity + " via the transaction form (v4)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fm := map[string]string{}
+			if id != "" {
+				fm["id"] = id
+			}
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: command,
+					ID:      catalogID,
+					Method:  "POST",
+					URL:     "https://qbo.intuit.com/api/v4/graphql",
+					Note:    "deleteSavedTransaction__transactions_experiences_qbo (deleted:true); not sent",
+					Flags:   fm,
+				})
+			}
+			if err := client.RequireSession(); err != nil {
+				return feedErr(flags, err)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayFormDelete(ctx, id, txnType)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "v3 transaction id to delete (required)")
+	applyCatalogHelp(cmd, catalogID)
+	return cmd
 }
 
 // newExpenseRecategoriseCmd wires `expenses expense update recategorise` to a
@@ -175,7 +216,9 @@ func newExpensesServiceMapCmds(flags *rootFlags) []*cobra.Command {
 // move the EntityRef. This is the same account swap the banking UI performs.
 func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
 	var (
-		id, catID, payee, lineID string
+		id, catID, classID, payee, lineID              string
+		expectedToken, expectedCategory, expectedClass string
+		repairCreditCardType                           bool
 	)
 	cmd := &cobra.Command{
 		Use:   "recategorise",
@@ -188,11 +231,26 @@ func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
 			if catID != "" {
 				fm["category-id"] = catID
 			}
+			if classID != "" {
+				fm["class-id"] = classID
+			}
 			if payee != "" {
 				fm["payee-id"] = payee
 			}
 			if lineID != "" {
 				fm["line-id"] = lineID
+			}
+			if cmd.Flags().Changed("expected-sync-token") {
+				fm["expected-sync-token"] = expectedToken
+			}
+			if cmd.Flags().Changed("expected-category-id") {
+				fm["expected-category-id"] = expectedCategory
+			}
+			if cmd.Flags().Changed("expected-class-id") {
+				fm["expected-class-id"] = expectedClass
+			}
+			if repairCreditCardType {
+				fm["repair-credit-card-type"] = "true"
 			}
 			if flags.dryRun {
 				return writePlan(cmd, flags, planEnvelope{
@@ -219,8 +277,13 @@ func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&id, "id", "", "v3 Purchase (expense) id to recategorise (required)")
 	cmd.Flags().StringVar(&catID, "category-id", "", "GL account id applied as the new category on account-based lines")
+	cmd.Flags().StringVar(&classID, "class-id", "", "Class id applied to the selected account-based line; none clears its Class")
 	cmd.Flags().StringVar(&payee, "payee-id", "", "vendor/customer id applied as the new payee (EntityRef)")
 	cmd.Flags().StringVar(&lineID, "line-id", "", "only recategorise this Purchase line id")
+	cmd.Flags().StringVar(&expectedToken, "expected-sync-token", "", "abort if the Purchase SyncToken changed")
+	cmd.Flags().StringVar(&expectedCategory, "expected-category-id", "", "abort if the selected line's category account changed")
+	cmd.Flags().StringVar(&expectedClass, "expected-class-id", "", "abort if the selected line's Class changed; use none for blank")
+	cmd.Flags().BoolVar(&repairCreditCardType, "repair-credit-card-type", false, "explicitly convert a legacy Check funded by a credit-card account to CreditCard; may not be reversible")
 	applyCatalogHelp(cmd, "QBO.EXPENSES.EXPENSE_RECATEGORISE")
 	return cmd
 }

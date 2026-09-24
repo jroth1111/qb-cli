@@ -12,36 +12,26 @@ import (
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
 )
 
-// falseReportAliases are the five catalog primitives that previously
-// dispatched the v3 ProfitAndLoss report despite naming unrelated surfaces
-// (BAS/IAS/GST-amendments/forecast/performance). No verified native endpoint
-// exists for any of them, so they must stay blocked stubs.
+// falseReportAliases held five catalog primitives that previously dispatched
+// the v3 ProfitAndLoss report despite naming unrelated surfaces. Four left
+// the list 2026-09-17 when native contracts were captured live on Test
+// Company 2: BAS_READ/IAS_READ now list indirect-tax taxReturns (activity
+// statements) via node__indirect_tax_ui_qbo; FORECAST_READ runs
+// planningforecasting getAllBusinessForecasts; PERFORMANCE_READ reads the
+// universalreportinsights /v1/metrics/<Metric> contract. GST_AMENDMENTS_READ
+// remains: no amendment-report endpoint has been captured.
 var falseReportAliases = []struct {
 	id      string
 	command string
 }{
-	{"QBO.TAX.BAS_READ", "tax bas get"},
-	{"QBO.TAX.IAS_READ", "tax ias get"},
 	{"QBO.TAX.GST_AMENDMENTS_READ", "tax gst-amendments get"},
-	{"QBO.REPORTS.FORECAST_READ", "reports forecast get"},
-	{"QBO.REPORTS.PERFORMANCE_READ", "reports performance get"},
 }
 
-// falseFixedAssetAliases are the five catalog primitives that dispatched the
-// v3 Account entity despite naming the QuickBooks Fixed Assets app, which has
-// no captured native contract. The live Test Company 2 receipt showed the
-// create command returning entity=Account type=Expense, a silent wrong-entity
-// write. Keep all five blocked until a native fixed-asset contract exists.
-var falseFixedAssetAliases = []struct {
-	id      string
-	command string
-}{
-	{"QBO.ACCOUNTING.FIXED_ASSET_CREATE", "accounting fixed-asset create"},
-	{"QBO.ACCOUNTING.FIXED_ASSET_DELETE", "accounting fixed-asset delete"},
-	{"QBO.ACCOUNTING.FIXED_ASSET_EDIT", "accounting fixed-asset update"},
-	{"QBO.ACCOUNTING.FIXED_ASSET_READ", "accounting fixed-asset get"},
-	{"QBO.ACCOUNTING.FIXED_ASSET_SEARCH", "accounting fixed-asset search"},
-}
+// The five FIXED_ASSET_* primitives left the false-alias list 2026-09-17:
+// the real assetservice.api.intuit.com contract was captured from the Fixed
+// Assets UI (financeAssets query, createAsset/updateAsset/deleteAsset
+// mutations) and every verb is now wired and live-proven on TC2
+// (create → rename → delete round-trip, company left clean).
 
 // falseStandInAliases are the catalog primitives wired-alias-audit-08
 // classified as false or unsupported stand-ins (classes A, B and C). The
@@ -53,18 +43,31 @@ var falseFixedAssetAliases = []struct {
 // credit-card-credit create posted a cash Purchase. The read set returned
 // Class/Customer/CompanyInfo/Account/Employee/TimeActivity rows or a
 // company-wide BalanceSheet for surfaces with no captured native contract
-// (appointments, opportunities, tasks, marketing, my-accountant, reconcile
-// report, company search, users, payroll categories/super/teams/pay-runs,
-// mileage trips, feed rec report, and the expenses/sales overviews and
-// expense-claims single-entity stand-ins). Keep them all blocked until a
-// native contract exists.
+// (appointments, opportunities, tasks, marketing, my-accountant, company search, users, payroll categories/super/teams/pay-runs,
+// mileage trips, feed rec report, and expense-claims single-entity
+// stand-ins). Keep them all blocked until a native contract exists.
 //
 // Five rows left this list 2026-09-17 when they were rewired to their real
 // contracts: PROJECT_CREATE/EDIT post the v3 Project entity (CustomerRef,
 // not a Customer write); TXN_VOID resolves --entity into any voidable v3
 // transaction's ?operation=void; CREDIT_CARD_CREDIT_CREATE posts the v3
 // CreditCardCredit entity; TASKS_READ runs the captured TaskManagementTasks
-// query instead of an Employee stand-in.
+// query instead of an Employee stand-in. EXPENSES.OVERVIEW_READ and
+// SALES.OVERVIEW_READ left the same day when the real overview contracts
+// were captured (dashboardframework EXPENSES_DASHBOARD and
+// universalreportsgraphql allSales aggregates). COMPANY.SEARCH left
+// 2026-09-19 when the real ceressos GetTransactionGlobalSearchEntities
+// contract was captured from the nav-searchbox fullSearch pane (proven
+// live on TC2). TAG_READ left 2026-09-19 when the qbo-tags-ui REST contract
+// on tags.api.intuit.com was captured (GET tags/types live-proven; writes
+// stay blocked — the service 403s NOT_PERMITTED on companies that never
+// used tags, the documented retirement gate). TASKS_CREATE/EDIT/DELETE
+// left 2026-09-19 when the taskManagement*Task mutations on
+// smallbusiness.api.intuit.com/graphql were proven live on TC2 (create →
+// rename → delete). MARKETING_READ left 2026-09-19 when the real
+// personalization.api /v1/experience/ipd/placement offer contract was
+// captured from /app/usermgt (AdvancedShellBanner → live offer; replayed
+// 200 via the captured cookie set + URL-carried apikey).
 var falseStandInAliases = []struct {
 	id      string
 	command string
@@ -72,19 +75,12 @@ var falseStandInAliases = []struct {
 	{"QBO.COMPANY.TAG_CREATE", "company tag create"},
 	{"QBO.COMPANY.TAG_DELETE", "company tag delete"},
 	{"QBO.COMPANY.TAG_EDIT", "company tag update"},
-	{"QBO.EXPENSES.MILEAGE_CREATE", "expenses mileage create"},
-	{"QBO.EXPENSES.MILEAGE_DELETE", "expenses mileage delete"},
-	{"QBO.EXPENSES.MILEAGE_EDIT", "expenses mileage update"},
-	{"QBO.COMPANY.TAG_READ", "company tag get"},
 	{"QBO.CUSTOMERS.APPOINTMENT_READ", "customers appointment get"},
 	{"QBO.CUSTOMERS.APPOINTMENT_SEARCH", "customers appointment search"},
 	{"QBO.CUSTOMERS.OPPORTUNITY_READ", "customers opportunity get"},
 	{"QBO.CUSTOMERS.OPPORTUNITY_SEARCH", "customers opportunity search"},
-	{"QBO.COMPANY.MARKETING_READ", "company marketing get"},
+	{"QBO.CUSTOMERS.OPPORTUNITY_CREATE", "customers opportunity create"},
 	{"QBO.ACCOUNTING.MY_ACCOUNTANT_READ", "accounting my-accountant get"},
-	{"QBO.ACCOUNTING.RECONCILE_READ", "accounting reconcile get"},
-	{"QBO.COMPANY.SEARCH", "company search run"},
-	{"QBO.COMPANY.USER_READ", "company user get"},
 	{"QBO.PAYROLL.DEDUCTION_READ", "payroll deduction get"},
 	{"QBO.PAYROLL.LEAVE_CATEGORY_READ", "payroll leave-category get"},
 	{"QBO.PAYROLL.PAY_CATEGORY_READ", "payroll pay-category get"},
@@ -93,15 +89,10 @@ var falseStandInAliases = []struct {
 	{"QBO.PAYROLL.TEAM_SEARCH", "payroll team search"},
 	{"QBO.PAYROLL.OVERVIEW_SEARCH", "payroll overview search"},
 	{"QBO.PAYROLL.PAY_RUN_READ", "payroll pay-run get"},
-	{"QBO.EXPENSES.MILEAGE_READ", "expenses mileage get"},
-	{"QBO.EXPENSES.MILEAGE_SEARCH", "expenses mileage search"},
-	{"QBO.FEED.REC_REPORT", "feed rec get"},
-	{"QBO.EXPENSES.OVERVIEW_READ", "expenses overview get"},
-	{"QBO.SALES.OVERVIEW_READ", "sales overview get"},
 	{"QBO.ADVANCED.EXPENSE_CLAIMS_READ", "advanced expense-claims get"},
 }
 
-var falseSemanticAliases = append(append(falseReportAliases, falseFixedAssetAliases...), falseStandInAliases...)
+var falseSemanticAliases = append(falseReportAliases, falseStandInAliases...)
 
 // deadMutateMapIDs are the stale v3MutateByID entries wired-alias-audit-08
 // finding S2 flagged on already-blocked catalog rows: company settings
@@ -112,13 +103,17 @@ var falseSemanticAliases = append(append(falseReportAliases, falseFixedAssetAlia
 // absence and the blocked mode so a flip fails here first. Item-receipt
 // create/edit dropped off this list 2026-09-16 when they were wired to the
 // captured warehouse-management-svc CreateItemReceipt/UpdateItemReceipt
-// mutations (not a resurrected v3 mapping).
-var deadMutateMapIDs = []string{
-	"QBO.COMPANY.SETTINGS_EDIT",
-	"QBO.SALES.DELAYED_CHARGE_CREATE",
-	"QBO.SALES.DELAYED_CREDIT_CREATE",
-	"QBO.SALES.TIME_INVOICE_CREATE",
-}
+// mutations (not a resurrected v3 mapping). COMPANY.SETTINGS_EDIT dropped off
+// 2026-09-17 when it was wired to the captured settingsfacade
+// updateQbAppFoundationQbSettings mutation (entityVersion-gated, proven live).
+// TIME_INVOICE_CREATE dropped off 2026-09-19 when it was wired to the
+// captured invoice-form UpdateTransactions_Transaction_qbo contract with
+// links.sources charge consumption (proven live on TC2, invoice 173).
+// DELAYED_CHARGE_CREATE / DELAYED_CREDIT_CREATE dropped off 2026-09-19 when
+// they were wired to the captured nonpostingcharge/nonpostingcredit
+// UpdateTransactions_Transaction_qbo contracts (ACTIVITY_CHARGE txnTypeId 25
+// / ACTIVITY_CREDIT txnTypeId 13, proven live on TC2).
+var deadMutateMapIDs = []string{}
 
 // TestSemanticAliasesAreBlockedRows pins the catalog contract: each false
 // alias is still listed (agents must find the row) but with mode=blocked and
@@ -171,9 +166,10 @@ func TestSemanticAliasesHaveNoV3Dispatch(t *testing.T) {
 		t.Errorf("COA_CREATE = %+v, want {Account create}", spec)
 	}
 	// Accepted safe mappings that must survive the stand-in removals:
-	// projects read as job customers and locations read as departments.
-	if spec := v3ByID["QBO.ACCOUNTING.PROJECT_READ"]; spec.Entity != "Customer" {
-		t.Errorf("PROJECT_READ entity=%q, want Customer (projects are job customers)", spec.Entity)
+	// locations read as departments. Projects now ride the accountant
+	// workflow Work_Project surface, so they have no v3 entity mapping.
+	if _, ok := v3ByID["QBO.ACCOUNTING.PROJECT_READ"]; ok {
+		t.Error("PROJECT_READ must not map to a v3 entity (uses Work_Project)")
 	}
 	if spec := v3ByID["QBO.ACCOUNTING.LOCATION_READ"]; spec.Entity != "Department" {
 		t.Errorf("LOCATION_READ entity=%q, want Department", spec.Entity)

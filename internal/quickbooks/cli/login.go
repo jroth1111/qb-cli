@@ -205,9 +205,26 @@ var captureATSEgo = auth.CaptureATSFromEgo
 // persistLogin saves tok and prints RedactedStatus. No secrets on stdout.
 // Identity (company/email) arrives inside tok via capture-time DOM mining
 // (ego script / relay Runtime.evaluate); persist adds no fetching of its own.
+// Explicit login builds a fresh TokenSet, so accumulated state the capture
+// did not observe this pass — harvested per-host header maps and the
+// audit-ui key — is carried forward from the existing credential file
+// (the remint path already does this via applyAndSaveCapture's Load first).
 func persistLogin(cmd *cobra.Command, flags *rootFlags, tok *auth.TokenSet) error {
 	stderr := cmd.ErrOrStderr()
 	stdout := cmd.OutOrStdout()
+	if prev, err := auth.Load(); err == nil && sameLoginIdentity(prev, tok) {
+		for host, headers := range prev.URIHostHeaders {
+			if _, seen := tok.URIHostHeaders[host]; !seen {
+				if tok.URIHostHeaders == nil {
+					tok.URIHostHeaders = map[string]map[string]string{}
+				}
+				tok.URIHostHeaders[host] = headers
+			}
+		}
+		if tok.AuditAuthorization == "" {
+			tok.AuditAuthorization = prev.AuditAuthorization
+		}
+	}
 	if err := auth.Save(tok); err != nil {
 		fmt.Fprintf(stderr, "qb: saving credentials failed: %v\n", err)
 		return &ExitError{Code: ExitAuthError, Err: fmt.Errorf("saving credentials: %w", err), Silent: flags.asJSON}
@@ -224,6 +241,14 @@ func persistLogin(cmd *cobra.Command, flags *rootFlags, tok *auth.TokenSet) erro
 		fmt.Fprintf(stderr, "Saved %d cookie(s) to %s\n", status.CookieCount, auth.CredPath())
 	}
 	return nil
+}
+
+// Host headers can carry realm and user context. Retain them only when both
+// captures positively identify the same company and principal.
+func sameLoginIdentity(a, b *auth.TokenSet) bool {
+	return a != nil && b != nil && a.RealmID != "" && a.RealmID == b.RealmID &&
+		strings.TrimSpace(a.Email) != "" && strings.TrimSpace(b.Email) != "" &&
+		strings.EqualFold(strings.TrimSpace(a.Email), strings.TrimSpace(b.Email))
 }
 
 // announceCompany leads every login success with the signed-in company so

@@ -89,6 +89,28 @@ func TestApplyHeadersFallbackDuplicatesCSRF(t *testing.T) {
 	}
 }
 
+func TestNeoGetUsesObservedAcceptHeader(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	defer srv.Close()
+	original := impersonatedTransport
+	impersonatedTransport = http.DefaultTransport
+	t.Cleanup(func() { impersonatedTransport = original })
+	c := &apiClient{tok: &auth.TokenSet{RequestHeaders: map[string]string{"Accept": "application/json"}}}
+	resp, err := c.doStdlib(context.Background(), http.MethodGet, srv.URL+"/api/neo/v1/company/1/lists/olbrules/getRules", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = drainAndClose(resp)
+	if got != "*/*" {
+		t.Fatalf("Neo Accept=%q", got)
+	}
+}
+
 func TestPostJSONDropsCapturedPaginationRange(t *testing.T) {
 	var gotRange, gotContentType string
 	var gotTrace string

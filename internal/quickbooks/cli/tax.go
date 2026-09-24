@@ -13,7 +13,7 @@ func newTaxCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(atoEnt)
 	basEnt := &cobra.Command{Use: "bas", Short: "bas"}
 	basEnt.AddCommand(newStubCmd(flags, "tax bas", "run", "bas lodge (not wired)"))
-	basEnt.AddCommand(newStubCmd(flags, "tax bas", "get", "bas read (not wired)"))
+	basEnt.AddCommand(newStubCmd(flags, "tax bas", "get", "bas read (v4 graphql indirect-tax taxReturns)"))
 	cmd.AddCommand(basEnt)
 	codeEnt := &cobra.Command{Use: "code", Short: "code"}
 	codeEnt.AddCommand(newTaxCodeCreateCmd(flags))
@@ -42,7 +42,7 @@ func newTaxCmd(flags *rootFlags) *cobra.Command {
 	gst_settingsEnt.AddCommand(newStubCmd(flags, "tax gst-settings", "update", "gst-settings edit (not wired)"))
 	cmd.AddCommand(gst_settingsEnt)
 	iasEnt := &cobra.Command{Use: "ias", Short: "ias"}
-	iasEnt.AddCommand(newStubCmd(flags, "tax ias", "get", "ias read (not wired)"))
+	iasEnt.AddCommand(newStubCmd(flags, "tax ias", "get", "ias read (v4 graphql indirect-tax taxReturns)"))
 	cmd.AddCommand(iasEnt)
 	lodgeitEnt := &cobra.Command{Use: "lodgeit", Short: "lodgeit"}
 	lodgeitEnt.AddCommand(newStubCmd(flags, "tax lodgeit", "export", "lodgeit export (not wired)"))
@@ -73,7 +73,7 @@ func newTaxCmd(flags *rootFlags) *cobra.Command {
 	indirect_reportsEnt.AddCommand(newStubCmd(flags, "tax indirect-reports", "get", "indirecttaxreports.api.intuit.com get (service map; not wired)"))
 	cmd.AddCommand(indirect_reportsEnt)
 	experiment_assignmentEnt := &cobra.Command{Use: "experiment-assignment", Short: "experiment-assignment"}
-	experiment_assignmentEnt.AddCommand(newStubCmd(flags, "tax experiment-assignment", "get", "experimentassignment.api.intuit.com/api/v3/assignments/ get (service map; not wired)"))
+	experiment_assignmentEnt.AddCommand(newStubCmd(flags, "tax experiment-assignment", "get", "experimentassignment assignments"))
 	cmd.AddCommand(experiment_assignmentEnt)
 	return cmd
 }

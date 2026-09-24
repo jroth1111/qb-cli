@@ -78,8 +78,9 @@ func PlanExclude(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	return newPOSTPlan(excludePath, body, "excludeTransactions", "captured POST; not sent"), nil
 }
 
-// PlanUndo builds the undoTransactions POST without opening a socket.
-func PlanUndo(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
+// planUndoState builds the undoTransactions POST for one review state
+// (EXCLUDED restores excluded rows; ACCEPTED unposts accepted rows).
+func planUndoState(accountID string, olbTxnIDs []string, reviewState string) (*RequestPlan, error) {
 	ids := normalizeExcludeIDs(olbTxnIDs)
 	if len(ids) == 0 {
 		return nil, ErrEmptyUndoIDs
@@ -90,7 +91,7 @@ func PlanUndo(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	var req undoRequest
 	req.NextTxnInfo.AccountID = accountID
 	req.NextTxnInfo.NextTransactionIndex = -1
-	req.NextTxnInfo.ReviewState = "EXCLUDED"
+	req.NextTxnInfo.ReviewState = reviewState
 	req.NextTxnInfo.Sort = "-txnDate"
 	req.TxnIDList.ExternalTxnIDs = []string{}
 	req.TxnIDList.OlbTxnIDs = ids
@@ -102,12 +103,22 @@ func PlanUndo(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
 	return newPOSTPlan(undoPath, body, "undoTransactions", "captured POST; not sent"), nil
 }
 
+// PlanUndo builds the undoTransactions POST without opening a socket.
+func PlanUndo(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
+	return planUndoState(accountID, olbTxnIDs, "EXCLUDED")
+}
+
+// PlanUnpost builds the undoTransactions POST with reviewState ACCEPTED —
+// the Posted tab's Undo contract — without opening a socket.
+func PlanUnpost(accountID string, olbTxnIDs []string) (*RequestPlan, error) {
+	return planUndoState(accountID, olbTxnIDs, "ACCEPTED")
+}
+
 // PlanCategorise builds the categorise POST without opening a socket. The
 // live contract folds categorise into batchAcceptTransactions?acceptOnly=true
 // with the category on addAsQboTxn.details[0].categoryId; the plan body shows
 // stub olbTxns entries — the live feed rows hydrate at send time. Validation
-// matches ReplayCategorise: empty olbTxnIds, an empty categoryRef and a
-// non-empty classRef (not in the captured contract) are rejected.
+// matches ReplayCategorise: empty olbTxnIds and an empty categoryRef are rejected.
 func PlanCategorise(accountID string, olbTxnIDs []string, detail TransactionDetail) (*RequestPlan, error) {
 	ids := normalizeExcludeIDs(olbTxnIDs)
 	if len(ids) == 0 {
@@ -116,20 +127,18 @@ func PlanCategorise(accountID string, olbTxnIDs []string, detail TransactionDeta
 	if detail.CategoryRef == nil || strings.TrimSpace(detail.CategoryRef.Value) == "" {
 		return nil, ErrEmptyCategory
 	}
-	if detail.ClassRef != nil && strings.TrimSpace(detail.ClassRef.Value) != "" {
-		return nil, ErrUnsupportedClass
-	}
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
 	olbTxns := make([]any, 0, len(ids))
 	for _, id := range ids {
+		line := map[string]any{"categoryId": detail.CategoryRef.Value}
+		add := map[string]any{"details": []any{line}}
+		applyCategoriseAnnotations(add, line, detail)
 		olbTxns = append(olbTxns, map[string]any{
-			"olbTxnId":   id,
-			"acceptType": "ADD",
-			"addAsQboTxn": map[string]any{
-				"details": []any{map[string]any{"categoryId": detail.CategoryRef.Value}},
-			},
+			"olbTxnId":    id,
+			"acceptType":  "ADD",
+			"addAsQboTxn": add,
 		})
 	}
 	body, err := buildAcceptBody(accountID, olbTxns)
@@ -252,6 +261,47 @@ func PlanSplit(accountID string, olbTxnIDs []string, entityType string, lines []
 	return newPOSTPlan(batchAcceptPath+batchAcceptQuery, body, "batchAcceptTransactions", "captured POST /olb/ng/batchAcceptTransactions?acceptOnly=true; not sent"), nil
 }
 
+// PlanTransfer builds the batchAcceptTransactions?acceptOnly=true POST for
+// a transfer accept without opening a socket. The live contract posts each
+// pending row with acceptType TRANSFER, transfer:true, and
+// addAsQboTxn{txnTypeId:"26", details:[{categoryId:toAccountID}]}; the plan
+// body shows stub olbTxns entries — live feed rows hydrate at send time.
+// Validation matches ReplayTransfer: empty ids or destination account are
+// rejected.
+func PlanTransfer(accountID string, olbTxnIDs []string, toAccountID string) (*RequestPlan, error) {
+	ids := normalizeExcludeIDs(olbTxnIDs)
+	if len(ids) == 0 {
+		return nil, ErrEmptyTransferIDs
+	}
+	if strings.TrimSpace(toAccountID) == "" {
+		return nil, ErrEmptyTransferAccount
+	}
+	if accountID == "" {
+		accountID = DefaultAccountID
+	}
+	olbTxns := make([]any, 0, len(ids))
+	for _, id := range ids {
+		olbTxns = append(olbTxns, map[string]any{
+			"olbTxnId":   id,
+			"acceptType": "TRANSFER",
+			"transfer":   true,
+			"addAsQboTxn": map[string]any{
+				"txnTypeId": "26",
+				"details": []any{map[string]any{
+					"categoryId":      toAccountID,
+					"billable":        false,
+					"taxApplicableOn": "SALES",
+				}},
+			},
+		})
+	}
+	body, err := buildAcceptBody(accountID, olbTxns)
+	if err != nil {
+		return nil, fmt.Errorf("encoding transfer request: %w", err)
+	}
+	return newPOSTPlan(batchAcceptPath+batchAcceptQuery, body, "batchAcceptTransactions", "captured POST /olb/ng/batchAcceptTransactions?acceptOnly=true (TRANSFER); not sent"), nil
+}
+
 // PlanImportCSV builds the processCsvFile POST without opening a socket.
 // Live OAuth accounts 204/93 are refused. Date defaults to today AU.
 func PlanImportCSV(accountID, date, description, amount string) (*RequestPlan, ImportResult, error) {
@@ -357,6 +407,9 @@ func postPlanned(ctx context.Context, plan *RequestPlan) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if plan.op == "excludeTransactions" || plan.op == "undoTransactions" {
+		return replayVerifiedStateChange(ctx, ac, plan)
+	}
 	return postResolved(ctx, ac, plan, []byte(plan.Body))
 }
 
@@ -381,5 +434,27 @@ func postResolved(ctx context.Context, ac *apiClient, plan *RequestPlan, body []
 	if resp.StatusCode != http.StatusOK {
 		return resp.StatusCode, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
+	if plan.op == "batchAcceptTransactions" {
+		if err := validateAcceptResponse(raw, body); err != nil {
+			return resp.StatusCode, err
+		}
+	}
+	if plan.op == "processCsvFile" {
+		var request struct {
+			Data []json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(body, &request); err != nil || len(request.Data) == 0 {
+			return resp.StatusCode, fmt.Errorf("CSV import response cannot be checked against request")
+		}
+		if err := validateCSVImportResponse(raw, len(request.Data)); err != nil {
+			return resp.StatusCode, err
+		}
+	}
 	return resp.StatusCode, nil
+}
+
+// PlannedReconcileURL advertises the Integration_Reconciliation node read on
+// the v4 gateway for a bank account.
+func PlannedReconcileURL(accountID string) string {
+	return "https://qbo.intuit.com/api/v4/graphql (Integration_Reconciliation node for account " + accountID + ")"
 }

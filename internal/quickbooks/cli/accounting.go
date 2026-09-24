@@ -70,6 +70,10 @@ func printRegister(stdout, stderr io.Writer, flags *rootFlags, res *client.Regis
 }
 
 func newAccountingAuditLogReadCmd(flags *rootFlags) *cobra.Command {
+	var entityID string
+	var includeSnapshots bool
+	var fromDate, toDate string
+	var offset int
 	var (
 		id    string
 		limit int
@@ -92,7 +96,7 @@ func newAccountingAuditLogReadCmd(flags *rootFlags) *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayAuditLog(ctx, limit)
+			res, err := client.ReplayAuditLogFiltered(ctx, client.AuditFilter{Limit: limit, FromDate: fromDate, ToDate: toDate, Offset: offset, EntityID: entityID, IncludeSnapshots: includeSnapshots})
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -111,12 +115,21 @@ func newAccountingAuditLogReadCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "id", "", "target audit event id")
+	cmd.Flags().StringVar(&entityID, "entity-id", "", "server-side accounting entity ID filter (not a bank-feed ID)")
+	cmd.Flags().BoolVar(&includeSnapshots, "include-snapshots", false, "include historical transaction snapshots in JSON output")
 	cmd.Flags().IntVar(&limit, "limit", 20, "max events to return")
+	cmd.Flags().StringVar(&fromDate, "from", "", "inclusive start timestamp (RFC3339, with timezone; requires --to)")
+	cmd.Flags().StringVar(&toDate, "to", "", "inclusive end timestamp (RFC3339, with timezone; requires --from)")
+	cmd.Flags().IntVar(&offset, "offset", 0, "server event offset; use pageInfo for subsequent pages")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.AUDIT_LOG_READ")
 	return cmd
 }
 
 func newAccountingAuditLogSearchCmd(flags *rootFlags) *cobra.Command {
+	var entityID string
+	var includeSnapshots bool
+	var fromDate, toDate string
+	var offset int
 	var (
 		eventType string
 		user      string
@@ -141,7 +154,9 @@ func newAccountingAuditLogSearchCmd(flags *rootFlags) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
 			res, err := client.ReplayAuditLogFiltered(ctx, client.AuditFilter{
-				Limit:     limit,
+				EntityID: entityID, IncludeSnapshots: includeSnapshots,
+				Limit:    limit,
+				FromDate: fromDate, ToDate: toDate, Offset: offset,
 				EventType: eventType,
 				User:      user,
 				Query:     query,
@@ -154,9 +169,14 @@ func newAccountingAuditLogSearchCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&eventType, "event-type", "", "filter by event type (LOGIN, VOID, CREATED)")
+	cmd.Flags().StringVar(&entityID, "entity-id", "", "server-side accounting entity ID filter (not a bank-feed ID)")
+	cmd.Flags().BoolVar(&includeSnapshots, "include-snapshots", false, "include historical transaction snapshots in JSON output")
 	cmd.Flags().StringVar(&user, "user", "", "filter by user id")
 	cmd.Flags().StringVar(&query, "query", "", "substring match on type/name/user")
 	cmd.Flags().IntVar(&limit, "limit", 20, "max events to return")
+	cmd.Flags().StringVar(&fromDate, "from", "", "inclusive start timestamp (RFC3339, with timezone; requires --to)")
+	cmd.Flags().StringVar(&toDate, "to", "", "inclusive end timestamp (RFC3339, with timezone; requires --from)")
+	cmd.Flags().IntVar(&offset, "offset", 0, "server event offset; use pageInfo for subsequent pages")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.AUDIT_LOG_SEARCH")
 	return cmd
 }
@@ -260,14 +280,14 @@ func newAccountingCmd(flags *rootFlags) *cobra.Command {
 	prepaidEnt.AddCommand(deep["prepaid"]...)
 	cmd.AddCommand(prepaidEnt)
 	projectEnt := &cobra.Command{Use: "project", Short: "project"}
-	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "create", "project create (not wired)"))
-	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "update", "project edit (not wired)"))
-	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "get", "project read (not wired)"))
-	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "search", "project search (not wired)"))
+	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "create", "project create"))
+	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "update", "project edit"))
+	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "get", "project read"))
+	projectEnt.AddCommand(newStubCmd(flags, "accounting project", "search", "project search"))
 	cmd.AddCommand(projectEnt)
 	reconcileEnt := &cobra.Command{Use: "reconcile", Short: "reconcile"}
-	reconcileEnt.AddCommand(newStubCmd(flags, "accounting reconcile", "create", "reconcile create (not wired)"))
-	reconcileEnt.AddCommand(newStubCmd(flags, "accounting reconcile", "get", "reconcile read (not wired)"))
+	reconcileEnt.AddCommand(newStubCmd(flags, "accounting reconcile", "create", "begin reconcile session (qbonline-aws StartReconcile)"))
+	reconcileEnt.AddCommand(newStubCmd(flags, "accounting reconcile", "get", "Integration_Reconciliation node read"))
 	cmd.AddCommand(reconcileEnt)
 	recurringEnt := &cobra.Command{Use: "recurring", Short: "recurring"}
 	recurringEnt.AddCommand(newStubCmd(flags, "accounting recurring", "create", "recurring create (not wired)"))
@@ -296,7 +316,7 @@ func newAccountingCmd(flags *rootFlags) *cobra.Command {
 	reconcile_serviceEnt.AddCommand(newStubCmd(flags, "accounting reconcile-service", "get", "accountreconcile service read (service map; not wired)"))
 	cmd.AddCommand(reconcile_serviceEnt)
 	budget_planningEnt := &cobra.Command{Use: "budget-planning", Short: "budget-planning"}
-	budget_planningEnt.AddCommand(newStubCmd(flags, "accounting budget-planning", "get", "budgeting graphql read (service map; not wired)"))
+	budget_planningEnt.AddCommand(newStubCmd(flags, "accounting budget-planning", "get", "budgeting fetchAllBudgets read"))
 	cmd.AddCommand(budget_planningEnt)
 	coa_templatesEnt := &cobra.Command{Use: "coa-templates", Short: "coa-templates"}
 	coa_templatesEnt.AddCommand(newStubCmd(flags, "accounting coa-templates", "get", "coa-core templates read (service map; not wired)"))
@@ -321,7 +341,7 @@ func newAccountingCmd(flags *rootFlags) *cobra.Command {
 	libroEnt.AddCommand(newStubCmd(flags, "accounting libro", "get", "libro-svc.api.intuit.com get (service map; not wired)"))
 	cmd.AddCommand(libroEnt)
 	taxconfig_mirrorEnt := &cobra.Command{Use: "taxconfig-mirror", Short: "taxconfig-mirror"}
-	taxconfig_mirrorEnt.AddCommand(newStubCmd(flags, "accounting taxconfig-mirror", "get", "taxconfig-test.api.intuit.com get (service map; not wired)"))
+	taxconfig_mirrorEnt.AddCommand(newStubCmd(flags, "accounting taxconfig-mirror", "get", "taxconfig IndirectTaxTaxGropups read"))
 	cmd.AddCommand(taxconfig_mirrorEnt)
 	qbdata_migrationEnt := &cobra.Command{Use: "qbdata-migration", Short: "qbdata-migration"}
 	qbdata_migrationEnt.AddCommand(newStubCmd(flags, "accounting qbdata-migration", "post", "qbdatamigration.api.intuit.com/v1 post (service map; not wired)"))

@@ -50,7 +50,8 @@ type csvImportRequest struct {
 
 // ReplayImportCSV POSTs /api/neo/v1/company/{realm}/olb/processCsvFile
 // as captured 2026-08-17 from /app/newfileupload?accountId=209.
-// It creates PENDING feed rows. It does not post to the ledger.
+// Bank rules may automatically post imported rows. The import result is not
+// proof of Pending state; callers must verify feed and ledger effects.
 // Validation (account/description/amount, live-account refuse) runs
 // before newAPIClient so bad input never opens a socket.
 func ReplayImportCSV(ctx context.Context, accountID, date, description, amount string) (*ImportResult, error) {

@@ -211,13 +211,15 @@ func isAPIKeyHeaderRequest(reqURL string, headers map[string]string) bool {
 		headerGet(headers, "apikey") != ""
 }
 
-// ServiceHost extracts the *.api.intuit.com host a request targets when it
-// carries a service-scoped Intuit_APIKey — the leftover-host credential shape
-// URIHostHeaders stores. Returns "" for first-party qbo.intuit.com traffic
-// and for requests without the service key.
+// ServiceHost extracts a separately keyed service host. Neo requests on
+// qbo.intuit.com with an apikey header use a different Intuit_APIKey from
+// the primary ATS capture and must refresh URIHostHeaders too.
 func ServiceHost(reqURL string, headers map[string]string) string {
 	if !isIntuitAPIKey(headerGet(headers, "authorization")) {
 		return ""
+	}
+	if strings.HasPrefix(reqURL, "https://qbo.intuit.com/api/neo/") && headerGet(headers, "apikey") != "" {
+		return "qbo.intuit.com"
 	}
 	if !strings.Contains(reqURL, ".api.intuit.com/") {
 		return ""

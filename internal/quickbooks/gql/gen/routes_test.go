@@ -10,23 +10,25 @@ func TestEndpointForVerifiedRoutes(t *testing.T) {
 	// Freeze every historical override plus the live-proven task route so a
 	// shared-table change cannot silently reroute an existing operation.
 	for operation, want := range map[string]string{
-		"CommerceGetAvailableInventory":       EndpointWarehouse,
-		"CommerceInventoryLocations":          EndpointWarehouse,
-		"CommerceInventoryQuantities":         EndpointWarehouse,
-		"CommerceInventoryMovement":           EndpointWarehouse,
-		"CommerceGenerateSerialLotNumbers":    EndpointWarehouse,
-		"CommerceConsumeInventory":            EndpointWarehouse,
-		"CommerceReceiveInventory":            EndpointWarehouse,
-		"CreateAttachment":                    EndpointSpendLists,
-		"CreateAttachment_qbo":                EndpointSpendLists,
-		"CustomFieldDefinitionCreateMutation": EndpointSpendLists,
-		"CustomFieldsQuery":                   EndpointSpendLists,
-		"CustomFieldsQueryCES":                EndpointSpendLists,
+		"CommerceGetAvailableInventory":    EndpointWarehouse,
+		"CommerceInventoryLocations":       EndpointWarehouse,
+		"CommerceInventoryQuantities":      EndpointWarehouse,
+		"CommerceInventoryMovement":        EndpointWarehouse,
+		"CommerceGenerateSerialLotNumbers": EndpointWarehouse,
+		"CommerceConsumeInventory":         EndpointWarehouse,
+		"CommerceReceiveInventory":         EndpointWarehouse,
+		"CreateAttachment":                 EndpointSpendLists,
+		"CreateAttachment_qbo":             EndpointSpendLists,
+		"CustomFieldsQuery":                EndpointSpendLists,
+		// Live capture 2026-09-17: the custom-fields plugin posts to
+		// customextensions, not smallbusiness (which 400/401s).
+		"CustomFieldDefinitionCreateMutation": EndpointCES,
+		"CustomFieldsQueryCES":                EndpointCES,
+		"UpdateFieldDefinitionCreateMutation": EndpointCES,
 		"GetContacts":                         EndpointSpendLists,
 		"QbAppFoundationDeleteAttachment":     EndpointSpendLists,
 		"QbAppFoundationReadAttachments":      EndpointSpendLists,
 		"UpdateAttachment":                    EndpointSpendLists,
-		"UpdateFieldDefinitionCreateMutation": EndpointSpendLists,
 		"TaskManagementTasks":                 EndpointSpendLists,
 	} {
 		t.Run(operation, func(t *testing.T) {

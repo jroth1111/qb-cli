@@ -55,7 +55,7 @@ func captureFromRelayDual(ctx context.Context, relayURL, targetID, fetchPattern,
 }
 
 // captureFromRelayHarvest additionally harvests per-service-host request
-// headers (*.api.intuit.com carrying an Intuit_APIKey) into
+// headers (*.api.intuit.com and separately keyed first-party Neo) into
 // ATSCapture.HostHeaders, refreshing TokenSet.URIHostHeaders each pass.
 func captureFromRelayHarvest(ctx context.Context, relayURL, targetID string, fetchPatterns []string, navigateURL string, match, secondary func(reqURL string, headers map[string]string) bool) (*ATSCapture, error) {
 	if targetID == "" {
@@ -102,15 +102,42 @@ func captureFromRelayHarvest(ctx context.Context, relayURL, targetID string, fet
 	if _, err := conn.call(ctx, "Fetch.enable", map[string]any{"patterns": patterns}, sid); err != nil {
 		return nil, fmt.Errorf("fetch.enable: %w", err)
 	}
-	if _, err := conn.call(ctx, "Page.navigate", map[string]any{"url": navigateURL}, sid); err != nil {
+	disableFetch := func() {
+		dctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, _ = conn.call(dctx, "Fetch.disable", map[string]any{}, sid)
+	}
+	defer disableFetch()
+	// The navigation document can itself be intercepted. Drain pauses before
+	// waiting for Page.navigate, otherwise neither side can make progress.
+	captureCtx, cancelCapture := context.WithCancel(ctx)
+	defer cancelCapture()
+	type harvested struct {
+		headers, secondary map[string]string
+		hosts              map[string]map[string]string
+		err                error
+	}
+	ready := make(chan harvested, 1)
+	go func() {
+		headers, extra, hosts, err := waitPausedMatch(captureCtx, conn, sid, match, secondary)
+		ready <- harvested{headers, extra, hosts, err}
+	}()
+	if _, err := conn.call(captureCtx, "Page.navigate", map[string]any{"url": navigateURL}, sid); err != nil {
+		cancelCapture()
 		return nil, fmt.Errorf("page.navigate: %w", err)
 	}
-	headers, secondaryHeaders, hostHeaders, err := waitPausedMatch(ctx, conn, sid, match, secondary)
-	if err != nil {
-		return nil, err
+	var got harvested
+	select {
+	case got = <-ready:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %v", ErrNoATSAuthorization, ctx.Err())
 	}
-	cap := &ATSCapture{Headers: headers, SecondaryHeaders: secondaryHeaders, HostHeaders: hostHeaders}
-	if cookies, cerr := getAllCookies(ctx, conn, sid); cerr == nil {
+	if got.err != nil {
+		return nil, got.err
+	}
+	disableFetch()
+	cap := &ATSCapture{Headers: got.headers, SecondaryHeaders: got.secondary, HostHeaders: got.hosts}
+	if cookies, cerr := getQBOCookies(ctx, conn, sid); cerr == nil {
 		cap.Cookies = cookies
 	}
 	// Identity mining: the tab just served ATS traffic, so the SPA is
@@ -128,7 +155,7 @@ func captureFromRelayHarvest(ctx context.Context, relayURL, targetID string, fet
 // waitPausedMatch blocks until a paused Fetch request satisfies match, then
 // returns its header map. When secondary is non-nil it keeps draining for a
 // short grace window to also harvest the first secondary match, and every
-// service-host request (*.api.intuit.com with its own Intuit_APIKey) is
+// separately keyed service-host request (including first-party Neo) is
 // recorded into hostHeaders. Every paused request is continued so the tab
 // never hangs on an intercept it does not care about.
 func waitPausedMatch(ctx context.Context, conn *cdpConn, sid string, match, secondary func(reqURL string, headers map[string]string) bool) (map[string]string, map[string]string, map[string]map[string]string, error) {
@@ -216,14 +243,11 @@ func stringifyHeaders(in map[string]any) map[string]string {
 	return out
 }
 
-func getAllCookies(ctx context.Context, conn *cdpConn, sid string) ([]Cookie, error) {
-	raw, err := conn.call(ctx, "Network.getAllCookies", map[string]any{}, sid)
+func getQBOCookies(ctx context.Context, conn *cdpConn, sid string) ([]Cookie, error) {
+	// Never persist unrelated browser cookies in a QBO credential profile.
+	raw, err := conn.call(ctx, "Network.getCookies", map[string]any{"urls": []string{"https://qbo.intuit.com/"}}, sid)
 	if err != nil {
-		// chrome.debugger sometimes only exposes Network.getCookies.
-		raw, err = conn.call(ctx, "Network.getCookies", map[string]any{}, sid)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	var res struct {
 		Cookies []cdpCookie `json:"cookies"`
@@ -233,6 +257,13 @@ func getAllCookies(ctx context.Context, conn *cdpConn, sid string) ([]Cookie, er
 	}
 	out := make([]Cookie, 0, len(res.Cookies))
 	for _, c := range res.Cookies {
+		if c.Path == "" {
+			c.Path = "/"
+		}
+		domain := strings.TrimPrefix(strings.ToLower(c.Domain), ".")
+		if domain != "qbo.intuit.com" && domain != "intuit.com" {
+			continue
+		}
 		if c.Name == "" || !intuitCookieHost(c.Domain) {
 			continue
 		}

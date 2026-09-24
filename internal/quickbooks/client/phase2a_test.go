@@ -111,18 +111,16 @@ func TestCreditCardCreditRequiresAccount(t *testing.T) {
 func TestVoidableEntityMap(t *testing.T) {
 	for in, want := range map[string]string{
 		"invoice": "Invoice", "PAYMENT": "Payment", "journal": "JournalEntry",
-		"cheque": "Purchase", "purchase-order": "PurchaseOrder",
 	} {
 		got, err := VoidableEntity(in)
 		if err != nil || got != want {
 			t.Fatalf("VoidableEntity(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	if _, err := VoidableEntity(""); err == nil {
-		t.Fatal("empty entity must fail")
-	}
-	if _, err := VoidableEntity("customer"); err == nil {
-		t.Fatal("non-voidable entity must fail")
+	for _, in := range []string{"", "customer", "cheque", "estimate", "purchase-order"} {
+		if _, err := VoidableEntity(in); err == nil {
+			t.Fatalf("VoidableEntity(%q) must fail (not voidable on v3)", in)
+		}
 	}
 }
 

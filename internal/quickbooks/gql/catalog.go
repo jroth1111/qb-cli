@@ -205,6 +205,359 @@ var docOverrides = map[string]string{
       }
     }
   }`,
+	// Live captures 2026-09-17: the corpus docs for the reconcile session
+	// mutations were truncated heads (undefined ...F7/...Fc fragments →
+	// PLT-8000). These are the byte-exact documents the SPA sent; BEGIN and
+	// CANCEL both verified end-to-end on TC2 account 45.
+	"StartReconcile__integration_banking_reconcile_ui_qbo": `mutation StartReconcile__integration_banking_reconcile_ui_qbo(
+  $input_0: UpdateIntegration_ReconciliationInput!
+) {
+  updateIntegration_Reconciliation(input: $input_0) {
+    clientMutationId
+    ...Fc
+  }
+}
+fragment F0 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  expenseTransactionAmount
+  expenseTransactionAccount {
+    id
+    __typename
+  }
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+  incomeTransactionAmount
+  incomeTransactionAccount {
+    id
+    __typename
+  }
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  lastStatementEndingBalance
+}
+fragment F1 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  lastStatementEndingBalance
+}
+fragment F2 on Integration_Reconciliation {
+  id
+  statementEndingDate
+}
+fragment F3 on Integration_Reconciliation {
+  id
+  beginningBalance
+  statementEndingBalance
+  statementEndingDate
+  incomeTransactionAmount
+  incomeTransactionAccount {
+    id
+    __typename
+  }
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  expenseTransactionAmount
+  expenseTransactionAccount {
+    id
+    __typename
+  }
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+}
+fragment F4 on Integration_Reconciliation {
+  statementEndingDate
+  id
+}
+fragment F5 on Integration_Reconciliation {
+  id
+  statementEndingDate
+  statementEndingBalance
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+  ...F4
+}
+fragment F6 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  statementEndingBalance
+  statementEndingDate
+  ...F3
+  ...F5
+}
+fragment F7 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  statementEndingDate
+  statementEndingBalance
+  ...F6
+}
+fragment F8 on Integration_Reconciliation {
+  id
+}
+fragment F9 on Integration_Reconciliation {
+  id
+  beginningBalance
+  statementEndingBalance
+  statementEndingDate
+  incomeTransactionAmount
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  expenseTransactionAmount
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+}
+fragment Fa on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  statementEndingBalance
+  statementEndingDate
+  ...F9
+  ...F5
+}
+fragment Fb on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  statementEndingDate
+  statementEndingBalance
+  ...Fa
+}
+fragment Fc on UpdateIntegration_ReconciliationPayload {
+  integrationReconciliation {
+    id
+    ...F0
+    id
+    id
+    ...F1
+    id
+    id
+    ...F2
+    id
+    ...F7
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+    ...F8
+    id
+    id
+    id
+    id
+    ...Fb
+    id
+    id
+  }
+}`,
+	"CancelReconcile__integration_banking_reconcile_ui_qbo": `mutation CancelReconcile__integration_banking_reconcile_ui_qbo(
+  $input_0: UpdateIntegration_ReconciliationInput!
+) {
+  updateIntegration_Reconciliation(input: $input_0) {
+    clientMutationId
+    ...F7
+  }
+}
+fragment F0 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  expenseTransactionAmount
+  expenseTransactionAccount {
+    id
+    __typename
+  }
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+  incomeTransactionAmount
+  incomeTransactionAccount {
+    id
+    __typename
+  }
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  lastStatementEndingBalance
+}
+fragment F1 on Integration_Reconciliation {
+  id
+  statementEndingDate
+}
+fragment F2 on Integration_Reconciliation {
+  id
+  beginningBalance
+  statementEndingBalance
+  statementEndingDate
+  incomeTransactionAmount
+  incomeTransactionAccount {
+    id
+    __typename
+  }
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  expenseTransactionAmount
+  expenseTransactionAccount {
+    id
+    __typename
+  }
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+}
+fragment F3 on Integration_Reconciliation {
+  statementEndingDate
+  id
+}
+fragment F4 on Integration_Reconciliation {
+  id
+  statementEndingDate
+  statementEndingBalance
+  incomeTransactionDate
+  incomeTransactionExchangeRate
+  expenseTransactionDate
+  expenseTransactionExchangeRate
+  ...F3
+}
+fragment F5 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  statementEndingBalance
+  statementEndingDate
+  ...F2
+  ...F4
+}
+fragment F6 on Integration_Reconciliation {
+  id
+  beginningBalance
+  inProgress
+  statementEndingDate
+  statementEndingBalance
+  ...F5
+}
+fragment F7 on UpdateIntegration_ReconciliationPayload {
+  integrationReconciliation {
+    id
+    ...F0
+    id
+    id
+    ...F1
+    id
+    id
+    ...F6
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+    id
+  }
+}`,
+	// Minimal verified doc 2026-09-17: the corpus doc was a truncated head
+	// (...F7 undefined → PLT-8000). This selection is the envelope every
+	// reconcile mutation shares; FINISH verified end-to-end on TC2 account 45
+	// (inProgress=false after completion).
+	"FinishReconcile__integration_banking_reconcile_ui_qbo": `mutation FinishReconcile__integration_banking_reconcile_ui_qbo(
+  $input_0: UpdateIntegration_ReconciliationInput!
+) {
+  updateIntegration_Reconciliation(input: $input_0) {
+    clientMutationId
+    integrationReconciliation {
+      id
+      inProgress
+      statementEndingDate
+      statementEndingBalance
+    }
+  }
+}`,
+	// Live replay 2026-09-17: the captured CustomFieldsQueryCES doc carries a
+	// webpack interpolation artifact (`customFieldDefinitions "," {`) that
+	// the CES endpoint rejects with InvalidSyntax. This is the verified
+	// working document (same shape the customfields UI sends).
+	"CustomFieldsQueryCES": `query CustomFieldsQueryCES {
+  customFieldDefinitions(limit: 1000) {
+    edges {
+      node {
+        id
+        schema {
+          type
+          title
+          format
+          allowedOperations
+          allowedValues {
+            id
+            value
+            deleted
+            order
+          }
+          uiValidations {
+            mandatory
+            defaultValue
+          }
+          metadataProperties
+        }
+        name
+        deleted
+        associatedEntityTypes {
+          type
+          deleted
+          allowedOperations
+          entityConditions {
+            subtype
+            deleted
+            allowedOperations
+          }
+        }
+        colorCode
+      }
+    }
+  }
+}`,
+	// Live capture + replay 2026-09-17: the corpus docs for the custom-field
+	// mutations ride the smallbusiness spend-lists schema
+	// (*Common_CustomFieldDefinition inputs) which 400/401s on TC2. The
+	// customfields UI actually posts create/updateCustomFieldDefinition to
+	// customextensions with a CustomFieldDefinitionMutationInput payload
+	// (verified end-to-end: create→update→delete→restore round-trip).
+	"CustomFieldDefinitionCreateMutation": `mutation CustomFieldDefinitionCreateMutation(
+  $input_0: CustomFieldDefinitionMutationInput!
+) {
+  createCustomFieldDefinition(input: $input_0) {
+    id
+    name
+    deleted
+    schema {
+      title
+      type
+    }
+  }
+}`,
+	"UpdateFieldDefinitionCreateMutation": `mutation UpdateFieldDefinitionCreateMutation(
+  $input_0: CustomFieldDefinitionMutationInput!
+) {
+  updateCustomFieldDefinition(input: $input_0) {
+    id
+    name
+    deleted
+    schema {
+      title
+      type
+    }
+  }
+}`,
 }
 
 func buildCatalog() map[string]*Op {

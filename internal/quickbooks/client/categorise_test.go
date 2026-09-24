@@ -23,23 +23,38 @@ func TestPlanCategoriseEmptyCategory(t *testing.T) {
 	}
 }
 
-// TestPlanCategoriseRejectsClass asserts a --class value is refused at plan
-// time: the captured batchAcceptTransactions detail carries categoryId only,
-// so the class field name cannot be guessed onto the wire.
-func TestPlanCategoriseRejectsClass(t *testing.T) {
-	_, err := PlanCategorise("209", []string{"3"}, TransactionDetail{
-		CategoryRef: &RefValue{Value: "7"},
-		ClassRef:    &RefValue{Value: "800398"},
-	})
-	if !errors.Is(err, ErrUnsupportedClass) {
-		t.Fatalf("got %v, want ErrUnsupportedClass", err)
+func TestPlanCategoriseClassAndMemo(t *testing.T) {
+	memo := "Fee [Card: Jacob] [Parent: source-1]"
+	plan, err := PlanCategorise("204", []string{"3"}, TransactionDetail{CategoryRef: &RefValue{Value: "7"}, ClassRef: &RefValue{Value: "800398"}, Memo: &memo})
+	if err != nil {
+		t.Fatal(err)
 	}
-	// An explicitly empty class ref remains tolerated (same as omitting it).
-	if _, err := PlanCategorise("209", []string{"3"}, TransactionDetail{
-		CategoryRef: &RefValue{Value: "7"},
-		ClassRef:    &RefValue{Value: ""},
-	}); err != nil {
-		t.Fatalf("empty class ref should be ignored, got %v", err)
+	var body map[string]any
+	if err := json.Unmarshal(plan.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	row := body["txnList"].(map[string]any)["olbTxns"].([]any)[0].(map[string]any)
+	add := row["addAsQboTxn"].(map[string]any)
+	line := add["details"].([]any)[0].(map[string]any)
+	if line["klassId"] != "800398" || add["txnMemo"] != memo {
+		t.Fatalf("missing annotation fields: %#v", add)
+	}
+}
+
+func TestCategoriseOmittedAndClearedAnnotationsDiffer(t *testing.T) {
+	line := map[string]any{"klassId": "old", "categoryId": "7"}
+	add := map[string]any{"txnMemo": "original"}
+	applyCategoriseAnnotations(add, line, TransactionDetail{})
+	if line["klassId"] != "old" || add["txnMemo"] != "original" {
+		t.Fatal("omitted fields changed")
+	}
+	empty := ""
+	applyCategoriseAnnotations(add, line, TransactionDetail{ClassRef: &RefValue{}, Memo: &empty})
+	if _, ok := line["klassId"]; ok {
+		t.Fatal("class not cleared")
+	}
+	if add["txnMemo"] != "" || line["categoryId"] != "7" {
+		t.Fatal("clear changed unrelated fields")
 	}
 }
 

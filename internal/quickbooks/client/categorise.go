@@ -19,10 +19,7 @@ var (
 	// ignores when an ADD has no addAsQboTxn.details[].categoryId.
 	ErrMissingAcceptCategory = errors.New("batch accept requires a category on the live feed row")
 
-	// ErrUnsupportedClass reports a --class value. The captured
-	// batchAcceptTransactions detail carries categoryId only; the class
-	// field name is not in the observed contract, so we refuse rather
-	// than guess a wire key.
+	// Retained for callers compiled against the earlier unsupported contract.
 	ErrUnsupportedClass = errors.New("categorise --class is not in the captured feed contract; omit --class")
 
 	// ErrFeedRowsNotFound reports a requested olbTxnId that is absent from
@@ -50,14 +47,14 @@ type SplitLine struct {
 }
 
 // TransactionDetail is the categorise input: CategoryRef carries the account
-// id folded into addAsQboTxn.details[0].categoryId on the live
-// batchAcceptTransactions contract. ClassRef is rejected (not in the
-// captured contract); EntityType and Lines are vestigial from the retired
-// categoriseTransactions request and are no longer sent.
+// id folded into addAsQboTxn.details[0].categoryId. A non-nil empty ClassRef
+// explicitly clears a suggestion; nil preserves it. Memo is also optional
+// so omission never erases existing text.
 type TransactionDetail struct {
 	EntityType  string      `json:"entityType,omitempty"`
 	CategoryRef *RefValue   `json:"categoryRef,omitempty"`
 	ClassRef    *RefValue   `json:"classRef,omitempty"`
+	Memo        *string     `json:"memo,omitempty"`
 	Lines       []SplitLine `json:"lines,omitempty"`
 }
 
@@ -74,8 +71,8 @@ type MatchTxn struct {
 // /api/neo/v1/company/{realm}/olb/ng/batchAcceptTransactions?acceptOnly=true.
 // It folds the chosen category into each row's addAsQboTxn.details[0]
 // .categoryId and posts it — the same call the SPA's Post button sends.
-// Empty olbTxnIds, an empty category, or a --class value are rejected before
-// any network call. Callers must only pass olbTxnIds (or the :ofx display
+// Empty olbTxnIds or an empty category are rejected before any network
+// call. Callers must only pass olbTxnIds (or the :ofx display
 // id for the same row).
 func ReplayCategorise(ctx context.Context, accountID string, olbTxnIDs []string, detail TransactionDetail) (int, error) {
 	plan, err := PlanCategorise(accountID, olbTxnIDs, detail)
@@ -95,9 +92,23 @@ func ReplayCategorise(ctx context.Context, accountID string, olbTxnIDs []string,
 			add["details"] = details
 		}
 		details[0]["categoryId"] = cat
+		applyCategoriseAnnotations(add, details[0], detail)
 		setIfAbsent(details[0], "billable", false)
 		setIfAbsent(details[0], "taxApplicableOn", "SALES")
 		add["txnDate"] = mapStr(row, "olbTxnDate")
 		return nil
 	})
+}
+
+func applyCategoriseAnnotations(add, line map[string]any, detail TransactionDetail) {
+	if detail.ClassRef != nil {
+		if detail.ClassRef.Value == "" {
+			delete(line, "klassId")
+		} else {
+			line["klassId"] = detail.ClassRef.Value
+		}
+	}
+	if detail.Memo != nil {
+		add["txnMemo"] = *detail.Memo
+	}
 }

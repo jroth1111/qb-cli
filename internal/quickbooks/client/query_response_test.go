@@ -59,3 +59,30 @@ func TestDepartmentIDReadUsesNativeResource(t *testing.T) {
 		t.Fatalf("plan drifted: %s", got)
 	}
 }
+
+func TestPurchaseIDReadIncludesFullLineAndSyncToken(t *testing.T) {
+	saveUsable(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v3/company/12345/purchase/51" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"Purchase":{"Id":"51","SyncToken":"7","TotalAmt":25,"Line":[{"Id":"1","Amount":25,"AccountBasedExpenseLineDetail":{"AccountRef":{"value":"115"},"ClassRef":{"value":"1303"},"TaxCodeRef":{"value":"NON"}}}]}}`)
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	result, err := ReplayQuery(context.Background(), "Purchase", "51", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].ID != "51" || result.Detail["SyncToken"] != "7" {
+		t.Fatalf("missing purchase detail: %+v", result)
+	}
+	lines, _ := result.Detail["Line"].([]any)
+	if len(lines) != 1 {
+		t.Fatalf("missing lines: %+v", result.Detail)
+	}
+	detail := lines[0].(map[string]any)["AccountBasedExpenseLineDetail"].(map[string]any)
+	if expenseRefValue(detail["ClassRef"]) != "1303" || expenseRefValue(detail["AccountRef"]) != "115" || expenseRefValue(detail["TaxCodeRef"]) != "NON" {
+		t.Fatalf("missing line fields: %+v", detail)
+	}
+}

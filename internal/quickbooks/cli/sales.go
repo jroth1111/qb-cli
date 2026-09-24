@@ -1,6 +1,48 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
+	"github.com/spf13/cobra"
+)
+
+// newSalesSettingsGetCmd implements `sales salesettings get`: the captured
+// readSettings call the Account-and-settings > Sales tab issues against
+// salesettings.api.intuit.com/v4/graphql (qbo-settings-ui plugin). On TC2
+// the resolver returns a null salesSettings row — reported honestly.
+func newSalesSettingsGetCmd(flags *rootFlags) *cobra.Command {
+	var query string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "get",
+		Short: "Read sales-form settings (readSettings)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "sales salesettings get",
+					ID:      "QBO.SALES.SALES_SETTINGS_GET",
+					Mode:    modeRead,
+					Method:  "POST",
+					URL:     "https://salesettings.api.intuit.com/v4/graphql?intuit-company-id={realm}",
+					Flags:   localFlagMap(cmd),
+					Note:    "captured readSettings; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplaySalesSettings(ctx, query, limit)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			return printQueryResult(cmd.OutOrStdout(), flags, res)
+		},
+	}
+	cmd.Flags().StringVar(&query, "form", "", "sales form type filter (informational)")
+	cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
+	applyCatalogHelp(cmd, "QBO.SALES.SALES_SETTINGS_GET")
+	return cmd
+}
 
 func newSalesCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -79,7 +121,7 @@ func newSalesCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(commerce_controlEnt)
 	cmd.AddCommand(invoiceEnt)
 	overviewEnt := &cobra.Command{Use: "overview", Short: "overview"}
-	overviewEnt.AddCommand(newStubCmd(flags, "sales overview", "get", "overview read (not wired)"))
+	overviewEnt.AddCommand(newStubCmd(flags, "sales overview", "get", "universalreportsgraphql allSales read"))
 	cmd.AddCommand(overviewEnt)
 	paymentEnt := &cobra.Command{Use: "payment", Short: "payment"}
 	paymentEnt.AddCommand(newStubCmd(flags, "sales payment", "create", "payment create (not wired)"))
@@ -111,14 +153,14 @@ func newSalesCmd(flags *rootFlags) *cobra.Command {
 	sales_orderEnt.AddCommand(newStubCmd(flags, "sales sales-order", "search", "sales-order search (not wired)"))
 	cmd.AddCommand(sales_orderEnt)
 	statementEnt := &cobra.Command{Use: "statement", Short: "statement"}
-	statementEnt.AddCommand(newStubCmd(flags, "sales statement", "create", "statement create (not wired)"))
+	statementEnt.AddCommand(newStubCmd(flags, "sales statement", "create", "statement create"))
 	cmd.AddCommand(statementEnt)
 	time_invoiceEnt := &cobra.Command{Use: "time-invoice", Short: "time-invoice"}
-	time_invoiceEnt.AddCommand(newStubCmd(flags, "sales time-invoice", "create", "time-invoice create (not wired)"))
+	time_invoiceEnt.AddCommand(newStubCmd(flags, "sales time-invoice", "create", "time-invoice create"))
 	cmd.AddCommand(time_invoiceEnt)
 	// Service map v2 (2026-08-24): never-triggered production services, blocked.
 	salestransactions_riskEnt := &cobra.Command{Use: "salestransactions-risk", Short: "salestransactions-risk"}
-	salestransactions_riskEnt.AddCommand(newStubCmd(flags, "sales salestransactions-risk", "get", "salestransactions.api.intuit.com[/v4/graphql] get (service map; not wired)"))
+	salestransactions_riskEnt.AddCommand(newStubCmd(flags, "sales salestransactions-risk", "get", "salestxnrisksvc risk/eligibility read"))
 	cmd.AddCommand(salestransactions_riskEnt)
 	sales_ai_callEnt := &cobra.Command{Use: "sales-ai-call", Short: "sales-ai-call"}
 	sales_ai_callEnt.AddCommand(newStubCmd(flags, "sales sales-ai-call", "post", "sales-ai-svc.api.intuit.com/api/v1 post (service map; not wired)"))
@@ -130,13 +172,13 @@ func newSalesCmd(flags *rootFlags) *cobra.Command {
 	checkoutEnt.AddCommand(newStubCmd(flags, "sales checkout", "get", "salescheckout.api.intuit.com/v2/sale/{id}/activities get (service map; not wired)"))
 	cmd.AddCommand(checkoutEnt)
 	salesettingsEnt := &cobra.Command{Use: "salesettings", Short: "salesettings"}
-	salesettingsEnt.AddCommand(newStubCmd(flags, "sales salesettings", "get", "salesettings.api.intuit.com get (service map; not wired)"))
+	salesettingsEnt.AddCommand(newSalesSettingsGetCmd(flags))
 	cmd.AddCommand(salesettingsEnt)
 	txns_renderingEnt := &cobra.Command{Use: "txns-rendering", Short: "txns-rendering"}
 	txns_renderingEnt.AddCommand(newStubCmd(flags, "sales txns-rendering", "post", "txnsrendering.api.intuit.com post (service map; not wired)"))
 	cmd.AddCommand(txns_renderingEnt)
 	qbonline_gatewayEnt := &cobra.Command{Use: "qbonline-gateway", Short: "qbonline-gateway"}
-	qbonline_gatewayEnt.AddCommand(newStubCmd(flags, "sales qbonline-gateway", "get", "qbonline.api.intuit.com[/v4/graphql] get (service map; not wired)"))
+	qbonline_gatewayEnt.AddCommand(newStubCmd(flags, "sales qbonline-gateway", "get", "qbonline-aws /v4/graphql read"))
 	cmd.AddCommand(qbonline_gatewayEnt)
 	return cmd
 }

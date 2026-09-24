@@ -1,6 +1,51 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
+	"github.com/spf13/cobra"
+)
+
+// newCompanySearchCmd implements `company search run`: the nav-searchbox
+// transaction search captured from /app/fullSearch — POST
+// ceressos.api.intuit.com/graphql GetTransactionGlobalSearchEntities under
+// the base-list-ui plugin (live-proven TC2 2026-09-19).
+func newCompanySearchCmd(flags *rootFlags) *cobra.Command {
+	var (
+		query string
+		limit int
+	)
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Search transactions, contacts, and more (global search)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "company search run",
+					ID:      "QBO.COMPANY.SEARCH",
+					Mode:    modeRead,
+					Method:  "POST",
+					URL:     "https://ceressos.api.intuit.com/graphql",
+					Flags:   localFlagMap(cmd),
+					Note:    "captured GetTransactionGlobalSearchEntities; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayGlobalSearch(ctx, query, limit)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			return printQueryResult(cmd.OutOrStdout(), flags, res)
+		},
+	}
+	cmd.Flags().StringVar(&query, "query", "", "search text — name, memo, number, or id (required)")
+	cmd.Flags().IntVar(&limit, "limit", 20, "max rows to return")
+	_ = cmd.MarkFlagRequired("query")
+	applyCatalogHelp(cmd, "QBO.COMPANY.SEARCH")
+	return cmd
+}
 
 func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -23,14 +68,14 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	attachmentEnt.AddCommand(newStubCmd(flags, "company attachment", "get", "attachment read (not wired)"))
 	cmd.AddCommand(attachmentEnt)
 	billsEnt := &cobra.Command{Use: "bills", Short: "bills"}
-	billsEnt.AddCommand(newStubCmd(flags, "company bills", "import", "bills import (not wired)"))
+	billsEnt.AddCommand(newStubCmd(flags, "company bills", "import", "bills import"))
 	cmd.AddCommand(billsEnt)
 
 	business_feedEnt := &cobra.Command{Use: "business-feed", Short: "business-feed"}
 	business_feedEnt.AddCommand(newStubCmd(flags, "company business-feed", "get", "business-feed read (not wired)"))
 	cmd.AddCommand(business_feedEnt)
 	coaEnt := &cobra.Command{Use: "coa", Short: "coa"}
-	coaEnt.AddCommand(newStubCmd(flags, "company coa", "import", "coa import (not wired)"))
+	coaEnt.AddCommand(newStubCmd(flags, "company coa", "import", "coa import"))
 	cmd.AddCommand(coaEnt)
 	company_infoEnt := &cobra.Command{Use: "company-info", Short: "company-info"}
 	company_infoEnt.AddCommand(newStubCmd(flags, "company company-info", "get", "company-info read"))
@@ -43,11 +88,11 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(contact_formEnt)
 	currencyEnt := &cobra.Command{Use: "currency", Short: "currency"}
 	currencyEnt.AddCommand(newStubCmd(flags, "company currency", "create", "currency create"))
-	currencyEnt.AddCommand(newStubCmd(flags, "company currency", "delete", "currency delete (not wired)"))
+	currencyEnt.AddCommand(newStubCmd(flags, "company currency", "delete", "currency delete"))
 
 	currencyEnt.AddCommand(newStubCmd(flags, "company currency", "get", "currency read"))
 	currencyUpdateEnt := &cobra.Command{Use: "update", Short: "update"}
-	currencyUpdateEnt.AddCommand(newStubCmd(flags, "company currency update", "edit", "currency edit (not wired)"))
+	currencyUpdateEnt.AddCommand(newStubCmd(flags, "company currency update", "edit", "currency edit"))
 	currencyUpdateEnt.AddCommand(newStubCmd(flags, "company currency update", "revalue", "currency revalue (not wired)"))
 	currencyEnt.AddCommand(currencyUpdateEnt)
 	cmd.AddCommand(currencyEnt)
@@ -62,14 +107,14 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	exchangeRateEnt.AddCommand(newStubCmd(flags, "company exchange-rate", "search", "exchange-rate search"))
 	cmd.AddCommand(exchangeRateEnt)
 	customersEnt := &cobra.Command{Use: "customers", Short: "customers"}
-	customersEnt.AddCommand(newStubCmd(flags, "company customers", "import", "customers import (not wired)"))
+	customersEnt.AddCommand(newStubCmd(flags, "company customers", "import", "customers import"))
 	cmd.AddCommand(customersEnt)
 	form_styleEnt := &cobra.Command{Use: "form-style", Short: "form-style"}
-	form_styleEnt.AddCommand(newStubCmd(flags, "company form-style", "update", "form-style edit (not wired)"))
-	form_styleEnt.AddCommand(newStubCmd(flags, "company form-style", "get", "form-style read (not wired)"))
+	form_styleEnt.AddCommand(newStubCmd(flags, "company form-style", "update", "form-style update"))
+	form_styleEnt.AddCommand(newStubCmd(flags, "company form-style", "get", "form-style get"))
 	cmd.AddCommand(form_styleEnt)
 	itemsEnt := &cobra.Command{Use: "items", Short: "items"}
-	itemsEnt.AddCommand(newStubCmd(flags, "company items", "import", "items import (not wired)"))
+	itemsEnt.AddCommand(newStubCmd(flags, "company items", "import", "items import"))
 	cmd.AddCommand(itemsEnt)
 	listEnt := &cobra.Command{Use: "list", Short: "list"}
 	listEnt.AddCommand(newStubCmd(flags, "company list", "get", "list read (not wired)"))
@@ -95,14 +140,14 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	roleEnt.AddCommand(newStubCmd(flags, "company role", "get", "role read (not wired)"))
 	cmd.AddCommand(roleEnt)
 	searchEnt := &cobra.Command{Use: "search", Short: "search"}
-	searchEnt.AddCommand(newStubCmd(flags, "company search", "run", "search run (not wired)"))
+	searchEnt.AddCommand(newCompanySearchCmd(flags))
 	cmd.AddCommand(searchEnt)
 	settingsEnt := &cobra.Command{Use: "settings", Short: "settings"}
 	settingsEnt.AddCommand(newStubCmd(flags, "company settings", "update", "settings edit (not wired)"))
 	settingsEnt.AddCommand(newStubCmd(flags, "company settings", "get", "settings read (not wired)"))
 	cmd.AddCommand(settingsEnt)
 	suppliersEnt := &cobra.Command{Use: "suppliers", Short: "suppliers"}
-	suppliersEnt.AddCommand(newStubCmd(flags, "company suppliers", "import", "suppliers import (not wired)"))
+	suppliersEnt.AddCommand(newStubCmd(flags, "company suppliers", "import", "suppliers import"))
 	cmd.AddCommand(suppliersEnt)
 	tagEnt := &cobra.Command{Use: "tag", Short: "tag"}
 	tagEnt.AddCommand(newStubCmd(flags, "company tag", "create", "tag create (not wired)"))
@@ -122,7 +167,7 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	userEnt.AddCommand(newStubCmd(flags, "company user", "create", "user create (not wired)"))
 	userEnt.AddCommand(newStubCmd(flags, "company user", "delete", "user delete (not wired)"))
 	userEnt.AddCommand(newStubCmd(flags, "company user", "update", "user edit (not wired)"))
-	userEnt.AddCommand(newStubCmd(flags, "company user", "get", "user read (not wired)"))
+	userEnt.AddCommand(newStubCmd(flags, "company user", "get", "identity identityUsers"))
 	cmd.AddCommand(userEnt)
 	webhookEnt := &cobra.Command{Use: "webhook", Short: "webhook"}
 	webhookEnt.AddCommand(newCompanyWebhookVerifyCmd(flags))
@@ -132,7 +177,7 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	dimensionsEnt.AddCommand(newStubCmd(flags, "company dimensions-graphql", "get", "custom dimensions read (service map; not wired)"))
 	cmd.AddCommand(dimensionsEnt)
 	custom_extensionsEnt := &cobra.Command{Use: "custom-extensions", Short: "custom-extensions"}
-	custom_extensionsEnt.AddCommand(newStubCmd(flags, "company custom-extensions", "list", "extension recommendations (service map; not wired)"))
+	custom_extensionsEnt.AddCommand(newStubCmd(flags, "company custom-extensions", "list", "customextensions CustomFieldsQueryCES"))
 	cmd.AddCommand(custom_extensionsEnt)
 	company_managementEnt := &cobra.Command{Use: "company-management", Short: "company-management"}
 	company_managementEnt.AddCommand(newStubCmd(flags, "company company-management", "get", "multi-company group read (service map; not wired)"))
@@ -150,7 +195,7 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	customization_agentEnt.AddCommand(newStubCmd(flags, "company customization-agent", "post", "natural-language customization request (service map; not wired)"))
 	cmd.AddCommand(customization_agentEnt)
 	data_exportEnt := &cobra.Command{Use: "data-export", Short: "data-export"}
-	data_exportEnt.AddCommand(newStubCmd(flags, "company data-export", "get", "data platform dataset export (service map; not wired)"))
+	data_exportEnt.AddCommand(newCompanyDataExportCmd(flags))
 	cmd.AddCommand(data_exportEnt)
 	data_mirrorEnt := &cobra.Command{Use: "data-mirror", Short: "data-mirror"}
 	data_mirrorEnt.AddCommand(newStubCmd(flags, "company data-mirror", "get", "data-dev mirror dataset read (service map; not wired)"))
@@ -181,16 +226,16 @@ func newCompanyCmd(flags *rootFlags) *cobra.Command {
 	modelexecutionEnt.AddCommand(newStubCmd(flags, "company modelexecution", "post", "modelexecution.api.intuit.com/v2/smart-compose-*/predict post (service map; not wired)"))
 	cmd.AddCommand(modelexecutionEnt)
 	experiment_assignmentEnt := &cobra.Command{Use: "experiment-assignment", Short: "experiment-assignment"}
-	experiment_assignmentEnt.AddCommand(newStubCmd(flags, "company experiment-assignment", "get", "experimentassignment.api.intuit.com/api/v3/assignments/ get (service map; not wired)"))
+	experiment_assignmentEnt.AddCommand(newStubCmd(flags, "company experiment-assignment", "get", "experimentassignment assignments"))
 	cmd.AddCommand(experiment_assignmentEnt)
 	identity_qaEnt := &cobra.Command{Use: "identity-qa", Short: "identity-qa"}
 	identity_qaEnt.AddCommand(newStubCmd(flags, "company identity-qa", "get", "identity-qa.api.intuit.com/v2/graphql get (service map; not wired)"))
 	cmd.AddCommand(identity_qaEnt)
 	identityEnt := &cobra.Command{Use: "identity", Short: "identity"}
-	identityEnt.AddCommand(newStubCmd(flags, "company identity", "get", "identity.api.intuit.com/v2/graphql get (service map; not wired)"))
+	identityEnt.AddCommand(newStubCmd(flags, "company identity", "get", "identity account query"))
 	cmd.AddCommand(identityEnt)
 	settings_facadeEnt := &cobra.Command{Use: "settings-facade", Short: "settings-facade"}
-	settings_facadeEnt.AddCommand(newStubCmd(flags, "company settings-facade", "get", "settingsfacade backend get (service map; not wired)"))
+	settings_facadeEnt.AddCommand(newStubCmd(flags, "company settings-facade", "get", "settingsfacade qbAppFoundationQbSettings"))
 	cmd.AddCommand(settings_facadeEnt)
 	franchise_orchEnt := &cobra.Command{Use: "franchise-orch", Short: "franchise-orch"}
 	franchise_orchEnt.AddCommand(newStubCmd(flags, "company franchise-orch", "post", "franchise-orch-svc.api.intuit.com/v1 post (service map; not wired)"))

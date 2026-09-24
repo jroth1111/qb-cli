@@ -24,15 +24,22 @@ type RulesResult struct {
 }
 
 type rawBankRule struct {
-	ID           flexibleString `json:"id"`
-	RuleID       flexibleString `json:"ruleId"`
-	Name         string         `json:"name"`
-	Title        string         `json:"title"`
-	RuleName     string         `json:"ruleName"`
-	AutoAdd      *bool          `json:"autoAdd"`
-	Active       *bool          `json:"active"`
-	EditSequence flexibleString `json:"editSequence"`
-	RuleOrder    flexibleString `json:"ruleOrder"`
+	ID            flexibleString `json:"id"`
+	RuleID        flexibleString `json:"ruleId"`
+	Name          string         `json:"name"`
+	Title         string         `json:"title"`
+	RuleName      string         `json:"ruleName"`
+	AutoAdd       *bool          `json:"autoAdd"`
+	Active        *bool          `json:"active"`
+	EditSequence  flexibleString `json:"editSequence"`
+	RuleOrder     flexibleString `json:"ruleOrder"`
+	ConditionList struct {
+		IsAndRule      bool               `json:"isAndRule"`
+		RuleConditions []olbRuleCondition `json:"ruleConditions"`
+	} `json:"conditionList"`
+	ActionList struct {
+		RuleActions []olbRuleAction `json:"ruleActions"`
+	} `json:"actionList"`
 }
 
 // ReplayRules GETs lists/olbrules/getRules (captured 2026-08-17).
@@ -108,10 +115,7 @@ func projectRules(in []rawBankRule) *RulesResult {
 		if name == "" {
 			name = r.RuleName
 		}
-		auto := r.AutoAdd
-		if auto == nil {
-			auto = r.Active
-		}
+		auto := projectedRuleAutoAdd(r)
 		out = append(out, BankRule{ID: id, Name: name, AutoAdd: auto})
 	}
 
@@ -123,7 +127,7 @@ func projectRules(in []rawBankRule) *RulesResult {
 }
 
 // Rule mutations ride the neo lists service: POST lists/olbrules/save is the
-// upsert (id=-1 creates; id=<ruleId> edits) and POST lists/olbrules/delete
+// upsert (id=-1 creates; id=<ruleId> edits) and POST lists/olbrules/batchDelete
 // removes by {id}. Contract captured from the olbrules widget
 // (integrations_datain_ui): the drawer view-model serializes to
 // {id, ruleName, ruleOrder, editSequence, conditionList:{isAndRule,
@@ -220,6 +224,21 @@ func ruleConditionSet(flags map[string]string) (bool, []olbRuleCondition, error)
 		}
 		conds = append(conds, olbRuleCondition{RuleType: rt, Value: v})
 	}
+	if v := firstFlag(flags, "bank-text-exclude"); v != "" {
+		if !isAnd {
+			return false, nil, fmt.Errorf("--bank-text-exclude requires --match all")
+		}
+		if firstFlag(flags, "bank-text") == "" || firstFlag(flags, "bank-text-op") == "does_not_contain" {
+			return false, nil, fmt.Errorf("--bank-text-exclude requires a positive --bank-text condition")
+		}
+		conds = append(conds, olbRuleCondition{RuleType: ruleTypeBankNotContains, Value: v})
+	}
+	if v := firstFlag(flags, "bank-text-exclude-2"); v != "" {
+		if !isAnd || firstFlag(flags, "bank-text") == "" || firstFlag(flags, "bank-text-exclude") == "" {
+			return false, nil, fmt.Errorf("--bank-text-exclude-2 requires --match all, --bank-text and --bank-text-exclude")
+		}
+		conds = append(conds, olbRuleCondition{RuleType: ruleTypeBankNotContains, Value: v})
+	}
 	if v := firstFlag(flags, "description"); v != "" {
 		rt, err := textRuleTypes(firstFlag(flags, "description-op"), ruleTypeDescContains, ruleTypeDescExact, ruleTypeDescNotContains)
 		if err != nil {
@@ -260,7 +279,10 @@ func ruleActionSet(flags map[string]string) ([]olbRuleAction, error) {
 	addStr(ruleActionCategory, "category-id", "category")
 	addStr(ruleActionPayee, "payee-id", "payee")
 	addStr(ruleActionMemo, "memo")
-	addStr(ruleActionClass, "class-id")
+	// QBO represents no class by an absent action, not a class named "none".
+	if !strings.EqualFold(strings.TrimSpace(firstFlag(flags, "class-id")), "none") {
+		addStr(ruleActionClass, "class-id")
+	}
 	addStr(ruleActionLocation, "location-id")
 	addStr(ruleActionCustomer, "customer-id")
 	truthy := func(v string) bool { return v == "true" || v == "1" || v == "yes" }
@@ -277,8 +299,18 @@ func ruleActionSet(flags map[string]string) ([]olbRuleAction, error) {
 }
 
 // buildRuleBody assembles the save body. id=-1 creates; a fetched rule
-// supplies editSequence/ruleOrder (and the name fallback) on edit.
-func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, fallbackName string) (*olbRuleBody, error) {
+// supplies editSequence/ruleOrder (and the name fallback) on edit. On edit,
+// the stored conditionList/actionList carry forward unless the caller passed
+// any condition or action flag — a rename-only update must not strip the
+// rule's matching criteria.
+func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, existing *rawBankRule) (*olbRuleBody, error) {
+	fallbackName := ""
+	if existing != nil {
+		fallbackName = existing.RuleName
+		if fallbackName == "" {
+			fallbackName = existing.Name
+		}
+	}
 	name := strings.TrimSpace(firstFlag(flags, "name", "rule-name"))
 	if name == "" {
 		name = fallbackName
@@ -286,22 +318,94 @@ func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, fal
 	if name == "" {
 		return nil, fmt.Errorf("rule requires --name")
 	}
-	isAnd, conds, err := ruleConditionSet(flags)
-	if err != nil {
-		return nil, err
-	}
-	if len(conds) < 1 || len(conds) > 5 {
-		return nil, fmt.Errorf("a rule should have at least 1 condition and a maximum of 5 conditions")
-	}
-	acts, err := ruleActionSet(flags)
-	if err != nil {
-		return nil, err
-	}
 	body := &olbRuleBody{ID: id, RuleName: name, RuleOrder: ruleOrder, EditSequence: editSequence}
-	body.ConditionList.IsAndRule = isAnd
-	body.ConditionList.RuleConditions = conds
-	body.ActionList.RuleActions = acts
+	if existing != nil && onlyNewBankTextExclusion(flags) {
+		body.ConditionList.IsAndRule = existing.ConditionList.IsAndRule
+		if !body.ConditionList.IsAndRule {
+			return nil, fmt.Errorf("--bank-text-exclude requires an ALL rule")
+		}
+		positive := false
+		for _, condition := range existing.ConditionList.RuleConditions {
+			if condition.RuleType == ruleTypeBankContains || condition.RuleType == ruleTypeBankExact || condition.RuleType == ruleTypeDescContains || condition.RuleType == ruleTypeDescExact {
+				positive = true
+			}
+		}
+		if !positive {
+			return nil, fmt.Errorf("--bank-text-exclude requires an existing positive text condition")
+		}
+		body.ConditionList.RuleConditions = append([]olbRuleCondition(nil), existing.ConditionList.RuleConditions...)
+		exclusion := olbRuleCondition{RuleType: ruleTypeBankNotContains, Value: firstFlag(flags, "bank-text-exclude")}
+		present := false
+		for _, condition := range body.ConditionList.RuleConditions {
+			if condition == exclusion {
+				present = true
+			}
+		}
+		if !present {
+			body.ConditionList.RuleConditions = append(body.ConditionList.RuleConditions, exclusion)
+		}
+		if len(body.ConditionList.RuleConditions) > 5 {
+			return nil, fmt.Errorf("a rule should have a maximum of 5 conditions")
+		}
+	} else if existing != nil && !hasConditionFlags(flags) {
+		body.ConditionList.IsAndRule = existing.ConditionList.IsAndRule
+		body.ConditionList.RuleConditions = existing.ConditionList.RuleConditions
+	} else {
+		isAnd, conds, err := ruleConditionSet(flags)
+		if err != nil {
+			return nil, err
+		}
+		if len(conds) < 1 || len(conds) > 5 {
+			return nil, fmt.Errorf("a rule should have at least 1 condition and a maximum of 5 conditions")
+		}
+		body.ConditionList.IsAndRule = isAnd
+		body.ConditionList.RuleConditions = conds
+	}
+	if existing != nil && !hasActionFlags(flags) {
+		body.ActionList.RuleActions = existing.ActionList.RuleActions
+	} else {
+		acts, err := ruleActionSet(flags)
+		if err != nil {
+			return nil, err
+		}
+		body.ActionList.RuleActions = mergeRuleActions(existing, acts, flags)
+	}
 	return body, nil
+}
+
+// hasConditionFlags reports whether any matching-criteria flag was passed.
+func hasConditionFlags(flags map[string]string) bool {
+	for _, k := range []string{"match", "money", "direction", "bank-text", "bank-text-op",
+		"bank-text-exclude", "bank-text-exclude-2", "description", "description-op", "amount", "amount-op", "account-ids"} {
+		if firstFlag(flags, k) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func onlyNewBankTextExclusion(flags map[string]string) bool {
+	if firstFlag(flags, "bank-text-exclude") == "" {
+		return false
+	}
+	for _, k := range []string{"match", "money", "direction", "bank-text", "bank-text-op",
+		"bank-text-exclude-2", "description", "description-op", "amount", "amount-op", "account-ids"} {
+		if firstFlag(flags, k) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// hasActionFlags reports whether any action flag was passed.
+func hasActionFlags(flags map[string]string) bool {
+	for _, k := range []string{"category-id", "category", "payee-id", "payee", "memo",
+		"class-id", "location-id", "customer-id", "auto-add", "exclude", "disabled"} {
+		if firstFlag(flags, k) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // ReplayRuleSave creates or updates a bank rule via POST lists/olbrules/save.
@@ -314,7 +418,7 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 	base := "https://qbo.intuit.com/api/neo/v1/company/" + ac.realm + "/"
 	id := -1
 	editSeq, order := 0, 0
-	existingName := ""
+	var existing *rawBankRule
 	rawID := strings.TrimSpace(firstFlag(flags, "id"))
 	if rawID != "" {
 		n, err := strconv.Atoi(rawID)
@@ -322,7 +426,7 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 			return nil, fmt.Errorf("--id must be an integer rule id")
 		}
 		id = n
-		found, err := neoFindRule(ctx, ac, base, rawID)
+		found, err := neoFindRule(ctx, ac, rawID)
 		if err != nil {
 			return nil, err
 		}
@@ -331,12 +435,9 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 		}
 		editSeq = atoiOrZero(found.EditSequence.String())
 		order = atoiOrZero(found.RuleOrder.String())
-		existingName = found.RuleName
-		if existingName == "" {
-			existingName = found.Name
-		}
+		existing = found
 	}
-	body, err := buildRuleBody(id, editSeq, order, flags, existingName)
+	body, err := buildRuleBody(id, editSeq, order, flags, existing)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +473,7 @@ func ReplayRuleSave(ctx context.Context, flags map[string]string) (*MutateResult
 	}, nil
 }
 
-// ReplayRuleDelete removes a bank rule via POST lists/olbrules/delete {id}.
+// ReplayRuleDelete uses the UI's batchDelete route with one space-joined ID.
 func ReplayRuleDelete(ctx context.Context, flags map[string]string) (*MutateResult, error) {
 	rawID := strings.TrimSpace(firstFlag(flags, "id"))
 	if rawID == "" {
@@ -386,12 +487,18 @@ func ReplayRuleDelete(ctx context.Context, flags map[string]string) (*MutateResu
 	if err != nil {
 		return nil, err
 	}
-	base := "https://qbo.intuit.com/api/neo/v1/company/" + ac.realm + "/"
-	raw, err := json.Marshal(map[string]int{"id": n})
+	before, err := ruleSnapshot(ctx, ac)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rule delete before-state: %w", err)
 	}
-	resp, err := ac.doURIHost(ctx, http.MethodPost, base+"lists/olbrules/delete", "qbo.intuit.com", raw)
+	if _, ok := before[rawID]; !ok {
+		return nil, fmt.Errorf("rule %s not found; no delete sent", rawID)
+	}
+	base := "https://qbo.intuit.com/api/neo/v1/company/" + ac.realm + "/"
+	// The UI service calls batchDeleteByIds(ids), posting ids.join(" ") as
+	// the body. {"id":...} to /delete is not the live mutation contract.
+	raw := []byte(strconv.Itoa(n))
+	resp, err := ac.doURIHost(ctx, http.MethodPost, base+"lists/olbrules/batchDelete", "qbo.intuit.com", raw)
 	if err != nil {
 		return nil, fmt.Errorf("olbrules delete: %w", err)
 	}
@@ -403,18 +510,76 @@ func ReplayRuleDelete(ctx context.Context, flags map[string]string) (*MutateResu
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(sraw)}
 	}
+	var receipt map[string]json.RawMessage
+	// batchDelete can return an empty/non-object body on HTTP 200. The exact
+	// before/after rule-list comparison below is the authoritative receipt.
+	if json.Unmarshal(sraw, &receipt) == nil && (receipt["Fault"] != nil || receipt["errorDetails"] != nil) {
+		return nil, fmt.Errorf("rule delete response is not a clean receipt; inspect live state before retrying")
+	}
+	after, err := ruleSnapshot(ctx, ac)
+	if err != nil {
+		return nil, fmt.Errorf("rule delete readback failed; inspect live state before retrying: %w", err)
+	}
+	if _, remains := after[rawID]; remains || len(after) != len(before)-1 {
+		return nil, fmt.Errorf("rule delete did not remove exactly the target; inspect live state before retrying")
+	}
+	for id := range after {
+		if _, wasPresent := before[id]; !wasPresent {
+			return nil, fmt.Errorf("rule list changed outside target; inspect live state before retrying")
+		}
+	}
 	return &MutateResult{
 		Status: resp.StatusCode,
 		Op:     "delete",
 		Entity: "OlbRule",
-		Note:   "neo lists/olbrules/delete",
+		Note:   "neo lists/olbrules/batchDelete; target removed in independent readback",
 		Item:   QueryItem{ID: rawID},
 	}, nil
 }
 
-// neoFindRule fetches getRules and returns the rule matching id, or nil.
-func neoFindRule(ctx context.Context, ac *apiClient, base, id string) (*rawBankRule, error) {
-	resp, err := ac.doURIHost(ctx, http.MethodPost, base+"lists/olbrules/getRules", "qbo.intuit.com", []byte("{}"))
+// ruleSnapshot refuses an unparseable or page-ceiling result so a successful
+// HTTP status cannot make an incomplete list look like a successful delete.
+func ruleSnapshot(ctx context.Context, ac *apiClient) (map[string]rawBankRule, error) {
+	url := strings.ReplaceAll(PlannedRulesURL(), realmToken, ac.realm)
+	resp, err := ac.get(ctx, url, "items=0-999")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = drainAndClose(resp) }()
+	body, err := readBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(body)}
+	}
+	rules, ok := extractRules(body)
+	if !ok || len(rules) >= 1000 {
+		return nil, fmt.Errorf("unparseable or truncated rule list")
+	}
+	out := make(map[string]rawBankRule, len(rules))
+	for _, rule := range rules {
+		id := rule.ID.String()
+		if id == "" {
+			id = rule.RuleID.String()
+		}
+		if id == "" {
+			return nil, fmt.Errorf("rule without id")
+		}
+		if _, duplicate := out[id]; duplicate {
+			return nil, fmt.Errorf("duplicate rule id %s", id)
+		}
+		out[id] = rule
+	}
+	return out, nil
+}
+
+// neoFindRule fetches the rules list (GET — the POST variant 500s) and
+// returns the rule matching id, or nil. The GET response carries the full
+// wire model including conditionList/actionList.
+func neoFindRule(ctx context.Context, ac *apiClient, id string) (*rawBankRule, error) {
+	url := strings.ReplaceAll(PlannedRulesURL(), realmToken, ac.realm)
+	resp, err := ac.get(ctx, url, "items=0-99")
 	if err != nil {
 		return nil, fmt.Errorf("getRules: %w", err)
 	}
@@ -426,15 +591,13 @@ func neoFindRule(ctx context.Context, ac *apiClient, base, id string) (*rawBankR
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	var wrap struct {
-		Rules []rawBankRule `json:"rules"`
+	rules, ok := extractRules(raw)
+	if !ok {
+		return nil, fmt.Errorf("getRules: unparseable response (%d bytes)", len(raw))
 	}
-	if err := json.Unmarshal(raw, &wrap); err != nil {
-		return nil, fmt.Errorf("getRules parse: %w", err)
-	}
-	for i := range wrap.Rules {
-		if wrap.Rules[i].ID.String() == id {
-			return &wrap.Rules[i], nil
+	for i := range rules {
+		if rules[i].ID.String() == id || rules[i].RuleID.String() == id {
+			return &rules[i], nil
 		}
 	}
 	return nil, nil
@@ -452,5 +615,5 @@ func PlannedRuleSaveURL() string {
 
 // PlannedRuleDeleteURL is the dry-run target for rule delete.
 func PlannedRuleDeleteURL() string {
-	return "https://qbo.intuit.com/api/neo/v1/company/{realm}/lists/olbrules/delete"
+	return "https://qbo.intuit.com/api/neo/v1/company/{realm}/lists/olbrules/batchDelete"
 }

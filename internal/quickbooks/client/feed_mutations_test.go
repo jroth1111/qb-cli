@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,9 +19,10 @@ import (
 
 // capturedPost records one mutation POST the server received.
 type capturedPost struct {
-	path  string
-	query string
-	body  []byte
+	accept string
+	path   string
+	query  string
+	body   []byte
 }
 
 // mutationServer serves the reads the mutation builders hydrate from
@@ -29,8 +31,12 @@ type capturedPost struct {
 type mutationServer struct {
 	*httptest.Server
 
-	feedItems []map[string]any
-	regRows   []map[string]any
+	feedItems         []map[string]any
+	acceptedItems     []map[string]any
+	excludedItems     []map[string]any
+	statesRead        []string
+	suppressStateMove bool
+	regRows           []map[string]any
 
 	mu      sync.Mutex
 	posts   []capturedPost
@@ -51,16 +57,126 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/getTransactions"):
 		ms.mu.Lock()
 		ms.txCalls++
+		ms.statesRead = append(ms.statesRead, r.URL.Query().Get("reviewState"))
 		ms.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"items": ms.feedItems})
+		items := ms.feedItems
+		if r.URL.Query().Get("reviewState") == "ACCEPTED" {
+			items = ms.acceptedItems
+		}
+		if r.URL.Query().Get("reviewState") == "EXCLUDED" {
+			items = ms.excludedItems
+		}
+		if items == nil {
+			items = []map[string]any{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+	case strings.HasSuffix(r.URL.Path, "/advancedMatchDetails"):
+		var candidates []map[string]any
+		for _, reg := range ms.regRows {
+			c := map[string]any{"qboTxnId": jsonNumberString(reg["txnId"]), "txnTypeId": reg["txnTypeId"], "qboTxnSeqId": reg["sequence"]}
+			if _, ok := reg["editSequence"]; ok {
+				c["txnSyncToken"] = "2"
+			} // deliberately differs from register version 0
+			if amount, ok := registerPaymentAmount(reg); ok {
+				c["amount"] = amount
+			}
+			candidates = append(candidates, c)
+		}
+		var row map[string]any
+		for _, x := range ms.feedItems {
+			if mapStr(x, "id") == r.URL.Query().Get("id") {
+				row = x
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"homeCurrencyMatchingTxns": candidates, "olbTxn": row})
 	case strings.HasSuffix(r.URL.Path, "/register/transactions/"):
 		_ = json.NewEncoder(w).Encode(ms.regRows)
 	case r.Method == http.MethodPost:
 		body, _ := io.ReadAll(r.Body)
 		ms.mu.Lock()
-		ms.posts = append(ms.posts, capturedPost{path: r.URL.Path, query: r.URL.RawQuery, body: body})
+		ms.posts = append(ms.posts, capturedPost{path: r.URL.Path, query: r.URL.RawQuery, body: body, accept: r.Header.Get("Accept")})
 		ms.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		if strings.HasSuffix(r.URL.Path, "/acceptTransactions") {
+			var request struct {
+				Rows []map[string]any `json:"olbTxns"`
+			}
+			if err := json.Unmarshal(body, &request); err != nil {
+				w.WriteHeader(400)
+				return
+			}
+			var success []map[string]any
+			for _, entry := range request.Rows {
+				selected := entry["selectedMatches"].(map[string]any)
+				for i, row := range ms.feedItems {
+					if row["id"] != entry["id"] {
+						continue
+					}
+					posted := shallowCopyMap(row)
+					posted["matchedQboTxns"] = selected["matchedTxns"]
+					ms.acceptedItems = append(ms.acceptedItems, posted)
+					ms.feedItems = append(ms.feedItems[:i], ms.feedItems[i+1:]...)
+					success = append(success, map[string]any{"id": entry["id"], "qboAccount": map[string]any{"accountId": entry["qboAccountId"]}, "matchedQboTxns": selected["matchedTxns"]})
+					break
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": success})
+		} else if strings.HasSuffix(r.URL.Path, "/undoTransactions") || strings.HasSuffix(r.URL.Path, "/excludeTransactions") {
+			var req struct {
+				Next struct {
+					State string `json:"reviewState"`
+				} `json:"nextTxnInfo"`
+				IDs struct {
+					IDs []string `json:"olbTxnIds"`
+				} `json:"txnIdList"`
+			}
+			_ = json.Unmarshal(body, &req)
+			source := &ms.feedItems
+			if req.Next.State == "ACCEPTED" {
+				source = &ms.acceptedItems
+			}
+			if req.Next.State == "EXCLUDED" {
+				source = &ms.excludedItems
+			}
+			target := &ms.feedItems
+			if strings.HasSuffix(r.URL.Path, "/excludeTransactions") {
+				target = &ms.excludedItems
+			}
+			var success []map[string]any
+			for _, id := range req.IDs.IDs {
+				for i, row := range *source {
+					if feedRowMatchesID(row, id) {
+						if !ms.suppressStateMove {
+							*target = append(*target, row)
+							*source = append((*source)[:i], (*source)[i+1:]...)
+						}
+						success = append(success, map[string]any{"olbTxnId": row["olbTxnId"]})
+						break
+					}
+				}
+			}
+			if strings.HasSuffix(r.URL.Path, "/excludeTransactions") {
+				_ = json.NewEncoder(w).Encode(map[string]any{})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{"olbtxns": map[string]any{"success": success}})
+			}
+		} else if strings.HasSuffix(r.URL.Path, "/batchAcceptTransactions") {
+			var req struct {
+				Next struct {
+					Account string `json:"accountId"`
+				} `json:"nextTxnInfo"`
+				List struct {
+					Rows []map[string]any `json:"olbTxns"`
+				} `json:"txnList"`
+			}
+			_ = json.Unmarshal(body, &req)
+			accepted := []map[string]any{}
+			for _, row := range req.List.Rows {
+				accepted = append(accepted, map[string]any{"olbTxnId": row["olbTxnId"], "qboAccount": map[string]any{"accountId": req.Next.Account}, "addedQboTxns": []any{map[string]any{"qboTxnId": "900003"}}})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"acceptedTxns": accepted})
+		} else {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		}
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -338,22 +454,21 @@ func TestReplayCategoriseFoldsCategoryID(t *testing.T) {
 	}
 }
 
-// TestReplayCategoriseClassRefused asserts --class fails before any dial:
-// the captured contract carries no class field.
-func TestReplayCategoriseClassRefused(t *testing.T) {
+func TestReplayCategoriseClassAndMemo(t *testing.T) {
 	saveUsable(t)
 	ms := newMutationServer(t, []map[string]any{feedRowFixture("3")}, nil)
 	interceptHTTP(t, ms.URL)
-
-	_, err := ReplayCategorise(context.Background(), "204", []string{"3"}, TransactionDetail{
-		CategoryRef: &RefValue{Value: "7"},
-		ClassRef:    &RefValue{Value: "800398"},
-	})
-	if !errors.Is(err, ErrUnsupportedClass) {
-		t.Fatalf("got %v, want ErrUnsupportedClass", err)
+	memo := "Fee [Card: Maggie]"
+	_, err := ReplayCategorise(context.Background(), "204", []string{"3"}, TransactionDetail{CategoryRef: &RefValue{Value: "7"}, ClassRef: &RefValue{Value: "800398"}, Memo: &memo})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if ms.txCallCount() != 0 || ms.postCount() != 0 {
-		t.Fatalf("dialled on refused --class (tx=%d posts=%d)", ms.txCallCount(), ms.postCount())
+	post := ms.lastPost(t)
+	row := olbTxnAt(t, decodePostBody(t, post), 0)
+	add := row["addAsQboTxn"].(map[string]any)
+	line := add["details"].([]any)[0].(map[string]any)
+	if line["klassId"] != "800398" || add["txnMemo"] != memo {
+		t.Fatalf("annotation not sent: %#v", add)
 	}
 }
 
@@ -413,6 +528,14 @@ func TestReplaySplitDetailsContract(t *testing.T) {
 // selectedMatches.matchedTxns field from the account register read.
 func TestReplayMatchSelectedMatchesContract(t *testing.T) {
 	saveUsable(t)
+	tok, err := auth.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok.RequestHeaders = map[string]string{"Authorization": tok.Authorization, "Accept": "*/*"}
+	if err := auth.Save(tok); err != nil {
+		t.Fatal(err)
+	}
 	ms := newMutationServer(t,
 		[]map[string]any{feedRowFixture("2")},
 		[]map[string]any{
@@ -430,6 +553,9 @@ func TestReplayMatchSelectedMatchesContract(t *testing.T) {
 		t.Fatalf("status = %d, want 200", status)
 	}
 	post := ms.lastPost(t)
+	if post.accept != "*/*" {
+		t.Fatalf("banking Accept = %q, want captured */*", post.accept)
+	}
 	if !strings.HasSuffix(post.path, "/olb/ng/acceptTransactions") {
 		t.Fatalf("POST path = %q, want .../olb/ng/acceptTransactions", post.path)
 	}
@@ -472,8 +598,8 @@ func TestReplayMatchSelectedMatchesContract(t *testing.T) {
 	for i, w := range want {
 		m := matched[i].(map[string]any)
 		if m["qboTxnId"] != w.id || m["txnTypeId"] != "54" ||
-			m["qboTxnSeqId"] != "0" || m["txnSyncToken"] != "0" || m["paymentAmount"] != w.amt {
-			t.Fatalf("matchedTxns[%d] = %+v, want qboTxnId=%s txnTypeId=54 seq/sync=0 amount=%s", i, m, w.id, w.amt)
+			m["qboTxnSeqId"] != "0" || m["txnSyncToken"] != "2" || m["paymentAmount"] != w.amt {
+			t.Fatalf("matchedTxns[%d] = %+v, want qboTxnId=%s txnTypeId=54 seq=0 sync=2 amount=%s", i, m, w.id, w.amt)
 		}
 	}
 }

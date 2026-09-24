@@ -9,6 +9,11 @@ const loginURL = process.env.QB_LOGIN_URL ||
 const bankingURL = process.env.QB_BANKING_URL || "https://qbo.intuit.com/app/banking";
 const timeoutMs = Number(process.env.QB_TIMEOUT_MS || "600000");
 const spaceKey = process.env.QB_EGO_SPACE || "qb-login";
+// An operator-designated Space (QB_EGO_SPACE/QB_EGO_SPACE_ID set) is a shared
+// resource — e.g. an authenticated exec Space serving remint. Keep it alive
+// on success; only the self-created default is completed after capture.
+const keepSpaceOnSuccess = process.env.QB_EGO_SPACE !== undefined &&
+  process.env.QB_EGO_SPACE !== "";
 
 function fail(msg, code) {
   cliLog(JSON.stringify({ ok: false, error: msg }));
@@ -54,11 +59,12 @@ function isAPIKeyRequest(url, headers) {
     headerGet(headers, "apikey") !== "";
 }
 
-// Service hosts (*.api.intuit.com) mint their own Intuit_APIKey — the
-// leftover-host credential URIHostHeaders stores. Harvest each host's
-// request headers so remint refreshes the whole map in one pass.
+// Neo banking traffic with apikey has its own key even on qbo.intuit.com.
+// Preserve that host's current headers alongside the service-host keys.
 function serviceHost(url, headers) {
   if (!isAPIKey(headerGet(headers, "authorization"))) return "";
+  if (String(url || "").startsWith("https://qbo.intuit.com/api/neo/") &&
+      headerGet(headers, "apikey") !== "") return "qbo.intuit.com";
   const m = String(url || "").match(/^https?:\/\/([a-z0-9.-]+\.api\.intuit\.com)\//i);
   return m ? m[1] : "";
 }
@@ -66,9 +72,16 @@ function serviceHost(url, headers) {
 async function main() {
   if (!outPath) fail("QB_CAPTURE_OUT is required", 2);
 
-  const task = /^\d+$/.test(spaceKey)
-    ? await h.switchTaskSpace(Number(spaceKey))
-    : await h.useOrCreateTaskSpace(spaceKey);
+  let task;
+  if (/^\d+$/.test(spaceKey)) {
+    try {
+      task = await h.switchTaskSpace(Number(spaceKey));
+    } catch (e) {
+      task = await h.claimTaskSpace(Number(spaceKey));
+    }
+  } else {
+    task = await h.useOrCreateTaskSpace(spaceKey);
+  }
   let closed = false;
   const close = async (keep) => {
     if (closed) return;
@@ -172,7 +185,7 @@ async function main() {
 
     let cookies = [];
     try {
-      const jar = await h.cdp("Network.getAllCookies", {});
+      const jar = await h.cdp("Network.getCookies", { urls: ["https://qbo.intuit.com/"] });
       const raw = (jar && jar.cookies) || [];
       cookies = raw.filter((c) => {
         const d = String(c.domain || "").toLowerCase();
@@ -255,7 +268,7 @@ async function main() {
       header_count: Object.keys(stored).length,
       cookie_count: cookies.length,
     }));
-    await close(false);
+    await close(keepSpaceOnSuccess);
   } catch (err) {
     try { await close(true); } catch (_) {}
     fail(String(err && err.message ? err.message : err), 2);

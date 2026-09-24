@@ -265,15 +265,16 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "template", Type: "string", Required: true, Help: "list template or transaction template — Advanced/Accountant. Use Create or edit records templates; starred columns requi"},
 	},
 	"QBO.ADVANCED.TASKS_CREATE": {
-		{Name: "title", Type: "string", Required: true, Help: "task title — In QBO Accountant's Work tab, create projects and add tasks to break down work;"},
-		{Name: "assignee", Type: "string", Required: false, Help: "team member — In QBO Accountant's Work tab, create projects and add tasks to break down work;"},
-		{Name: "due-date", Type: "string", Required: false, Help: "dd/MM/yyyy — In QBO Accountant's Work tab, create projects and add tasks to break down work;"},
+		{Name: "name", Type: "string", Required: true, Help: "task name — taskManagementCreateTask input.name (required by the service)"},
+		{Name: "due", Type: "string", Required: true, Help: "due date YYYY-MM-DD or RFC3339 — taskManagementCreateTask input.dueDate (RFC3339 required)"},
+		{Name: "assignee", Type: "string", Required: false, Help: "assignee identity profile id — defaults to the session user's identity profile"},
 	},
 	"QBO.ADVANCED.TASKS_DELETE": {
-		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
+		{Name: "id", Type: "string", Required: true, Help: "numeric task id — taskManagementDeleteTask input.id (Long)"},
 	},
 	"QBO.ADVANCED.TASKS_EDIT": {
-		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
+		{Name: "id", Type: "string", Required: true, Help: "numeric task id — taskManagementUpdateTask input.id (Long)"},
+		{Name: "name", Type: "string", Required: true, Help: "new task name — the only field proven mutable on update"},
 	},
 	"QBO.ADVANCED.TASKS_READ": {
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — All tasks appear in the Tasks menu / Task manager; filter by open, due today, ov"},
@@ -488,9 +489,9 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Customer AI automates lead sourcing and prioritisation from your Gmail or Ou"},
 	},
 	"QBO.CUSTOMERS.PROPOSAL_CREATE": {
-		{Name: "customer", Type: "string", Required: true, Help: "customer/lead the proposal is addressed to"},
-		{Name: "elements", Type: "string", Required: false, Help: "content elements to add (can be moved, duplicated, copied, or deleted)"},
-		{Name: "branding", Type: "string", Required: false, Help: "apply your branding to the proposal — Use the proposal builder to create a proposal with your branding, add content el"},
+		{Name: "customer", Type: "string", Required: true, Help: "customer/lead contact id the proposal is addressed to (contactId, e.g. 1) — Use the proposal builder to create a proposal wi"},
+		{Name: "contact-type", Type: "string", Required: false, Default: "CUSTOMER", Help: "contact type sent to crm-proposal-svc (CUSTOMER or LEAD)"},
+		{Name: "title", Type: "string", Required: false, Help: "proposal title forwarded to the service (it assigns 'Proposal {id}' as the display name)"},
 	},
 	"QBO.CUSTOMERS.PROPOSAL_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
@@ -564,9 +565,9 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search/list bills from the Expenses page or Bills page; filter by supplier and p"},
 	},
 	"QBO.EXPENSES.CHEQUE_BOUNCE": {
-		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
-		{Name: "date", Type: "string", Required: false, Help: "bounce date dd/MM/yyyy — date as dd/MM/yyyy (Australia/Sydney)"},
-		{Name: "fee", Type: "string", Required: false, Help: "bank bounce fee if any — Returned cheque: reverse via cheque or expense plus any bank fee. L4rxNrG0Y L4O1"},
+		{Name: "id", Type: "string", Required: true, Help: "v3 Payment id for the bounced cheque — reversed via a JournalEntry (A/R debit to customer, deposit-account credit)"},
+		{Name: "date", Type: "string", Required: false, Help: "reversal date dd/MM/yyyy (default today)"},
+		{Name: "fee", Type: "string", Required: false, Help: "bank bounce fee amount — debits the 'Bank charges and fees' expense account (optional)"},
 	},
 	"QBO.EXPENSES.CHEQUE_CREATE": {
 		{Name: "payee", Type: "string", Required: true, Help: "customer, supplier, or employee the cheque is paid to — payee address is pulled from the payee's record — edit the list entry to change it"},
@@ -642,8 +643,10 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "splits", Type: "string", Required: true, Help: "array of {category-account, amount, gst-code} lines that sum to the transaction total — splits must sum to the original amount"},
 	},
 	"QBO.EXPENSES.GIFT_CERTIFICATE_CREATE": {
-		{Name: "supplier", Type: "string", Required: true, Help: "supplier the voucher was bought from — supplier display name or id"},
-		{Name: "amount", Type: "string", Required: true, Help: "AUD face value (asset/prepaid, not expense yet)"},
+		{Name: "supplier", Type: "string", Required: true, Help: "supplier/vendor id the voucher was bought from"},
+		{Name: "amount", Type: "string", Required: true, Help: "AUD face value, held as a prepaid asset until redeemed"},
+		{Name: "payment-account", Type: "string", Required: true, Help: "bank or credit card account the voucher was paid from"},
+		{Name: "asset-account", Type: "string", Required: true, Help: "Other Current Asset account carrying the voucher until redemption"},
 		{Name: "date", Type: "string", Required: false, Help: "dd/MM/yyyy — date as dd/MM/yyyy (Australia/Sydney)"},
 	},
 	"QBO.EXPENSES.MILEAGE_CREATE": {
@@ -763,8 +766,11 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "client-authority-form", Type: "string", Required: false, Help: "CAF for direct feeds — hand-signed; joint accounts need both signatories"},
 	},
 	"QBO.FEED.REC_AUTO_ADJUST": {
-		{Name: "account-id", Type: "string", Required: true, Help: "account being reconciled — QBO account id"},
-		{Name: "amount", Type: "string", Required: true, Help: "adjustment amount to force balance — AUD amount (income positive, expense negative on feed import)"},
+		{Name: "account-id", Type: "string", Required: true, Help: "bank account id with an open reconcile session (required)"},
+		{Name: "date", Type: "string", Required: false, Help: "adjusting entry date yyyy-MM-dd (defaults to the statement ending date)"},
+		{Name: "adjust-account", Type: "string", Required: false, Help: "adjusting entry account — v3 account id or Relay node id (defaults to Reconciliation Discrepancies)"},
+		{Name: "exchange-rate", Type: "string", Required: false, Help: "adjusting entry exchange rate (defaults to 1, the home-currency rate)"},
+		{Name: "ending-date", Type: "string", Required: false, Help: "statement ending date yyyy-MM-dd (defaults to the open session's date)"},
 	},
 	"QBO.FEED.REC_REPORT": {
 		{Name: "account-id", Type: "string", Required: false, Help: "account to report on — QBO account id (see feed account list)"},
@@ -822,12 +828,12 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.FEED.TXN_LOOKUP": {
 		{Name: "query", Type: "string", Required: true, Help: "phrase or filter to match transaction fields"},
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "scope to one account — QBO account id (see feed account list)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows per review state — max rows to return (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max matching rows returned after all pages are searched (default 20)"},
 	},
 	"QBO.FEED.TXN_MATCH": {
 		{Name: "ids", Type: "strings", Required: true, Help: "pending feed transaction ids to match — olbTxnId only, never display :ofx ids"},
 		{Name: "match-id", Type: "strings", Required: true, Help: "existing QuickBooks record ids to match against (repeatable or comma-separated)"},
-		{Name: "txn-type", Type: "string", Required: false, Default: "Bill", Help: "QBO record type of the match targets (Bill, Expense, Deposit, Cheque)"},
+		{Name: "txn-type", Type: "string", Required: false, Default: "Bill", Help: "Advisory type hint, including Transfer; the live match candidate supplies the authoritative type"},
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "connected bank/credit-card account that owns the feed row"},
 	},
 	"QBO.FEED.TXN_PENDING": {
@@ -1139,10 +1145,10 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Statement of Cash Flows shows cash in/out within a specific period and is accrua"},
 	},
 	"QBO.REPORTS.CUSTOM_CREATE": {
-		{Name: "method", Type: "string", Required: true, Help: "Report Builder (plain-language) or custom summary report from scratch — Report Builder uses Intuit Intelligence to build from a description; custom summary report is firm-only, not for clients"},
-		{Name: "reporting-period", Type: "string", Required: true, Help: "reporting period / date range — Custom Report Builder / Report Builder requires QuickBooks Online Advanced. Usin"},
-		{Name: "accounting-method", Type: "string", Required: false, Help: "accrual or cash basis — Custom Report Builder / Report Builder requires QuickBooks Online Advanced. Usin"},
-		{Name: "columns", Type: "string", Required: false, Help: "data columns, filters, group-by, calculated fields, pivot"},
+		{Name: "name", Type: "string", Required: true, Help: "custom report group name — POSTs a CRB_GROUP folio to universalreportinsights /v1/folio"},
+		{Name: "report", Type: "string", Required: false, Default: "PANDL", Help: "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)"},
+		{Name: "title", Type: "string", Required: false, Help: "page title (defaults to the report display name)"},
+		{Name: "date-macro", Type: "string", Required: false, Default: "thisyeartodate", Help: "report date macro (e.g. thisyeartodate, thismonth, lastmonth)"},
 	},
 	"QBO.REPORTS.CUSTOM_READ": {
 		{Name: "scope", Type: "string", Required: false, Help: "firm reports or a client's reports — Accountant can view both firm and client custom reports"},
@@ -1151,39 +1157,47 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — View and manage saved custom/memorised reports from the Custom Reports list; Acc"},
 	},
 	"QBO.REPORTS.FORECAST_CREATE": {
-		{Name: "name", Type: "string", Required: true, Help: "forecast name (Advanced) — display name — Advanced forecasts — not the same as a budget. L7SlFsgsy."},
-		{Name: "months", Type: "int", Required: false, Default: "12", Help: "horizon — Advanced forecasts — not the same as a budget. L7SlFsgsy."},
+		{Name: "name", Type: "string", Required: true, Help: "forecast name — createBusinessForecast input.name (required)"},
+		{Name: "start", Type: "string", Required: true, Help: "forecast start date yyyy-mm-dd — input.startDate"},
+		{Name: "end", Type: "string", Required: true, Help: "forecast end date yyyy-mm-dd — input.endDate"},
+		{Name: "mode", Type: "string", Required: false, Default: "MANUAL", Help: "AUTO_SMART, SMART_INTEL, MANUAL_FROM_SMART or MANUAL"},
+		{Name: "type", Type: "string", Required: false, Default: "PROFIT_AND_LOSS", Help: "PROFIT_AND_LOSS, THREE_WAY or BALANCE_SHEET"},
+		{Name: "interval", Type: "string", Required: false, Default: "MONTHLY", Help: "interval granularity — MONTHLY, QUARTERLY or ANNUALLY"},
+		{Name: "measure", Type: "string", Required: false, Default: "raw", Help: "forecast baseline measure — raw, avg or smart"},
 	},
 	"QBO.REPORTS.FORECAST_EDIT": {
-		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
+		{Name: "id", Type: "string", Required: true, Help: "forecast id — updateBusinessForecast input.forecastId"},
+		{Name: "name", Type: "string", Required: true, Help: "new forecast name — the only field proven mutable on update"},
 	},
 	"QBO.REPORTS.FORECAST_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read an Advanced forecast. L7SlFsgsy."},
 	},
 	"QBO.REPORTS.MANAGEMENT_CREATE": {
-		{Name: "name", Type: "string", Required: true, Help: "management report name (Accountant bundle)"},
+		{Name: "name", Type: "string", Required: true, Help: "management report name — POSTs a FOLIO folio (cover page + report pages) to universalreportinsights /v1/folio"},
+		{Name: "report", Type: "string", Required: false, Default: "PANDL", Help: "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)"},
+		{Name: "date-macro", Type: "string", Required: false, Default: "thisyear", Help: "report date macro (e.g. thisyear, thisyeartodate)"},
+		{Name: "prepared-by", Type: "string", Required: false, Help: "cover-page 'prepared by' (defaults to the account email)"},
 	},
 	"QBO.REPORTS.MANAGEMENT_EDIT": {
-		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
+		{Name: "id", Type: "string", Required: true, Help: "folio id (e.g. sbg:...) — GET /v1/folio/{id} then PUT the full object"},
+		{Name: "name", Type: "string", Required: true, Help: "new report name — the only folio field proven mutable"},
 	},
 	"QBO.REPORTS.MANAGEMENT_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — View a management report. L90RAh2XZ."},
 	},
 	"QBO.REPORTS.PERFORMANCE_CREATE": {
-		{Name: "metric", Type: "string", Required: true, Help: "single metric the chart tracks (revenue, expenses, etc.) — one metric per chart; up to 25 charts total"},
-		{Name: "data", Type: "string", Required: false, Help: "products, services, locations; optional industry comparison"},
-		{Name: "type", Type: "string", Required: false, Help: "Quick add (common metric) or custom from scratch"},
+		{Name: "name", Type: "string", Required: true, Help: "chart name — the dashboardframework panel name shown on the dashboard"},
+		{Name: "metric", Type: "string", Required: true, Help: "chart definition id from universalreportinsights paneldefinitions (e.g. Revenue, Expenses, NetProfit) — one metric per chart; up to 25 charts total"},
+		{Name: "view", Type: "string", Required: false, Help: "visualization override (defaults to the definition's defaultView, e.g. TREND_LINE, VERTICAL_BAR)"},
 	},
 	"QBO.REPORTS.PERFORMANCE_DELETE": {
-		{Name: "chart", Type: "string", Required: true, Help: "chart to delete — Delete a chart from the Performance centre; built-in charts can also be deleted."},
-		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
+		{Name: "id", Type: "string", Required: true, Help: "panel id (e.g. sbg:...) — delete soft-deactivates the chart (active:false)"},
 	},
 	"QBO.REPORTS.PERFORMANCE_EDIT": {
-		{Name: "chart", Type: "string", Required: true, Help: "chart to edit — Charts can be adjusted at any time from the Performance centre (metric, data, la"},
-		{Name: "metric", Type: "string", Required: false, Help: "change the tracked metric/data — one metric per chart"},
-		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
+		{Name: "id", Type: "string", Required: true, Help: "panel id (e.g. sbg:...) of the chart to rename"},
+		{Name: "name", Type: "string", Required: true, Help: "new chart name — PUT sends the full panel object with the updated name"},
 	},
 	"QBO.REPORTS.PERFORMANCE_READ": {
 		{Name: "chart", Type: "string", Required: false, Help: "chart id or metric in the Performance centre"},
@@ -1191,9 +1205,9 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Performance centre dashboard shows all charts in one place (Reports > Perfor"},
 	},
 	"QBO.REPORTS.REPORT_CREATE": {
-		{Name: "name", Type: "string", Required: true, Help: "name to save the customised/memorised report under"},
-		{Name: "group", Type: "string", Required: false, Help: "report group to save into (optional) — grouping enables recurring email of multiple reports at once"},
-		{Name: "share", Type: "string", Required: false, Help: "share with team / keep private — Save (memorise) a customised report to keep its filters/columns/settings; saved"},
+		{Name: "name", Type: "string", Required: true, Help: "name to save the custom report under — Save (memorise) a customised report to keep its filters/columns/settings"},
+		{Name: "clone", Type: "string", Required: false, Help: "clone the dataRequest of an existing saved report (sbg:… id); omit for a from-scratch spec"},
+		{Name: "share", Type: "string", Required: false, Help: "share scope after save: private or team (PUT …/share?type=)"},
 	},
 	"QBO.REPORTS.REPORT_READ": {
 		{Name: "report", Type: "string", Required: true, Help: "standard report name or id (Reports > Standard) — find by keyword in the Type report name here search bar"},
@@ -1568,7 +1582,7 @@ var auNoteAll = map[string]string{
 	"QBO.COMPANY.FORM_STYLE_READ":             "Sales form styles (invoices, quotes, sales receipts) are customised under the Customise forms / Design area: company info, logo, fields, appearance, and layout. Only the standard template can be set as default; the modernised template cannot be edited. L57kKA6b6",
 	"QBO.COMPANY.ITEMS_IMPORT":                "Import products and services from Excel or CSV via Batch-import products & services; a sample file defines the importable fields. Overwrite cannot be undone after you select Import. L4OYJRFdj",
 	"QBO.COMPANY.LIST_READ":                   "Lists include chart of accounts, products and services, customers, suppliers, classes, locations, and custom fields; export all lists/reports as a single Excel zip from the export tool. Only active (or invited) users/accounts/classes/locations/custom fields count toward each usage limit. L1xleDrLp",
-	"QBO.COMPANY.MARKETING_READ":              "Marketing integrations live under Customers & leads > Marketing; the Mailchimp integration syncs QuickBooks data to segment Mailchimp audiences. Mailchimp is a third-party service; QuickBooks support cannot assist with the Mailchimp account itself. L1UOG3NYz",
+	"QBO.COMPANY.MARKETING_READ":              "In-product marketing offers for the signed-in company — personalization.api /v1/experience/ipd/placement/{placement} (offerData). L1UOG3NYz",
 	"QBO.COMPANY.ROLE_CREATE":                 "Custom roles (define access per area: banking, sales, payroll, etc.) require QuickBooks Online Advanced. Custom roles are a QBO Advanced feature; not available on Simple Start/Essentials/Plus. L66POfRrI",
 	"QBO.COMPANY.ROLE_DELETE":                 "Custom firm roles can be deactivated (restorable) or deleted (permanent) in QuickBooks Online Accountant. Deleting a role removes it from all assigned team members. L4Gb8rBPt",
 	"QBO.COMPANY.ROLE_EDIT":                   "Edit custom firm roles in QuickBooks Online Accountant; assign team members to a role after creation. Deactivating a role can be restored; deleting a role is permanent. L4Gb8rBPt",
@@ -1632,7 +1646,7 @@ var auNoteAll = map[string]string{
 	"QBO.EXPENSES.EXPENSE_RECATEGORISE":       "Recategorise changes the category account (and optionally the From/To payee) of an existing expense or a pending bank transaction. QuickBooks may warn before categorising if the transaction usually matches a record not yet synced (bill pay, payroll, expense app) — pausing avoids duplicate entries. L6qyw0PvP",
 	"QBO.EXPENSES.EXPENSE_SEARCH":             "Search/list expenses from the Expenses page; filter by payee, account, date, and project. L1XojuBAW",
 	"QBO.EXPENSES.EXPENSE_SPLIT":              "A split breaks one transaction across multiple category accounts; in the account register a single transaction otherwise maps to one account. Split amounts must total the original transaction or the register goes out of balance. L2uiuS0Ls",
-	"QBO.EXPENSES.GIFT_CERTIFICATE_CREATE":    "Vouchers bought from a supplier sit as an asset/prepaid until redeemed. L9Me3DImI.",
+	"QBO.EXPENSES.GIFT_CERTIFICATE_CREATE":    "Vouchers bought from a supplier sit as an asset/prepaid until redeemed; wired as a v3 Purchase with the line on an Other Current Asset account (live-verified on TC2). L9Me3DImI.",
 	"QBO.EXPENSES.MILEAGE_CREATE":             "AU businesses can claim a deduction for up to 5,000 km per vehicle each financial year (cents-per-km method); up to 3 vehicles including motorbikes. Past 5,000 km per vehicle, QuickBooks shows $0 — tracking continues but no additional deduction. L2qPCRGgI",
 	"QBO.EXPENSES.MILEAGE_DELETE":             "Delete a trip from the Trips list; on Android use the trash icon, on browser Delete, on iPhone Delete Trip. Deleting a trip removes it from mileage reports/exports — keep a logbook backup for ATO substantiation. L2qPCRGgI",
 	"QBO.EXPENSES.MILEAGE_EDIT":               "Edit a trip's vehicle, distance, and business/personal classification from the Trips review screen. L2qPCRGgI",
@@ -1670,7 +1684,7 @@ var auNoteAll = map[string]string{
 	"QBO.FEED.TXN_EXCLUDED":                   "Lists downloaded transactions the user has excluded; QuickBooks ignores them for tax and reports. L2T2AKDUs",
 	"QBO.FEED.TXN_IMPORT":                     "Date column required; AU locale expects dd/MM/yyyy. Incorrect column mapping silently fails to read data; verify mapping stage. L4BjLWckq",
 	"QBO.FEED.TXN_LOOKUP":                     "Searches transaction fields (amount, description, name, date, etc.); results may span all transaction types. L4hBemuUP",
-	"QBO.FEED.TXN_MATCH":                      "Match pairs a downloaded row with an existing QuickBooks record of the same amount within 90 days before and 20 days after. Matching to the wrong record creates bookkeeping errors; unmatch returns the downloaded row to For Review. L6qyw0PvP",
+	"QBO.FEED.TXN_MATCH":                      "Match pairs a downloaded row with an existing QuickBooks record of the same amount within 90 days before and 30 days after. Matching to the wrong record creates bookkeeping errors; unmatch returns the downloaded row to For Review. L6qyw0PvP",
 	"QBO.FEED.TXN_PENDING":                    "Lists downloaded transactions awaiting review (the For Review / Pending tab). L86TTVI3Y",
 	"QBO.FEED.TXN_POPULATION":                 "Reports how many transactions are available/queued for a connected feed (pending vs already imported). Direct feeds do not backfill history before the bank approval date; upload those manually. L86TTVI3Y",
 	"QBO.FEED.TXN_POSTED":                     "Lists feed transactions already posted to the books (Categorised/Matched/Added). Editing a posted row that has been reconciled can unbalance a reconciliation; review the reconciliation report first. L7Xbj9hve",

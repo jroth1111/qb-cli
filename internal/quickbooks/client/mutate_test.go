@@ -215,6 +215,60 @@ func TestBuildCreatePurchaseSplitsBankAndCategory(t *testing.T) {
 	}
 }
 
+// TestBuildCreatePurchaseAssetAccountLine asserts --asset-account wins the
+// line account over the expense default (gift-certificate/prepaid-voucher
+// semantics: cash side on the bank account, line on an Other Current Asset
+// account — verified live on TC2, Purchase deleted via form delete).
+func TestBuildCreatePurchaseAssetAccountLine(t *testing.T) {
+	body, err := buildCreateBody("Purchase", map[string]string{
+		"payment-account": "44", "asset-account": "80",
+		"supplier": "3", "amount": "50", "date": "19/09/2026",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["PaymentType"] != "Cash" {
+		t.Fatalf("PaymentType=%v", body["PaymentType"])
+	}
+	if body["AccountRef"].(map[string]any)["value"] != "44" {
+		t.Fatalf("cash side=%v", body["AccountRef"])
+	}
+	if body["EntityRef"].(map[string]any)["value"] != "3" {
+		t.Fatalf("supplier=%v", body["EntityRef"])
+	}
+	lines := body["Line"].([]map[string]any)
+	det := lines[0]["AccountBasedExpenseLineDetail"].(map[string]any)
+	if det["AccountRef"].(map[string]any)["value"] != "80" {
+		t.Fatalf("asset line=%v", lines)
+	}
+	if lines[0]["Amount"] != 50.0 {
+		t.Fatalf("amount=%v", lines[0]["Amount"])
+	}
+	if body["TxnDate"] != "2026-09-19" {
+		t.Fatalf("date=%v", body["TxnDate"])
+	}
+	// asset-account == payment-account must hit the same-account guard.
+	if _, err := buildCreateBody("Purchase", map[string]string{
+		"payment-account": "44", "asset-account": "44", "amount": "50",
+	}); err == nil {
+		t.Fatal("identical payment/asset accounts must be rejected")
+	}
+	// asset-account keeps precedence when both are given (the more
+	// specific asset/prepaid intent wins over the generic category flag).
+	body, err = buildCreateBody("Purchase", map[string]string{
+		"payment-account": "44", "asset-account": "80",
+		"category-account": "7", "amount": "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines = body["Line"].([]map[string]any)
+	det = lines[0]["AccountBasedExpenseLineDetail"].(map[string]any)
+	if det["AccountRef"].(map[string]any)["value"] != "80" {
+		t.Fatalf("asset precedence=%v", lines)
+	}
+}
+
 // TestBuildCreateDelayedChargeHasCustomerRef asserts DelayedCharge create
 // produces the same shape as Invoice: CustomerRef + sales Lines. It rejects:
 //   - missing CustomerRef (would fail QBO validation),

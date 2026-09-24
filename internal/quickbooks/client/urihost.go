@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -18,6 +19,9 @@ import (
 var uriHostTransport func(req *http.Request) (*http.Response, error)
 
 func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, body []byte, overrides ...map[string]string) (*http.Response, error) {
+	if err := validateIntuitDestination(rawURL); err != nil {
+		return nil, err
+	}
 	if c.tok == nil {
 		return nil, fmt.Errorf("uri-host %s: missing credentials", host)
 	}
@@ -31,9 +35,13 @@ func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, 
 	} else {
 		// Production: use captured per-host headers when present. Without
 		// them the call cannot authenticate, so fail with guidance instead
-		// of dialing a doomed request.
+		// of dialing a doomed request. Hosts like personalization.api key
+		// their Intuit_APIKey in the URL query (the browser sends no
+		// Authorization header there), so a captured apikey URL param also
+		// satisfies the guard.
 		auth := headerGetFold(hdrs, "authorization")
-		if !strings.HasPrefix(strings.TrimSpace(auth), "Intuit_APIKey") {
+		u, _ := url.Parse(rawURL)
+		if !strings.HasPrefix(strings.TrimSpace(auth), "Intuit_APIKey") && u.Query().Get("intuit_apikey") == "" {
 			return nil, fmt.Errorf("uri-host %s: missing leftover-host Intuit_APIKey; recapture from the live Test Company tab", host)
 		}
 	}
@@ -75,6 +83,9 @@ func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, 
 			}
 		}
 	}
+	if strings.HasPrefix(req.URL.Path, "/api/neo/") {
+		req.Header.Set("Accept", "*/*")
+	}
 	if req.Header.Get("Origin") == "" {
 		req.Header.Set("Origin", "https://qbo.intuit.com")
 	}
@@ -88,6 +99,18 @@ func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, 
 		return uriHostTransport(req)
 	}
 	return impersonatedDo(req)
+}
+
+// Credentials captured for Intuit must never be attached to arbitrary probe
+// URLs. The service set uses HTTPS Intuit subdomains, including first-party
+// gateway calls that intentionally reuse qbo.intuit.com headers.
+func validateIntuitDestination(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") ||
+		(!strings.EqualFold(u.Hostname(), "intuit.com") && !strings.HasSuffix(strings.ToLower(u.Hostname()), ".intuit.com")) {
+		return fmt.Errorf("refusing credentials outside an HTTPS Intuit destination")
+	}
+	return nil
 }
 
 func headerGetFold(h map[string]string, name string) string {

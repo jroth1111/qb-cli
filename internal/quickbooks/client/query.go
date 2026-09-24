@@ -38,6 +38,7 @@ type QueryResult struct {
 	Entity string         `json:"entity"`
 	Counts map[string]int `json:"counts"`
 	Items  []QueryItem    `json:"items"`
+	Detail map[string]any `json:"detail,omitempty"`
 	Prefs  any            `json:"prefs,omitempty"`
 	Note   string         `json:"note,omitempty"`
 }
@@ -113,6 +114,24 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "Review" {
 		return replayFeedbackEngagement(ctx, id, query, limit)
 	}
+	if entity == "IdentityUser" {
+		return ReplayIdentityUsers(ctx, query, limit)
+	}
+	if entity == "IdentityAccount" {
+		return ReplayIdentityAccount(ctx, query, limit)
+	}
+	if entity == "SettingsFacade" {
+		return ReplaySettingsFacade(ctx, query, limit)
+	}
+	if entity == "CustomExtension" {
+		return ReplayCustomExtensions(ctx, query, limit)
+	}
+	if entity == "ExperimentAssignment" {
+		return ReplayExperimentAssignments(ctx, query, limit)
+	}
+	if entity == "PaymentAccount" {
+		return ReplayPaymentAccount(ctx)
+	}
 	if entity == "Folio" {
 		return replayFolio(ctx, id, query, limit)
 	}
@@ -146,8 +165,14 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "Role" {
 		return replayAccountRoles(ctx, id, query, limit)
 	}
+	if entity == "MarketingOffer" {
+		return replayMarketingOffers(ctx, id, query, limit)
+	}
 	if entity == "FormStyle" {
 		return replayFormStyles(ctx, id, query, limit)
+	}
+	if entity == "Tag" {
+		return replayTags(ctx, id, query, limit)
 	}
 	if entity == "ManagementFolio" {
 		return replayManagementFolio(ctx, id, query, limit)
@@ -164,6 +189,60 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "Task" {
 		return replayTasks(ctx, id, query, limit)
 	}
+	if entity == "TaxReturn" {
+		return ReplayTaxReturns(ctx, entity, "", query, limit)
+	}
+	if entity == "BusinessForecast" {
+		return ReplayBusinessForecasts(ctx, id, query, limit)
+	}
+	if entity == "PerformanceMetric" {
+		return ReplayPerformanceMetrics(ctx, query, limit)
+	}
+	if entity == "TaxJurisdiction" {
+		return replayTaxJurisdictions(ctx, id, query, limit)
+	}
+	if entity == "TaxLiability" {
+		return ReplayTaxLiability(ctx, "", "", query, limit)
+	}
+	if entity == "InventoryLocation" {
+		return replayWarehouseLocations(ctx, id, query, limit)
+	}
+	if entity == "SalesOverview" {
+		return ReplaySalesOverview(ctx, query, limit)
+	}
+	if entity == "ExpensesOverview" {
+		return ReplayExpensesOverview(ctx, query, limit)
+	}
+	if entity == "SalesTxnRisk" {
+		return ReplaySalesTxnRisk(ctx, query, limit)
+	}
+	if entity == "BillPayOnboarding" {
+		return ReplayBillPayOnboarding(ctx, query, limit)
+	}
+	if entity == "StageTransaction" {
+		return ReplayStageTransactions(ctx, query, limit)
+	}
+	if entity == "B2BBillpay" {
+		return ReplayB2BBillpay(ctx, query, limit)
+	}
+	if entity == "B2BNetwork" {
+		return ReplayB2BNetwork(ctx, query, limit)
+	}
+	if entity == "TaxConfigGroup" {
+		return ReplayTaxConfigGroups(ctx, query, limit)
+	}
+	if entity == "Reconciliation" {
+		return ReplayReconciliation(ctx, id, query, limit)
+	}
+	if entity == "QBOnlineGraphql" {
+		return ReplayQBOnlineGraphql(ctx, id, query, limit)
+	}
+	if entity == "BudgetPlanning" {
+		return ReplayBudgetPlanning(ctx, query, limit)
+	}
+	if entity == "FixedAsset" {
+		return ReplayFinanceAssets(ctx, id, query, limit)
+	}
 	act := ""
 	if len(active) > 0 {
 		act = active[0]
@@ -172,6 +251,25 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
+	}
+	if entity == "Purchase" && id != "" {
+		obj, err := fetchV3(ctx, ac, "purchase", id)
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprint(obj["Id"]) != id {
+			return nil, fmt.Errorf("purchase readback did not match the requested id")
+		}
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			return nil, err
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		items := projectQueryObjects(entity, []map[string]json.RawMessage{fields})
+		return &QueryResult{Status: 200, Entity: entity, Counts: map[string]int{"items": 1}, Items: items, Detail: obj}, nil
 	}
 	if entity == "Department" && id != "" {
 		// Department listing works, but the live v3 query service rejects
@@ -430,6 +528,9 @@ func ReplayReport(ctx context.Context, name, start, end string, options ...Repor
 }
 
 func PlannedQueryURL(entity string, ids ...string) string {
+	if entity == "Purchase" && len(ids) > 0 && strings.TrimSpace(ids[0]) != "" {
+		return "https://qbo.intuit.com/api/v3/company/{realm}/purchase/" + url.PathEscape(sanitizeToken(ids[0])) + "?minorversion=73"
+	}
 	if entity == "Department" && len(ids) > 0 && strings.TrimSpace(ids[0]) != "" {
 		return "https://qbo.intuit.com/api/v3/company/{realm}/department/" + url.PathEscape(sanitizeToken(ids[0])) + "?minorversion=73"
 	}
@@ -490,11 +591,66 @@ func PlannedQueryURL(entity string, ids ...string) string {
 	if entity == "Role" {
 		return PlannedRoleURL()
 	}
+	if entity == "MarketingOffer" {
+		placement := ""
+		if len(ids) > 0 {
+			placement = ids[0]
+		}
+		return PlannedMarketingURL(placement)
+	}
 	if entity == "FormStyle" {
 		return PlannedFormStyleURL()
 	}
+	if entity == "Tag" {
+		return PlannedTagURL()
+	}
 	if entity == "ManagementFolio" {
 		return PlannedManagementFolioURL()
+	}
+	if entity == "TaxReturn" {
+		return "https://qbo.intuit.com/api/v4/graphql (node__indirect_tax_ui_qbo taxReturns)"
+	}
+	if entity == "BusinessForecast" {
+		return "https://planningforecasting.api.intuit.com/graphql (getAllBusinessForecasts)"
+	}
+	if entity == "PerformanceMetric" {
+		return "https://universalreportinsights.api.intuit.com/v1/metrics/<Metric>"
+	}
+	if entity == "SalesOverview" {
+		return "https://universalreportsgraphql.api.intuit.com/graphql (allSales)"
+	}
+	if entity == "ExpensesOverview" {
+		return "https://dashboardframework.api.intuit.com/v1/dashboards?name=EXPENSES_DASHBOARD"
+	}
+	if entity == "SalesTxnRisk" {
+		return "https://salestxnrisksvc.api.intuit.com/v2/risk/eligibility"
+	}
+	if entity == "BillPayOnboarding" {
+		return "https://bill-pay-onboarding-svc.api.intuit.com/v1/bill-payment-eligibility"
+	}
+	if entity == "StageTransaction" {
+		return "https://stagetransactions.api.intuit.com/stage/entities"
+	}
+	if entity == "B2BBillpay" {
+		return "https://b2bbillpay.api.intuit.com/v1/paymentApproval/pendingInstructions"
+	}
+	if entity == "B2BNetwork" {
+		return "https://b2bnetworkservice.api.intuit.com/v2/directory/attributes"
+	}
+	if entity == "TaxConfigGroup" {
+		return "https://taxconfig.api.intuit.com/graphql (IndirectTaxTaxGropups_taxconfig)"
+	}
+	if entity == "Reconciliation" {
+		return "https://qbo.intuit.com/api/v4/graphql (Integration_Reconciliation node)"
+	}
+	if entity == "QBOnlineGraphql" {
+		return "https://qbonline-aws.api.intuit.com/v4/graphql (company probe or --op)"
+	}
+	if entity == "BudgetPlanning" {
+		return "https://budgeting.api.intuit.com/graphql (fetchAllBudgets)"
+	}
+	if entity == "FixedAsset" {
+		return "https://assetservice.api.intuit.com/v1/graphql (financeAssets)"
 	}
 	return v3QueryTmpl + url.QueryEscape(buildQuery(entity, "", "", 20))
 }

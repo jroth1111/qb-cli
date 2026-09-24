@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -101,6 +102,46 @@ func newSalesInvoicePDFCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&id, "id", "", "invoice id (required)")
 	cmd.Flags().StringVar(&out, "out", "", "output .pdf path (required)")
 	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("out")
+	return cmd
+}
+
+// newCompanyDataExportCmd implements `company data-export get`: download one
+// report/list as xlsx from the Export Data surface (c7.qbo.intuit.com neo
+// gateway, captured from /app/exportdata). Read-semantics POST.
+func newCompanyDataExportCmd(flags *rootFlags) *cobra.Command {
+	var token, out string
+	cmd := &cobra.Command{
+		Use:   "get",
+		Short: "Export a report or list as xlsx (neo POST reports/exportReport)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "company data-export get", ID: "QBO.COMPANY.DATA_EXPORT_GET",
+					Mode: modeRead, Method: "POST",
+					URL:   client.PlannedDataExportURL(),
+					Flags: localFlagMap(cmd), Note: "binary xlsx download; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayDataExport(ctx, token, out)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			if flags.asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(res)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Exported %s (%d bytes) -> %s\n", res.Token, res.Bytes, res.Path)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&token, "token", "", "report/list token (BAL_SHEET, GEN_LEDGER, JOURNAL, PANDL, TRIAL_BAL, CUST_CONTACT, EMP_CONTACT, VEND_CONTACT; required)")
+	cmd.Flags().StringVar(&out, "out", "", "output .xlsx path (required)")
+	_ = cmd.MarkFlagRequired("token")
 	_ = cmd.MarkFlagRequired("out")
 	return cmd
 }

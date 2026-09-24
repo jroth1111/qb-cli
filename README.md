@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/mvanhorn/cli-printing-press)](go.mod)
 [![License](https://img.shields.io/github/license/mvanhorn/cli-printing-press)](LICENSE)
 
-`qb` drives the whole of QuickBooks Online (AU) from the terminal: books, banking feeds, sales, expenses, payroll, tax, inventory, reports — 543 catalogued operations across 16 domains, with live reads, live writes, dry-runs, and an authenticated session that heals itself. Built agent-first (`--json` everywhere, `qb actions` as a machine-readable contract), equally usable by humans.
+`qb` drives the whole of QuickBooks Online (AU) from the terminal: books, banking feeds, sales, expenses, payroll, tax, inventory, reports — 548 catalogued operations across 16 domains, with live reads, live writes, dry-runs, and an authenticated session that heals itself. Built agent-first (`--json` everywhere, `qb actions` as a machine-readable contract), equally usable by humans.
 
 Printed by the [Printing Press](https://printingpress.dev) (`cli-printing-press`, same repo) from the official v3 API, the QBO webapp's own captured GraphQL, and the banking-feed surfaces Intuit never published.
 
@@ -25,27 +25,29 @@ go build -o qb ./cmd/qb
 - **Auto-renewal is the default.** Any 401 ladders relay → headless profile refresh → replays the failed call. A dead session costs one slow command, then just works. Nothing to configure; `QB_NO_MANAGED=1` opts out of the browser rung.
 - Secrets live only in `~/.config/qb/credentials.json` (0600). `--json` output never includes them.
 
-## Coverage (543 primitives)
+## Coverage (548 primitives)
 
 | Domain | Wired | Read | Command root |
 |---|---|---|---|
-| Accounting (COA, class, budget, journals, fixed assets, CDC) | 33 | 25 | `qb accounting` |
-| Expenses (bills, suppliers, cheques, time activities) | 24 | 16 | `qb expenses` |
-| Sales (invoices, estimates, payments, sends, PDFs, sales orders) | 30 | 17 | `qb sales` |
-| Company (settings, users, lists, attachables, rates) | 15 | 19 | `qb company` |
-| Feed (banking classify/split/exclude/undo) | 10 | 10 | `qb feed` |
+| Accounting (COA, class, budget, journals, fixed assets, CDC) | 37 | 30 | `qb accounting` |
+| Expenses (bills, suppliers, cheques, time activities) | 37 | 22 | `qb expenses` |
+| Sales (invoices, estimates, payments, sends, PDFs, sales orders) | 38 | 21 | `qb sales` |
+| Company (settings, users, lists, attachables, rates) | 24 | 28 | `qb company` |
+| Feed (banking classify/split/exclude/undo) | 14 | 11 | `qb feed` |
 | Payroll (pay runs, STP, super) | 5 | 3 | `qb payroll` |
-| Tax (GST, BAS, TPAR, agencies, codes) | 2 | 5 | `qb tax` |
-| Inventory (items, purchase orders) | 10 | 8 | `qb inventory` |
-| Customers | 3 | 11 | `qb customers` |
-| Reports + forecasts | 0 | 28 | `qb reports` |
+| Tax (GST, BAS, TPAR, agencies, codes) | 2 | 10 | `qb tax` |
+| Inventory (items, purchase orders) | 10 | 9 | `qb inventory` |
+| Customers | 9 | 11 | `qb customers` |
+| Reports + forecasts | 12 | 30 | `qb reports` |
 | GraphQL (captured webapp ops) | 8 | 3 | `qb gql` |
 | Cost groups, custom objects, accountant | 3 | 1 | `qb costgroups`, `qb customobjects`, `qb accountant` |
-| Integrations, advanced (service maps, batch) | 1 | 4 | `qb integrations`, `qb advanced` |
+| Integrations, advanced (service maps, batch) | 8 | 5 | `qb integrations`, `qb advanced` |
 
 `qb crm` and `qb salestx` are additional command trees outside the actions catalog. `salestx` includes live v3 sales transactions and tax-service operations; its plan IDs are command identifiers, not catalog entries.
 
-Totals: **144 wired, 150 read-only, 247 blocked, 2 excluded of 543 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+Totals: **207 wired, 184 read-only, 155 blocked, 2 excluded of 548 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+
+OCR receipt read/search/delete aliases are blocked: they previously targeted v3 attachments, a different resource from financialdocument/stagetransactions receipts. Receipt upload and receipt-to-expense remain available. Invoice reminders preview by default; `--send` explicitly sends, is refused under verification harnesses, and reports delivery as unverified when QBO returns only an empty acknowledgement.
 
 Examples:
 

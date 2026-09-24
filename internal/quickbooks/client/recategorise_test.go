@@ -43,6 +43,34 @@ const recatPurchaseFixture = `{"Purchase":{
      "AccountBasedExpenseLineDetail":{"AccountRef":{"value":"8"}}}
   ]}}`
 
+func TestRepairCreditCardTypeRequiresVerifiedFundingAccount(t *testing.T) {
+	for _, tc := range []struct {
+		name, payment, accountType, accountID string
+		ok                                    bool
+	}{
+		{"supported", "Check", "Credit Card", "204", true},
+		{"bank account", "Check", "Bank", "204", false},
+		{"wrong account", "Check", "Credit Card", "209", false},
+		{"cash payment", "Cash", "Credit Card", "204", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			existing := map[string]any{"PaymentType": tc.payment, "AccountRef": map[string]any{"value": "204"}}
+			body := map[string]any{"PaymentType": tc.payment}
+			err := repairCreditCardType(existing, body, map[string]any{"Id": tc.accountID, "AccountType": tc.accountType})
+			if (err == nil) != tc.ok {
+				t.Fatalf("error = %v", err)
+			}
+			want := tc.payment
+			if tc.ok {
+				want = "CreditCard"
+			}
+			if body["PaymentType"] != want || existing["PaymentType"] != tc.payment {
+				t.Fatal("unexpected type mutation")
+			}
+		})
+	}
+}
+
 func TestRecategoriseSwapsAccountRef(t *testing.T) {
 	saveUsable(t)
 	srv, lastPost := recatServer(t, recatPurchaseFixture)
@@ -72,6 +100,28 @@ func TestRecategoriseSwapsAccountRef(t *testing.T) {
 		if ref["value"] != "9" {
 			t.Fatalf("line %v accountRef = %#v", l["Id"], ref)
 		}
+	}
+}
+
+func TestRecategoriseRejectsMissingOrWrongReceipt(t *testing.T) {
+	for _, reply := range []string{`{"Fault":{"type":"ValidationFault"}}`, `{"Purchase":{"Id":"999"}}`} {
+		t.Run(reply, func(t *testing.T) {
+			saveUsable(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					_, _ = w.Write([]byte(recatPurchaseFixture))
+				} else {
+					_, _ = w.Write([]byte(reply))
+				}
+			}))
+			t.Cleanup(srv.Close)
+			interceptHTTP(t, srv.URL)
+			result, err := ReplayExpenseRecategorise(context.Background(), map[string]string{"id": "51", "category-id": "9"})
+			if err == nil || result != nil || !strings.Contains(err.Error(), "receipt") {
+				t.Fatalf("result=%v err=%v", result, err)
+			}
+		})
 	}
 }
 
@@ -135,5 +185,46 @@ func TestRecategoriseValidation(t *testing.T) {
 	}
 	if *lastPost != nil {
 		t.Fatal("validation failures still posted")
+	}
+}
+
+func TestRecategoriseClassPreservesAccountAndOtherLines(t *testing.T) {
+	saveUsable(t)
+	srv, lastPost := recatServer(t, recatPurchaseFixture)
+	interceptHTTP(t, srv.URL)
+	_, err := ReplayExpenseRecategorise(context.Background(), map[string]string{
+		"id": "51", "line-id": "2", "class-id": "1303",
+		"expected-sync-token": "1", "expected-category-id": "8", "expected-class-id": "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := (*lastPost)["Line"].([]any)
+	first := lines[0].(map[string]any)["AccountBasedExpenseLineDetail"].(map[string]any)
+	second := lines[1].(map[string]any)["AccountBasedExpenseLineDetail"].(map[string]any)
+	if first["ClassRef"] != nil || expenseRefValue(first["AccountRef"]) != "8" {
+		t.Fatalf("other line changed: %#v", first)
+	}
+	if expenseRefValue(second["ClassRef"]) != "1303" || expenseRefValue(second["AccountRef"]) != "8" {
+		t.Fatalf("selected line wrong: %#v", second)
+	}
+}
+
+func TestRecategoriseClassRejectsStalePreconditionsBeforePost(t *testing.T) {
+	for _, tc := range []map[string]string{
+		{"id": "51", "line-id": "2", "class-id": "1303", "expected-sync-token": "0"},
+		{"id": "51", "line-id": "2", "class-id": "1303", "expected-category-id": "203"},
+		{"id": "51", "line-id": "2", "class-id": "1303", "expected-class-id": "1303"},
+		{"id": "51", "class-id": "1303"},
+	} {
+		saveUsable(t)
+		srv, lastPost := recatServer(t, recatPurchaseFixture)
+		interceptHTTP(t, srv.URL)
+		if _, err := ReplayExpenseRecategorise(context.Background(), tc); err == nil {
+			t.Fatalf("accepted stale or ambiguous flags: %#v", tc)
+		}
+		if *lastPost != nil {
+			t.Fatalf("posted despite validation failure: %#v", tc)
+		}
 	}
 }

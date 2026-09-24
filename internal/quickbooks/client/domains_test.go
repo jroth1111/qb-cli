@@ -132,7 +132,7 @@ func domQueryResponse(entity, row string) string {
 //	user get     → ReplayQuery("Employee")         (v3 query)
 //	search run   → ReplayQuery("Customer")         (v3 query)
 //	tag get      → ReplayQuery("Class")            (v3 query)
-//	marketing get→ ReplayQuery("CompanyInfo")      (v3 query)
+//	marketing get→ ReplayQuery("MarketingOffer")   (personalization.api ipd placement POST)
 //	currency get → ReplayQuery("CompanyCurrency")  (v3 query)
 //	attachment get → ReplayQuery("Attachable")     (v3 query)
 //	list get     → ReplayQuery("ListsPrefs")       (v4/entities POST)
@@ -266,6 +266,36 @@ func TestCompanyDomainReadsRouteToCapturedBackends(t *testing.T) {
 	}
 	if _, _, path, _ := bfSrv.snap(); !strings.HasSuffix(path, "/v1/business-feed/items") {
 		t.Fatalf("BusinessFeed path = %s, want /v1/business-feed/items", path)
+	}
+
+	// marketing get → personalization.api placement POST (offer rows).
+	mkSrv := newDomServer(t, http.StatusOK, `{"recommendations":{"recommendation":[{"offerId":"ef058e70","name":"APAC270001-banner","status":"Published","uiPattern":"banner","score":15.0,"copyData":{"ctaText":"Get 70% off for 6 months","ctaUrl":"/app/subscribe?x=1","body":"Ready for big savings?"}}]}}`)
+	interceptHTTP(t, mkSrv.URL)
+	mr, err := ReplayQuery(context.Background(), "MarketingOffer", "UserMgtTop", "", 20)
+	if err != nil {
+		t.Fatalf("MarketingOffer: %v", err)
+	}
+	if mr.Status != http.StatusOK || len(mr.Items) != 1 || mr.Items[0].ID != "ef058e70" || mr.Items[0].Name != "Get 70% off for 6 months" || mr.Items[0].Type != "banner" {
+		t.Fatalf("MarketingOffer envelope/items = %+v %+v", mr, mr.Items)
+	}
+	calls, meth, path, body := mkSrv.snap()
+	if calls != 1 || meth != http.MethodPost || !strings.Contains(path, "/v1/experience/ipd/placement/UserMgtTop") {
+		t.Fatalf("MarketingOffer call = %d %s %s, want POST /v1/experience/ipd/placement/UserMgtTop", calls, meth, path)
+	}
+	var mkBody map[string]any
+	if err := json.Unmarshal(body, &mkBody); err != nil || mkBody["qboCompanyId"] == nil {
+		t.Fatalf("MarketingOffer body = %s, want eligibility payload with qboCompanyId", body)
+	}
+
+	// 204 (no offer for the placement) is an honest empty result, not an error.
+	emptySrv := newDomServer(t, http.StatusNoContent, "")
+	interceptHTTP(t, emptySrv.URL)
+	er, err := ReplayQuery(context.Background(), "MarketingOffer", "", "", 20)
+	if err != nil {
+		t.Fatalf("MarketingOffer 204: %v", err)
+	}
+	if er.Status != http.StatusNoContent || len(er.Items) != 0 {
+		t.Fatalf("MarketingOffer 204 envelope = %+v", er)
 	}
 }
 

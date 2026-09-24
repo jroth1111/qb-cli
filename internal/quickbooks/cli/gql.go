@@ -660,7 +660,9 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 			long: "Cancel a banking reconciliation session via\n" +
 				"CancelReconcile__integration_banking_reconcile_ui_qbo. The webapp wraps\n" +
 				"every reconciliation call in the same pluginInfo/clientMutationId\n" +
-				"envelope; only --reconciliation-id varies between sessions.",
+				"envelope; only --reconciliation-id varies between sessions.\n" +
+				"Live capture shows reconcile mutations ride qbonline-aws, not the\n" +
+				"catalog's recorded qbo.intuit.com host.",
 			example: "  qb gql mutate cancel-reconcile --reconciliation-id 12345:integration/Reconciliation:55",
 			build: func(cmd *cobra.Command) (map[string]any, error) {
 				id, _ := cmd.Flags().GetString("reconciliation-id")
@@ -668,12 +670,55 @@ func gqlMutationFlagSpecTable() []gqlMutationFlagSpec {
 				if id == "" {
 					return nil, fmt.Errorf("--reconciliation-id is required")
 				}
+				rec := map[string]any{
+					"id":                 id,
+					"reconcileAction":    action,
+					"closeBooksPassword": nil,
+				}
+				if bal := mustString(cmd, "ending-balance", ""); bal != "" {
+					rec["statementEndingBalance"] = bal
+				}
+				if dt := mustString(cmd, "ending-date", ""); dt != "" {
+					rec["statementEndingDate"] = dt
+				}
 				return map[string]any{"input_0": map[string]any{
-					"pluginInfo":       map[string]any{"customHeaders": map[string]any{}},
+					"pluginInfo": map[string]any{"customHeaders": map[string]any{
+						"intuit-query-id": "reconciliationW",
+					}},
+					"clientMutationId":          "qb-cli",
+					"integrationReconciliation": rec,
+				}}, nil
+			},
+		},
+		{
+			use:    "start-reconcile",
+			opName: "StartReconcile__integration_banking_reconcile_ui_qbo",
+			short:  "Begin a reconcile session on a bank account",
+			long: "Begin a banking reconciliation session via\n" +
+				"StartReconcile__integration_banking_reconcile_ui_qbo on the\n" +
+				"qbonline-aws host (the live mutation surface; the catalog's recorded\n" +
+				"qbo.intuit.com endpoint provider-errors). Requires the\n" +
+				"Integration_Reconciliation node id for the account\n" +
+				"(`qb accounting reconcile get --id <accountId>`), --ending-balance\n" +
+				"and --ending-date (yyyy-MM-dd).",
+			example: "  qb gql mutate start-reconcile --reconciliation-id <nodeId> --ending-balance 0.00 --ending-date 2026-09-30 --yes",
+			build: func(cmd *cobra.Command) (map[string]any, error) {
+				id, _ := cmd.Flags().GetString("reconciliation-id")
+				bal, _ := cmd.Flags().GetString("ending-balance")
+				dt, _ := cmd.Flags().GetString("ending-date")
+				if id == "" || bal == "" || dt == "" {
+					return nil, fmt.Errorf("--reconciliation-id, --ending-balance and --ending-date are required")
+				}
+				return map[string]any{"input_0": map[string]any{
+					"pluginInfo": map[string]any{"customHeaders": map[string]any{
+						"intuit-query-id": "reconciliationW",
+					}},
 					"clientMutationId": "qb-cli",
 					"integrationReconciliation": map[string]any{
-						"id":              id,
-						"reconcileAction": action,
+						"id":                     id,
+						"reconcileAction":        "BEGIN",
+						"statementEndingBalance": bal,
+						"statementEndingDate":    dt,
 					},
 				}}, nil
 			},
@@ -816,7 +861,13 @@ func gqlDeclareMutationFlags(cmd *cobra.Command, opName string) {
 		fs.String("input-json", "", "AssignProductDimensionsInput object as JSON, @file allowed (required)")
 	case "CancelReconcile__integration_banking_reconcile_ui_qbo":
 		fs.String("reconciliation-id", "", "Integration_Reconciliation global id (required)")
-		fs.String("action", "CANCELLED", "reconcileAction enum value (default CANCELLED)")
+		fs.String("action", "CANCEL", "reconcileAction enum value (default CANCEL)")
+		fs.String("ending-balance", "", "statement ending balance (required by BEGIN/START)")
+		fs.String("ending-date", "", "statement ending date yyyy-MM-dd (required by BEGIN/START)")
+	case "StartReconcile__integration_banking_reconcile_ui_qbo":
+		fs.String("reconciliation-id", "", "Integration_Reconciliation global id (required)")
+		fs.String("ending-balance", "", "statement ending balance, e.g. 0.00 (required)")
+		fs.String("ending-date", "", "statement ending date yyyy-MM-dd (required)")
 	case "CommerceReceiveInventory", "CommerceConsumeInventory":
 		fs.String("txn-id", "", "source transaction id (required)")
 		fs.String("txn-type", "", "source transaction type, e.g. Bill, Invoice (required)")

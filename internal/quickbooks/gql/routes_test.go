@@ -53,11 +53,17 @@ func TestCatalogVerifiedRoutes(t *testing.T) {
 	// TaskManagementTasks (tasks-ui bundle), CreateAccount (coa-core), the
 	// products UI commerce-control family (UpdateItemStatus,
 	// BatchUpdateProducts, GetProduct, GetProducts), the product-dimensions
-	// pair (AssignDimensionsForProducts also on commerce-control) and the
+	// pair (AssignDimensionsForProducts also on commerce-control), the
 	// customization-ui dimension query (GetCustomDimensionDefinitions on
-	// smallbusiness) are the ops whose verified route differs from catalog
-	// host.
-	wantChanged := []string{"AssignDimensionsForProducts", "BatchUpdateProducts", "CreateAccount", "GetCustomDimensionDefinitions", "GetProduct", "GetProducts", "TaskManagementTasks", "UpdateItemStatus"}
+	// smallbusiness) and the reconcile session mutation family on
+	// qbonline-aws (live capture 2026-09-17) are the ops whose verified
+	// route differs from catalog host. UpdateSettings joins them: the
+	// Settings drawer posts to settingsfacade, not the v4 gateway (live
+	// capture 2026-09-17). The custom-field trio
+	// (CustomFieldsQueryCES + the two CustomFieldDefinition mutations)
+	// reroute to customextensions — the customfields plugin's real host
+	// (live capture + CLI replay 2026-09-17).
+	wantChanged := []string{"AssignDimensionsForProducts", "BatchUpdateProducts", "CancelReconcile__integration_banking_reconcile_ui_qbo", "ClrTxnLine__integration_banking_reconcile_ui_qbo", "CreateAccount", "CustomFieldDefinitionCreateMutation", "CustomFieldsQueryCES", "FinishReconcile__integration_banking_reconcile_ui_qbo", "GetCustomDimensionDefinitions", "GetProduct", "GetProducts", "StartReconcile__integration_banking_reconcile_ui_qbo", "TaskManagementTasks", "UndoReconcile__integration_banking_reconcile_ui_qbo", "UpdateFieldDefinitionCreateMutation", "UpdateItemStatus", "UpdateReconcile__integration_banking_reconcile_ui_qbo", "UpdateSettings"}
 	if !reflect.DeepEqual(changed, wantChanged) {
 		t.Errorf("route changes = %v; want %v", changed, wantChanged)
 	}

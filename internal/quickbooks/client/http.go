@@ -31,6 +31,8 @@ const httpTimeout = 30 * time.Second
 type apiClient struct {
 	tok        *auth.TokenSet
 	realm      string
+	company    string // capture-time company display name (may be empty)
+	email      string // capture-time account email (may be empty)
 	cookies    string // pre-built Cookie header value (secret)
 	csrf       string // qbo.csrftoken value (secret)
 	skipRemint bool   // set after one 401 remint so we never loop
@@ -58,8 +60,10 @@ func newAPIClient() (*apiClient, error) {
 		return nil, fmt.Errorf("%w: saved session has no ATS Intuit_APIKey", ErrNoCredentials)
 	}
 	c := &apiClient{
-		tok:   tok,
-		realm: tok.RealmID,
+		tok:     tok,
+		realm:   tok.RealmID,
+		company: tok.CompanyName,
+		email:   tok.Email,
 	}
 	c.cookies = cookieHeader(tok.Cookies)
 	c.csrf = csrfToken(tok.Cookies)
@@ -286,6 +290,11 @@ func (c *apiClient) doStdlib(ctx context.Context, method, url string, body []byt
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 	c.applyHeaders(req, xRange)
+	// The Neo banking UI uses */*; application/json can return a 500 for
+	// getRules even when the same authenticated request succeeds with */*.
+	if strings.HasPrefix(req.URL.Path, "/api/neo/") {
+		req.Header.Set("Accept", "*/*")
+	}
 	if method == http.MethodPost && len(body) > 0 {
 		// Captured banking reads carry pagination/tracing headers, while the
 		// browser's mutation POST carries JSON content type without those

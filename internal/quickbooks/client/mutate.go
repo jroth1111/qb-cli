@@ -935,7 +935,11 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if payAcct == "" {
 			payAcct = cashAccount // --account and its aliases are the unified cash side
 		}
-		lineAcct := firstFlag(flags, "category-account")
+		// --asset-account names a balance-sheet line account (prepaid
+		// vouchers etc.) and takes precedence over the expense default;
+		// without it a gift-asset purchase could silently post to
+		// expense account 7.
+		lineAcct := firstFlag(flags, "asset-account", "category-account")
 		if lineAcct == "" && firstFlag(flags, "payment-account", "bank-account") != "" {
 			// With an explicit cash side, --account names the expense/category account.
 			lineAcct = firstFlag(flags, "account")
@@ -1186,6 +1190,12 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	}
 	if entity == "Purchase" {
 		copyExisting(out, existing, "AccountRef", "PaymentType", "EntityRef", "Line", "CurrencyRef")
+		if err := CheckLineItemsJSON(flags); err != nil {
+			return nil, err
+		}
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		}
 	}
 	if entity == "TimeActivity" {
 		copyExisting(out, existing, "NameOf", "EmployeeRef", "VendorRef", "CustomerRef", "ItemRef", "Hours", "Minutes", "HourlyRate", "TxnDate", "Description", "BillableStatus")
@@ -1321,7 +1331,10 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 			out["PrimaryEmailAddr"] = map[string]any{"Address": e}
 		}
 	}
-	if strings.EqualFold(firstFlag(flags, "active"), "false") {
+	switch strings.ToLower(firstFlag(flags, "active")) {
+	case "true":
+		out["Active"] = true
+	case "false":
 		out["Active"] = false
 	}
 	return out, nil
@@ -1662,15 +1675,15 @@ func normalizeDate(s string) string {
 }
 
 // voidableEntities maps CLI entity names to v3 entities that accept
-// ?operation=void. Void is only defined on posting transactions.
+// ?operation=void. Empirically on Test Company 2 (2026-09-17): invoice void
+// succeeds; purchase and estimate both return "Operation void is not
+// supported" (estimates are non-posting; purchase void is not offered on
+// this realm's v3). Purchase-order is non-posting too — excluded.
 var voidableEntities = map[string]string{
 	"invoice":          "Invoice",
 	"payment":          "Payment",
 	"salesreceipt":     "SalesReceipt",
 	"sales-receipt":    "SalesReceipt",
-	"purchase":         "Purchase",
-	"expense":          "Purchase",
-	"estimate":         "Estimate",
 	"bill":             "Bill",
 	"creditmemo":       "CreditMemo",
 	"credit-memo":      "CreditMemo",
@@ -1681,12 +1694,8 @@ var voidableEntities = map[string]string{
 	"transfer":         "Transfer",
 	"journalentry":     "JournalEntry",
 	"journal":          "JournalEntry",
-	"purchaseorder":    "PurchaseOrder",
-	"purchase-order":   "PurchaseOrder",
 	"refundreceipt":    "RefundReceipt",
 	"refund-receipt":   "RefundReceipt",
-	"cheque":           "Purchase",
-	"check":            "Purchase",
 }
 
 // VoidableEntity resolves a --entity flag value into a v3 entity name that
@@ -1694,10 +1703,10 @@ var voidableEntities = map[string]string{
 func VoidableEntity(name string) (string, error) {
 	key := strings.ToLower(strings.TrimSpace(name))
 	if key == "" {
-		return "", fmt.Errorf("void requires --entity (invoice, payment, salesreceipt, purchase, estimate, bill, ...)")
+		return "", fmt.Errorf("void requires --entity (invoice, payment, salesreceipt, bill, ...)")
 	}
 	if ent, ok := voidableEntities[key]; ok {
 		return ent, nil
 	}
-	return "", fmt.Errorf("entity %q cannot be voided via v3; voidable: invoice, payment, salesreceipt, purchase, estimate, bill, creditmemo, vendorcredit, creditcardcredit, deposit, transfer, journalentry, purchaseorder, refundreceipt", name)
+	return "", fmt.Errorf("entity %q cannot be voided via v3; voidable: invoice, payment, salesreceipt, bill, creditmemo, vendorcredit, creditcardcredit, deposit, transfer, journalentry, refundreceipt", name)
 }

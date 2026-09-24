@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+func TestServiceHostCapturesSeparatelyKeyedNeoRequests(t *testing.T) {
+	authz := "Intuit_APIKey intuit_apikey=neo,intuit_apikey_version=1.0"
+	tests := []struct {
+		url     string
+		headers map[string]string
+		want    string
+	}{
+		{"https://qbo.intuit.com/api/neo/v1/company/1/lists/olbrules/getRules", map[string]string{"Authorization": authz, "apikey": "neo-key"}, "qbo.intuit.com"},
+		{"https://qbo.intuit.com/api/neo/v1/company/1/olb/ng/getInitialData", map[string]string{"Authorization": authz}, ""},
+		{"https://qbo.intuit.com/ats/v1/company/1/banking", map[string]string{"Authorization": authz, "apikey": "neo-key"}, ""},
+		{"https://audit.api.intuit.com/v1/query", map[string]string{"Authorization": authz}, "audit.api.intuit.com"},
+	}
+	for _, tc := range tests {
+		if got := ServiceHost(tc.url, tc.headers); got != tc.want {
+			t.Errorf("ServiceHost(%q)=%q, want %q", tc.url, got, tc.want)
+		}
+	}
+}
+
 func TestApplyATSCaptureSetsDistinctHeaders(t *testing.T) {
 	tok := &TokenSet{
 		Cookies: []Cookie{{Name: "qbn.ticket", Value: "t"}},

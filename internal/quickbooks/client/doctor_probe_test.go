@@ -23,8 +23,14 @@ func TestProbeObservesStatusWithoutRenewing(t *testing.T) {
 		ok, got, _ := ProbeSession(context.Background())
 		remint = original
 		srv.Close()
-		if got != status || ok != (status == 200) || calls != 1 {
-			t.Fatalf("probe = %v/%d, calls=%d; expected status %d", ok, got, calls, status)
+		// A healthy first probe returns early; a failed one retries against
+		// the neo fallback endpoint, so non-200 statuses make two calls.
+		wantCalls := 2
+		if status == 200 {
+			wantCalls = 1
+		}
+		if got != status || ok != (status == 200) || calls != wantCalls {
+			t.Fatalf("probe = %v/%d, calls=%d; expected status %d, calls %d", ok, got, calls, status, wantCalls)
 		}
 	}
 }

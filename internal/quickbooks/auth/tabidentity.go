@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -124,44 +123,7 @@ func FetchTabCookies(ctx context.Context, relayURL, targetID string) ([]Cookie, 
 		defer cancel()
 		_, _ = conn.call(dctx, "Target.detachFromTarget", map[string]any{"sessionId": sid}, "")
 	}()
-	jarRaw, err := conn.call(ctx, "Network.getAllCookies", map[string]any{}, sid)
-	if err != nil {
-		return nil, fmt.Errorf("Network.getAllCookies: %w", err)
-	}
-	var jar struct {
-		Cookies []struct {
-			Name     string  `json:"name"`
-			Value    string  `json:"value"`
-			Domain   string  `json:"domain"`
-			Path     string  `json:"path"`
-			Expires  float64 `json:"expires"`
-			Secure   bool    `json:"secure"`
-			HTTPOnly bool    `json:"httpOnly"`
-		} `json:"cookies"`
-	}
-	if err := json.Unmarshal(jarRaw, &jar); err != nil {
-		return nil, fmt.Errorf("parsing cookie jar: %w", err)
-	}
-	var out []Cookie
-	for _, c := range jar.Cookies {
-		d := strings.ToLower(c.Domain)
-		if !strings.Contains(d, "intuit") && !strings.Contains(d, "quickbooks") {
-			continue
-		}
-		var exp time.Time
-		if c.Expires > 0 {
-			exp = time.Unix(int64(c.Expires), 0).UTC()
-		}
-		path := c.Path
-		if path == "" {
-			path = "/"
-		}
-		out = append(out, Cookie{
-			Name: c.Name, Value: c.Value, Domain: c.Domain,
-			Path: path, Expires: exp, Secure: c.Secure, HTTPOnly: c.HTTPOnly,
-		})
-	}
-	return out, nil
+	return getQBOCookies(ctx, conn, sid)
 }
 
 // ErrSessionStale reports a proof-of-death liveness check: the server

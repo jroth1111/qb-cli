@@ -133,7 +133,31 @@ func TestRuleEditMissingRuleErrors(t *testing.T) {
 
 func TestRuleDeletePostsID(t *testing.T) {
 	saveUsableURIHost(t)
-	srv, calls := ruleServer(t, `{}`)
+	deleted := false
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/getRules") {
+			if deleted {
+				_, _ = w.Write([]byte(`[]`))
+			} else {
+				_, _ = w.Write([]byte(`[{"id":4,"ruleName":"pilot"}]`))
+			}
+			return
+		}
+		if !strings.HasSuffix(r.URL.Path, "/batchDelete") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var raw []byte
+		var err error
+		if raw, err = io.ReadAll(r.Body); err != nil {
+			t.Fatal(err)
+		}
+		body = string(raw)
+		deleted = true
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
 	interceptHTTP(t, srv.URL)
 
 	res, err := ReplayRuleDelete(context.Background(), map[string]string{"id": "4"})
@@ -143,9 +167,55 @@ func TestRuleDeletePostsID(t *testing.T) {
 	if res.Op != "delete" {
 		t.Fatalf("result = %+v", res)
 	}
-	body := (*calls)["delete"][0]
-	if body["id"] != float64(4) || len(body) != 1 {
-		t.Fatalf("delete body = %#v", body)
+	if body != "4" {
+		t.Fatalf("delete body = %q, want space-joined ID", body)
+	}
+	if !deleted {
+		t.Fatal("mock target was not deleted")
+	}
+}
+
+func TestRuleDeleteRejectsHTTP200WithoutRemoval(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/getRules") {
+			_, _ = w.Write([]byte(`[{"id":4,"ruleName":"still-here"}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	interceptHTTP(t, srv.URL)
+	if result, err := ReplayRuleDelete(context.Background(), map[string]string{"id": "4"}); err == nil || result != nil || !strings.Contains(err.Error(), "inspect live state") {
+		t.Fatalf("false success: result=%v err=%v", result, err)
+	}
+}
+
+func TestRuleDeleteAcceptsEmpty200OnlyAfterReadback(t *testing.T) {
+	saveUsableURIHost(t)
+	deleted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/getRules") {
+			if deleted {
+				_, _ = w.Write([]byte(`[]`))
+			} else {
+				_, _ = w.Write([]byte(`[{"id":4,"ruleName":"pilot"}]`))
+			}
+			return
+		}
+		if !strings.HasSuffix(r.URL.Path, "/batchDelete") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		deleted = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	interceptHTTP(t, srv.URL)
+	result, err := ReplayRuleDelete(context.Background(), map[string]string{"id": "4"})
+	if err != nil || result == nil || !deleted {
+		t.Fatalf("result=%v err=%v deleted=%v", result, err, deleted)
 	}
 }
 

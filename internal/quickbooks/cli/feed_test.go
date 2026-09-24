@@ -234,8 +234,17 @@ func TestFeedLookupMissingCredentialsFails(t *testing.T) {
 }
 
 func TestFeedMutationMissingCredentialsFails(t *testing.T) {
-	elapsed, err := runFeedVerb(t, "txn", "update", "unpost")
+	// txn run tag stays a blocked stub: it checks the session before
+	// surfacing ErrMutationNotWired, so it still exercises the auth-exit
+	// path wired mutations leave to their own input guards.
+	elapsed, err := runFeedVerb(t, "txn", "run", "tag")
 	assertAuthExit(t, err, "")
+	assertFast(t, elapsed)
+}
+
+func TestFeedUnpostEmptyIDsFailsFast(t *testing.T) {
+	elapsed, err := runFeedVerb(t, "txn", "update", "unpost")
+	assertInputExit(t, err, "")
 	assertFast(t, elapsed)
 }
 
@@ -416,13 +425,32 @@ func TestFeedCategoriseDryRunPlan(t *testing.T) {
 	}
 }
 
-// TestFeedCategoriseClassRefusedFailsFast asserts a --class value is an
-// input error before any dial: the captured batchAcceptTransactions detail
-// has no class field, so the CLI must not invent a wire key for it.
-func TestFeedCategoriseClassRefusedFailsFast(t *testing.T) {
-	elapsed, err := runFeedVerb(t, "txn", "update", "categorise", "--ids", "3", "--category", "7", "--class", "800398")
-	assertInputExit(t, err, "")
-	assertFast(t, elapsed)
+func TestFeedCategoriseAnnotationDryRun(t *testing.T) {
+	t.Setenv("QB_HOME", t.TempDir())
+	root := NewRootCommand()
+	root.SetArgs([]string{"feed", "txn", "update", "categorise", "--ids", "3", "--category", "7", "--class", "800398", "--memo", "Fee [Card: Jacob]", "--dry-run", "--json"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"klassId", "800398", "txnMemo", "Fee [Card: Jacob]"} {
+		if !bytesContains(out.Bytes(), want) {
+			t.Fatalf("missing %q: %s", want, out.String())
+		}
+	}
+}
+
+func TestFeedCategoriseAnnotationParameterContract(t *testing.T) {
+	docs := paramsFor("QBO.FEED.TXN_CATEGORISE")
+	seen := map[string]string{}
+	for _, doc := range docs {
+		seen[doc.Name] = doc.Help
+	}
+	if seen["memo"] == "" || !bytesContains([]byte(seen["class"]), "none clears") {
+		t.Fatalf("missing annotation parameter contract: %v", seen)
+	}
 }
 
 func TestFeedMatchEmptyIDsFailsFast(t *testing.T) {

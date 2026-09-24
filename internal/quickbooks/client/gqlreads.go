@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,7 +35,7 @@ func replayIMSPref(ctx context.Context, _, query string, limit int) (*QueryResul
 // replayDimensionDefinitions runs GetCustomDimensionDefinitions on the v4
 // gateway — custom dimension definitions (empty set is a valid read).
 func replayDimensionDefinitions(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
-	vars := map[string]any{"firstCount": limit}
+	vars := map[string]any{"firstCount": limit, "filterCriteria": map[string]any{}}
 	return replayCatalogQuery(ctx, "GetCustomDimensionDefinitions", "", vars,
 		"DimensionDefinition", query, limit,
 		[]string{"data", "appFoundationsCustomDimensionDefinitions", "edges"})
@@ -44,12 +45,53 @@ func replayDimensionDefinitions(ctx context.Context, _, query string, limit int)
 // list behind the Tasks menu.
 func replayTasks(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
 	vars := map[string]any{
-		"first":  limit,
-		"after":  0,
-		"filter": map[string]any{},
+		"first": limit,
+		"after": 0,
+		"filter": map[string]any{"namespace": map[string]any{
+			"in": taskNamespaces(),
+		}},
 	}
 	return replayCatalogQuery(ctx, "TaskManagementTasks", "", vars,
 		"Task", query, limit, []string{"data", "taskManagementTasks", "edges"})
+}
+
+// taskNamespaces returns the captured QBO task-namespace filter set — the
+// 16 useCase values the Tasks page sends in TaskManagement_TaskFilter.
+func taskNamespaces() []any {
+	cases := []string{
+		"DTM_TASKS", "ADV_NTTF_SETUP_TASKS", "ADV_UPGRADER_SETUP_TASKS",
+		"BASIC_BUSINESS_INFO_TASK", "APP_ONBOARDING_TASK", "IES_SETUP_TASKS",
+		"BANKING_TASKS", "SPEND_TASKS", "BILL_PAY_TASKS", "CUSTOMER_HUB_TASKS",
+		"PAYMENTS_TASKS", "INVOICING_TASKS", "INDIRECT_TAX", "QBL_TASKS",
+		"QBL_FREE_SETUP_TASK", "MAILCHIMP_TASK",
+	}
+	out := make([]any, 0, len(cases))
+	for _, uc := range cases {
+		out = append(out, map[string]any{
+			"domain":  map[string]any{"equals": "QBO"},
+			"useCase": map[string]any{"equals": uc},
+		})
+	}
+	return out
+}
+
+// replayTaxJurisdictions lists indirect-tax jurisdictions (the nexus
+// surface). Proven live on TC2 — typed-empty edges (AU GST has no
+// jurisdiction rows; nexus is a US sales-tax concept).
+func replayTaxJurisdictions(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
+	return replayCatalogQuery(ctx, "TaxJurisdictions__indirect_tax_ui_qbo", "",
+		map[string]any{"DEFAULT_FIRST_COUNT": limit}, "TaxJurisdiction", query, limit,
+		[]string{"data", "company", "taxJurisdictions", "edges"})
+}
+
+// replayWarehouseLocations lists Commerce inventory locations on the
+// warehouse-management-svc host. Proven live on TC2 — typed-empty nodes
+// (no inventory-location records on this company).
+func replayWarehouseLocations(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
+	return replayCatalogQuery(ctx, "CommerceInventoryLocations", "",
+		map[string]any{"filter": map[string]any{}, "first": limit},
+		"InventoryLocation", query, limit,
+		[]string{"data", "commerceInventoryLocations", "nodes"})
 }
 
 // replayCatalogQuery posts the catalogued document for opName via doURIHost
@@ -134,7 +176,7 @@ func projectEdgeNodes(entity, note string, body []byte, edgePath []string, query
 		}
 		raw, _ := json.Marshal(nm)
 		it := projectJSONItems(entity, []json.RawMessage{raw}, itemKeys{
-			id:   []string{"id", "Id", "ID"},
+			id:   []string{"id", "Id", "ID", "forecastId", "globalId", "budgetId", "assetId"},
 			name: []string{"name", "Name", "label", "title", "displayName"},
 		})
 		if len(it) == 0 {
@@ -166,4 +208,71 @@ func projectEdgeNodes(entity, note string, body []byte, edgePath []string, query
 		Items:  items,
 		Note:   fmt.Sprintf("%s edges=%d%s", note, len(edges), errNote),
 	}
+}
+
+// reconciliationNodeID builds the Relay node id the banking-reconcile UI
+// uses: base64("v4.1:<realm>:<typeHash>") + ":<accountId>". The typeHash
+// cec4fce82f is the realm's Integration_Reconciliation type id — captured
+// live on TC2 2026-09-17 (same hash resolves every bank account's
+// reconciliation node on this realm).
+func reconciliationNodeID(realm, accountID string) string {
+	raw := "v4.1:" + realm + ":cec4fce82f"
+	enc := base64.RawURLEncoding.EncodeToString([]byte(raw))
+	return enc + ":" + accountID
+}
+
+const reconcileWrapperDoc = `query w($id: ID!) {
+  node(id: $id) {
+    id
+    __typename
+    ... on Integration_Reconciliation {
+      inProgress
+      statementEndingDate
+      lastReconcileSession { id }
+      adjustingEntryDefaultAccount { id }
+      account { id name }
+    }
+  }
+}`
+
+// ReplayReconciliation reads the Integration_Reconciliation node for a bank
+// account via qbo.intuit.com /api/v4/graphql — the live reconcile-session
+// state (inProgress, statement ending date, last session). Proven on TC2:
+// account 44 reports inProgress=true with a 2026-09-16 statement date.
+func ReplayReconciliation(ctx context.Context, accountID, query string, limit int) (*QueryResult, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("reconcile read requires --id <account-id> (see accounting coa search for bank account ids)")
+	}
+	ac, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	return apixGraphQL(ctx, ac, "Reconciliation", v4GraphQLURL,
+		"qbo.intuit.com", reconcileWrapperDoc,
+		map[string]any{"id": reconciliationNodeID(ac.realm, accountID)},
+		[]string{"data", "node"}, "reconciliation node "+accountID, query, limit)
+}
+
+// ReplayQBOnlineGraphql posts to the alternate qbonline-aws gateway captured
+// serving the banking-reconcile module. --op names a catalogued operation to
+// route there; omitted, it runs the proven company-probe document.
+func ReplayQBOnlineGraphql(ctx context.Context, op, query string, limit int) (*QueryResult, error) {
+	ac, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	doc := `query c { company { id __typename } }`
+	vars := map[string]any{}
+	note := "qbonline-aws company probe"
+	if op != "" {
+		cop, err := gql.Lookup(op)
+		if err != nil {
+			return nil, fmt.Errorf("qbonline-gateway op %q: %w", op, err)
+		}
+		doc = cop.Document
+		note = "qbonline-aws " + cop.Name
+	}
+	return apixGraphQL(ctx, ac, "QBOnlineGraphql", "https://qbonline-aws.api.intuit.com/v4/graphql",
+		qbonlineHeaderHost, doc, vars,
+		[]string{"data", "company"}, note, query, limit)
 }

@@ -93,7 +93,7 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 
 			"Globals: --json --home --timeout --relay-url --dry-run --yes --no-input --quiet --audit-dir\n" +
 			"Dates are dd/MM/yyyy (en-AU). Feed mutations take olbTxnIds, never :ofx display ids.\n" +
-			"Test mutations: account 209 only. Import refuses 204 and 93.",
+			"Select the company and account explicitly; numeric IDs are company-scoped. TC2 test account 44 is documented; 209 is inactive there. Import refuses 204 and 93.",
 		SilenceUsage: true,
 
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

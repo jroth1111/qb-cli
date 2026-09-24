@@ -439,6 +439,32 @@ func TestFetchFeedPageNon200ReplayError(t *testing.T) {
 
 // --- ReplayFeedComplete: full walk ------------------------------------------
 
+func TestReplayFeedLargeLimitUsesPages(t *testing.T) {
+	saveUsable(t)
+	fs := newFeedServer(t, "204", nil, func(start, size int) []rawTxn {
+		if start >= 650 {
+			return nil
+		}
+		n := min(size, 650-start)
+		return pageOf(n, func(i int) string { return "row-" + strconv.Itoa(start+i) })
+	})
+	interceptHTTP(t, fs.URL)
+
+	res, err := ReplayFeed(context.Background(), "204", "pending", 1200)
+	if err != nil {
+		t.Fatalf("ReplayFeed: %v", err)
+	}
+	if len(res.Transactions) != 650 || res.Counts["transactions"] != 650 {
+		t.Fatalf("paged result = %d, want 650", len(res.Transactions))
+	}
+	if _, calls := fs.stats(); calls != 3 {
+		t.Fatalf("getTransactions calls = %d, want 3", calls)
+	}
+	if res.Transactions[649].ID != "row-649" {
+		t.Fatalf("last id = %q, want row-649", res.Transactions[649].ID)
+	}
+}
+
 // TestReplayFeedCompleteWalkComplete asserts a short first page ends the walk
 // and that the result is marked complete when unique ids == numTxnToReview.
 // It rejects implementations that keep paging past a short page or that mark

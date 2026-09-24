@@ -1,6 +1,11 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
+	"github.com/spf13/cobra"
+)
 
 func newReportsCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -30,33 +35,36 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	class_salesEnt.AddCommand(newStubCmd(flags, "reports class-sales", "get", "class-sales read"))
 	cmd.AddCommand(class_salesEnt)
 	customEnt := &cobra.Command{Use: "custom", Short: "custom"}
-	customEnt.AddCommand(newStubCmd(flags, "reports custom", "create", "custom create (not wired)"))
-	customEnt.AddCommand(newStubCmd(flags, "reports custom", "get", "custom read (not wired)"))
+	customEnt.AddCommand(newCustomCreateCmd(flags))
+	customEnt.AddCommand(newStubCmd(flags, "reports custom", "get", "custom read (universalreportinsights /v1/folio CRB_GROUP)"))
 	cmd.AddCommand(customEnt)
 	department_salesEnt := &cobra.Command{Use: "department-sales", Short: "department-sales"}
 	department_salesEnt.AddCommand(newStubCmd(flags, "reports department-sales", "get", "department-sales read"))
 	cmd.AddCommand(department_salesEnt)
 	forecastEnt := &cobra.Command{Use: "forecast", Short: "forecast"}
-	forecastEnt.AddCommand(newStubCmd(flags, "reports forecast", "create", "forecast create (not wired)"))
-	forecastEnt.AddCommand(newStubCmd(flags, "reports forecast", "update", "forecast edit (not wired)"))
-	forecastEnt.AddCommand(newStubCmd(flags, "reports forecast", "get", "forecast read (not wired)"))
+	forecastEnt.AddCommand(newForecastCreateCmd(flags))
+	forecastEnt.AddCommand(newForecastUpdateCmd(flags))
+	forecastEnt.AddCommand(newForecastDeleteCmd(flags))
+	forecastEnt.AddCommand(newStubCmd(flags, "reports forecast", "get", "forecast read (planningforecasting getAllBusinessForecasts)"))
 	cmd.AddCommand(forecastEnt)
 	general_ledgerEnt := &cobra.Command{Use: "general-ledger", Short: "general-ledger"}
 	general_ledgerEnt.AddCommand(newStubCmd(flags, "reports general-ledger", "get", "general-ledger read"))
 	cmd.AddCommand(general_ledgerEnt)
 	managementEnt := &cobra.Command{Use: "management", Short: "management"}
-	managementEnt.AddCommand(newStubCmd(flags, "reports management", "create", "management create (not wired)"))
-	managementEnt.AddCommand(newStubCmd(flags, "reports management", "update", "management edit (not wired)"))
-	managementEnt.AddCommand(newStubCmd(flags, "reports management", "get", "management read (not wired)"))
+	managementEnt.AddCommand(newManagementCreateCmd(flags))
+	managementEnt.AddCommand(newManagementUpdateCmd(flags))
+	managementEnt.AddCommand(newStubCmd(flags, "reports management", "get", "management read (universalreportinsights /v1/folio)"))
 	cmd.AddCommand(managementEnt)
 	performanceEnt := &cobra.Command{Use: "performance", Short: "performance"}
-	performanceEnt.AddCommand(newStubCmd(flags, "reports performance", "create", "performance create (not wired)"))
-	performanceEnt.AddCommand(newStubCmd(flags, "reports performance", "delete", "performance delete (not wired)"))
-	performanceEnt.AddCommand(newStubCmd(flags, "reports performance", "update", "performance edit (not wired)"))
-	performanceEnt.AddCommand(newStubCmd(flags, "reports performance", "get", "performance read (not wired)"))
+	performanceEnt.AddCommand(newPerformanceCreateCmd(flags))
+	performanceEnt.AddCommand(newPerformanceDeleteCmd(flags))
+	performanceEnt.AddCommand(newPerformanceUpdateCmd(flags))
+	performanceEnt.AddCommand(newStubCmd(flags, "reports performance", "get", "performance read (universalreportinsights /v1/metrics)"))
 	cmd.AddCommand(performanceEnt)
 	reportEnt := &cobra.Command{Use: "report", Short: "report"}
-	reportEnt.AddCommand(newStubCmd(flags, "reports report", "create", "report create (not wired)"))
+	reportEnt.AddCommand(newSavedReportCmd(flags, "create"))
+	reportEnt.AddCommand(newSavedReportCmd(flags, "update"))
+	reportEnt.AddCommand(newSavedReportCmd(flags, "delete"))
 	reportEnt.AddCommand(newStubCmd(flags, "reports report", "get", "report read (not wired)"))
 	cmd.AddCommand(reportEnt)
 	balance_sheetEnt := &cobra.Command{Use: "balance-sheet", Short: "balance-sheet"}
@@ -107,5 +115,377 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	trial_balanceEnt := &cobra.Command{Use: "trial-balance", Short: "trial-balance"}
 	trial_balanceEnt.AddCommand(newStubCmd(flags, "reports trial-balance", "get", "trial-balance read"))
 	cmd.AddCommand(trial_balanceEnt)
+	return cmd
+}
+
+// newPerformanceCreateCmd implements `reports performance create`: POST one
+// METRIC panel onto the company's Performance dashboard
+// (dashboardframework.api.intuit.com/v1/dashboards/{id}/panels).
+func newPerformanceCreateCmd(flags *rootFlags) *cobra.Command {
+	var name, metric, view string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Add a Performance centre chart (dashboardframework POST panels)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports performance create", ID: "QBO.REPORTS.PERFORMANCE_CREATE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedDashboardsURL(),
+					Flags: localFlagMap(cmd), Note: "dashboard lookup + POST panel; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayPerformanceMutate(ctx, "create", "", name, metric, view)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "chart name (required)")
+	cmd.Flags().StringVar(&metric, "metric", "", "chart definition id (required, e.g. Revenue, Expenses, NetProfit)")
+	cmd.Flags().StringVar(&view, "view", "", "visualization (defaults to the definition's defaultView)")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("metric")
+	applyCatalogHelp(cmd, "QBO.REPORTS.PERFORMANCE_CREATE")
+	return cmd
+}
+
+// newPerformanceUpdateCmd implements `reports performance update`: PUT the
+// full panel object with a new name.
+func newPerformanceUpdateCmd(flags *rootFlags) *cobra.Command {
+	var id, name string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Rename a Performance centre chart (dashboardframework PUT panel)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports performance update", ID: "QBO.REPORTS.PERFORMANCE_EDIT",
+					Mode: modeWired, Method: "PUT",
+					URL:   client.PlannedDashboardsURL(),
+					Flags: localFlagMap(cmd), Note: "dashboard lookup + PUT panel; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayPerformanceMutate(ctx, "update", id, name, "", "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "panel id (required, e.g. sbg:...)")
+	cmd.Flags().StringVar(&name, "name", "", "new chart name (required)")
+	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("name")
+	applyCatalogHelp(cmd, "QBO.REPORTS.PERFORMANCE_EDIT")
+	return cmd
+}
+
+// newPerformanceDeleteCmd implements `reports performance delete`: DELETE the
+// panel (a soft-deactivate — the service returns the panel with active:false).
+func newPerformanceDeleteCmd(flags *rootFlags) *cobra.Command {
+	var id string
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Remove a Performance centre chart (dashboardframework DELETE panel)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports performance delete", ID: "QBO.REPORTS.PERFORMANCE_DELETE",
+					Mode: modeWired, Method: "DELETE",
+					URL:   client.PlannedDashboardsURL(),
+					Flags: localFlagMap(cmd), Note: "dashboard lookup + DELETE panel; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayPerformanceMutate(ctx, "delete", id, "", "", "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "panel id (required, e.g. sbg:...)")
+	_ = cmd.MarkFlagRequired("id")
+	applyCatalogHelp(cmd, "QBO.REPORTS.PERFORMANCE_DELETE")
+	return cmd
+}
+
+// newCustomCreateCmd implements `reports custom create`: POST a CRB_GROUP
+// folio — the object the Custom reports page lists — with one report page
+// referencing a report token (PANDL, BAL_SHEET, or an sbg: saved-report id).
+func newCustomCreateCmd(flags *rootFlags) *cobra.Command {
+	var name, report, title, dateMacro string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a custom report group (universalreportinsights POST folio)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports custom create", ID: "QBO.REPORTS.CUSTOM_CREATE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedFolioMutateURL(),
+					Flags: localFlagMap(cmd), Note: "POST CRB_GROUP folio; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayFolioMutate(ctx, "custom", "create", "", name, report, title, dateMacro, "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "report group name (required)")
+	cmd.Flags().StringVar(&report, "report", "PANDL", "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)")
+	cmd.Flags().StringVar(&title, "title", "", "page title (defaults to the report's display name)")
+	cmd.Flags().StringVar(&dateMacro, "date-macro", "thisyeartodate", "report date macro (e.g. thisyeartodate, thismonth, lastmonth)")
+	_ = cmd.MarkFlagRequired("name")
+	applyCatalogHelp(cmd, "QBO.REPORTS.CUSTOM_CREATE")
+	return cmd
+}
+
+// newManagementCreateCmd implements `reports management create`: POST a FOLIO
+// folio — cover page plus report pages — the object Management reports lists.
+func newManagementCreateCmd(flags *rootFlags) *cobra.Command {
+	var name, report, dateMacro, preparedBy string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a management report (universalreportinsights POST folio)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports management create", ID: "QBO.REPORTS.MANAGEMENT_CREATE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedFolioMutateURL(),
+					Flags: localFlagMap(cmd), Note: "POST FOLIO folio; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayFolioMutate(ctx, "management", "create", "", name, report, "", dateMacro, preparedBy)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "management report name (required)")
+	cmd.Flags().StringVar(&report, "report", "PANDL", "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)")
+	cmd.Flags().StringVar(&dateMacro, "date-macro", "thisyear", "report date macro (e.g. thisyear, thisyeartodate)")
+	cmd.Flags().StringVar(&preparedBy, "prepared-by", "", "cover-page 'prepared by' (defaults to the account email)")
+	_ = cmd.MarkFlagRequired("name")
+	applyCatalogHelp(cmd, "QBO.REPORTS.MANAGEMENT_CREATE")
+	return cmd
+}
+
+// newManagementUpdateCmd implements `reports management update`: PUT the full
+// folio object with a new name (the service 500s on partial bodies).
+func newManagementUpdateCmd(flags *rootFlags) *cobra.Command {
+	var id, name string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Rename a management report (universalreportinsights PUT folio)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports management update", ID: "QBO.REPORTS.MANAGEMENT_EDIT",
+					Mode: modeWired, Method: "PUT",
+					URL:   client.PlannedFolioMutateURL(),
+					Flags: localFlagMap(cmd), Note: "GET folio + PUT full object; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayFolioMutate(ctx, "management", "update", id, name, "", "", "", "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "folio id (required, e.g. sbg:...)")
+	cmd.Flags().StringVar(&name, "name", "", "new report name (required)")
+	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("name")
+	applyCatalogHelp(cmd, "QBO.REPORTS.MANAGEMENT_EDIT")
+	return cmd
+}
+
+// newForecastCreateCmd implements `reports forecast create`:
+// createBusinessForecast on planningforecasting.api.intuit.com. The service
+// validates incrementally and requires the full input — name, mode, type,
+// interval, dates, secondaryListType and forecastSetupData.
+func newForecastCreateCmd(flags *rootFlags) *cobra.Command {
+	var name, mode, ftype, interval, start, end, measure string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create an Advanced forecast (createBusinessForecast)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports forecast create", ID: "QBO.REPORTS.FORECAST_CREATE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedForecastURL(),
+					Flags: localFlagMap(cmd), Note: "POST graphql; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayForecastMutate(ctx, "create", "", name, mode, ftype, interval, start, end, measure)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "forecast name (required)")
+	cmd.Flags().StringVar(&start, "start", "", "forecast start date yyyy-mm-dd (required)")
+	cmd.Flags().StringVar(&end, "end", "", "forecast end date yyyy-mm-dd (required)")
+	cmd.Flags().StringVar(&mode, "mode", "MANUAL", "AUTO_SMART, SMART_INTEL, MANUAL_FROM_SMART or MANUAL")
+	cmd.Flags().StringVar(&ftype, "type", "PROFIT_AND_LOSS", "PROFIT_AND_LOSS, THREE_WAY or BALANCE_SHEET")
+	cmd.Flags().StringVar(&interval, "interval", "MONTHLY", "MONTHLY, QUARTERLY or ANNUALLY")
+	cmd.Flags().StringVar(&measure, "measure", "raw", "forecast baseline measure: raw, avg or smart")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("start")
+	_ = cmd.MarkFlagRequired("end")
+	applyCatalogHelp(cmd, "QBO.REPORTS.FORECAST_CREATE")
+	return cmd
+}
+
+// newForecastUpdateCmd implements `reports forecast update`: the service has
+// no sparse patch — the CLI fetches the forecast's current input, applies
+// the rename, and resends the complete object with its version.
+func newForecastUpdateCmd(flags *rootFlags) *cobra.Command {
+	var id, name string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Rename a forecast (updateBusinessForecast, full-object resend)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports forecast update", ID: "QBO.REPORTS.FORECAST_EDIT",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedForecastURL(),
+					Flags: localFlagMap(cmd), Note: "GET forecast + POST full input; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayForecastMutate(ctx, "update", id, name, "", "", "", "", "", "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "forecast id (required)")
+	cmd.Flags().StringVar(&name, "name", "", "new forecast name (required)")
+	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("name")
+	applyCatalogHelp(cmd, "QBO.REPORTS.FORECAST_EDIT")
+	return cmd
+}
+
+// newForecastDeleteCmd implements `reports forecast delete`:
+// deleteBusinessForecasts(forecastIds:[ID!]!) — hard delete, returns
+// per-id status+description.
+func newForecastDeleteCmd(flags *rootFlags) *cobra.Command {
+	var id string
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a forecast (deleteBusinessForecasts)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports forecast delete", ID: "QBO.REPORTS.FORECAST_DELETE",
+					Mode: modeWired, Method: "POST",
+					URL:   client.PlannedForecastURL(),
+					Flags: localFlagMap(cmd), Note: "POST graphql; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayForecastMutate(ctx, "delete", id, "", "", "", "", "", "", "")
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "forecast id (required)")
+	_ = cmd.MarkFlagRequired("id")
+	applyCatalogHelp(cmd, "QBO.REPORTS.FORECAST_DELETE")
+	return cmd
+}
+
+// newSavedReportCmd implements `reports report create|update|delete`:
+// saved custom reports (CRB_REPORT) on universalreportinsights
+// /v1/reports/qbo — the "Save as new report" contract captured from the
+// report builder and live-proven on TC2 2026-09-19.
+func newSavedReportCmd(flags *rootFlags, op string) *cobra.Command {
+	var id, name, clone, share string
+	verb := op
+	if op == "update" {
+		verb = "update"
+	}
+	catID := map[string]string{
+		"create": "QBO.REPORTS.REPORT_CREATE",
+		"update": "QBO.REPORTS.REPORT_EDIT",
+		"delete": "QBO.REPORTS.REPORT_DELETE",
+	}[op]
+	method := map[string]string{"create": "POST", "update": "PUT", "delete": "DELETE"}[op]
+	cmd := &cobra.Command{
+		Use:   verb,
+		Short: op + " a saved custom report (universalreportinsights /v1/reports/qbo)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports report " + verb, ID: catID,
+					Mode: modeWired, Method: method,
+					URL:   client.PlannedSavedReportURL(),
+					Flags: localFlagMap(cmd), Note: "saved report " + op + "; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplaySavedReportMutate(ctx, op, id, name, clone, share)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printMutateResult(cmd, flags, res)
+			return nil
+		},
+	}
+	if op == "create" {
+		cmd.Flags().StringVar(&name, "name", "", "name to save the custom report under (required)")
+		cmd.Flags().StringVar(&clone, "clone", "", "clone the dataRequest of an existing saved report (sbg:…)")
+		cmd.Flags().StringVar(&share, "share", "", "share scope after save: private or team")
+		_ = cmd.MarkFlagRequired("name")
+	} else {
+		cmd.Flags().StringVar(&id, "id", "", "saved report id sbg:… (required)")
+		_ = cmd.MarkFlagRequired("id")
+		if op == "update" {
+			cmd.Flags().StringVar(&name, "name", "", "new report name (required)")
+			_ = cmd.MarkFlagRequired("name")
+		}
+	}
+	applyCatalogHelp(cmd, catID)
 	return cmd
 }

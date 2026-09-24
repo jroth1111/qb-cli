@@ -39,19 +39,22 @@ type AccountsResult struct {
 
 // Transaction is the secret-free projection of a pending review txn.
 type Transaction struct {
-	ID          string  `json:"id"`
-	OLBTxnID    string  `json:"olbTxnId,omitempty"`
-	Date        string  `json:"date"`
-	Amount      float64 `json:"amount"`
-	Description string  `json:"description"`
-	AcceptType  string  `json:"acceptType"`
+	DisplayDescription string  `json:"displayDescription,omitempty"`
+	ReviewState        string  `json:"reviewState,omitempty"`
+	ID                 string  `json:"id"`
+	OLBTxnID           string  `json:"olbTxnId,omitempty"`
+	Date               string  `json:"date"`
+	Amount             float64 `json:"amount"`
+	Description        string  `json:"description"`
+	AcceptType         string  `json:"acceptType"`
 }
 
 // PendingResult is the JSON envelope returned by ReplayPending.
 type PendingResult struct {
-	Status       int            `json:"status"`
-	Counts       map[string]int `json:"counts"`
-	Transactions []Transaction  `json:"transactions"`
+	Lookup       *LookupCoverage `json:"lookup,omitempty"`
+	Status       int             `json:"status"`
+	Counts       map[string]int  `json:"counts"`
+	Transactions []Transaction   `json:"transactions"`
 
 	// Expected is the server-authoritative numTxnToReview from
 	// getInitialData for the requested account; -1 when unknown.
@@ -144,6 +147,12 @@ func ReplayFeed(ctx context.Context, accountID, reviewState string, limit int) (
 	if limit < 1 {
 		limit = 1
 	}
+	// The live endpoint caps a single response below large requested ranges and
+	// may return truncated JSON for oversized X-Range requests. Page large
+	// bounded reads instead of presenting a partial or undecodable response.
+	if limit > 999 {
+		return replayFeedPagedLimit(ctx, accountID, reviewState, limit)
+	}
 	res, err := replayFeedOnce(ctx, accountID, reviewState, limit)
 	if err == nil || !allowInactiveFallback(accountID) || !isInactiveAccount(err) {
 		return res, err
@@ -159,6 +168,41 @@ func ReplayFeed(ctx context.Context, accountID, reviewState string, limit int) (
 		Counts:       map[string]int{"transactions": 0},
 		Transactions: []Transaction{},
 	}, nil
+}
+
+func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, limit int) (*PendingResult, error) {
+	const pageSize = 300
+	const maxPages = 40
+	if limit > pageSize*maxPages {
+		return nil, fmt.Errorf("feed list limit %d exceeds paged ceiling %d", limit, pageSize*maxPages)
+	}
+	state := strings.ToUpper(strings.TrimSpace(reviewState))
+	if state == "" {
+		state = "PENDING"
+	}
+	ac, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Transaction, 0, limit)
+	seen := make(map[string]struct{})
+	for start := 0; start < limit; start += pageSize {
+		size := min(pageSize, limit-start)
+		page, err := fetchFeedPage(ctx, ac, accountID, state, start, size)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range page.Items {
+			if _, exists := seen[t.ID]; !exists {
+				seen[t.ID] = struct{}{}
+				out = append(out, projectTxn(t))
+			}
+		}
+		if len(page.Items) < size {
+			break
+		}
+	}
+	return &PendingResult{Status: http.StatusOK, Counts: map[string]int{"transactions": len(out)}, Transactions: out, AccountID: accountID}, nil
 }
 
 func replayFeedOnce(ctx context.Context, accountID, reviewState string, limit int) (*PendingResult, error) {
@@ -204,7 +248,8 @@ func ReplayPending(ctx context.Context, accountID, reviewState string, limit int
 
 // feedPage is one server response from the getTransactions walk.
 type feedPage struct {
-	Items []rawTxn `json:"items"`
+	Items                  []rawTxn `json:"items"`
+	TotalTransactionsCount *int     `json:"totalTransactionsCount"`
 }
 
 // ReplayFeedComplete walks getTransactions with startIndex/chunkSize +
@@ -376,8 +421,8 @@ func projectTxn(t rawTxn) Transaction {
 // before any network activity.
 var ErrEmptyQuery = errors.New("replay lookup: query must not be empty")
 
-// ReplayLookup fetches transactions across all review states (PENDING,
-// ACCEPTED, EXCLUDED) via ReplayFeed and filters to those whose id,
+// ReplayLookup walks all review states (PENDING, ACCEPTED, EXCLUDED)
+// to empty terminal pages and filters to those whose id,
 // olbTxnId, or description contains query (case-insensitive). Hyphens
 // and underscores fold to spaces so "QB-CLI-TEST" matches
 // "Qb Cli Test Do Not" (the title-case truncation QBO stores on import).
@@ -386,26 +431,7 @@ func ReplayLookup(ctx context.Context, accountID, query string, limit int) (*Pen
 	if strings.TrimSpace(query) == "" {
 		return nil, ErrEmptyQuery
 	}
-
-	states := []string{"PENDING", "ACCEPTED", "EXCLUDED"}
-	combined := make([]Transaction, 0)
-	for _, state := range states {
-		res, err := ReplayFeed(ctx, accountID, state, limit)
-		if err != nil {
-			return nil, err
-		}
-		for _, t := range res.Transactions {
-			if txnMatches(t, query) {
-				combined = append(combined, t)
-			}
-		}
-	}
-
-	return &PendingResult{
-		Status:       http.StatusOK,
-		Counts:       map[string]int{"transactions": len(combined)},
-		Transactions: combined,
-	}, nil
+	return replayLookupComplete(ctx, accountID, query, limit)
 }
 
 // txnMatches reports whether a projected transaction matches query.
@@ -415,7 +441,7 @@ func txnMatches(t Transaction, query string) bool {
 	if needle == "" {
 		return false
 	}
-	for _, field := range []string{t.ID, t.OLBTxnID, t.Description} {
+	for _, field := range []string{t.ID, t.OLBTxnID, t.Description, t.DisplayDescription} {
 		if strings.Contains(normalizeLookup(field), needle) {
 			return true
 		}
@@ -510,13 +536,14 @@ type pendingData struct {
 }
 
 type rawTxn struct {
-	ID              string   `json:"id"`
-	OlbTxnID        string   `json:"olbTxnId"`
-	OlbTxnDate      string   `json:"olbTxnDate"`
-	Amount          *float64 `json:"amount"`
-	Description     string   `json:"description"`
-	OrigDescription string   `json:"origDescription"`
-	AcceptType      string   `json:"acceptType"`
+	QBOAccountID    json.RawMessage `json:"qboAccountId"`
+	ID              string          `json:"id"`
+	OlbTxnID        string          `json:"olbTxnId"`
+	OlbTxnDate      string          `json:"olbTxnDate"`
+	Amount          *float64        `json:"amount"`
+	Description     string          `json:"description"`
+	OrigDescription string          `json:"origDescription"`
+	AcceptType      string          `json:"acceptType"`
 }
 
 // --- projection (secret-free output) -------------------------------------
@@ -579,7 +606,12 @@ func errorMessage(body []byte) string {
 	var probe struct {
 		Message string `json:"message"`
 		Error   string `json:"error"`
-		Fault   struct {
+		Errors  []struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+			Details string `json:"details"`
+		} `json:"errors"`
+		Fault struct {
 			Type  string `json:"type"`
 			Error []struct {
 				Message string `json:"Message"`
@@ -594,6 +626,22 @@ func errorMessage(body []byte) string {
 		}
 		if probe.Error != "" {
 			return probe.Error
+		}
+		if len(probe.Errors) > 0 {
+			e := probe.Errors[0]
+			msg := e.Message
+			if msg == "" {
+				msg = e.Details
+			}
+			if e.Code != "" && msg != "" {
+				return e.Code + ": " + msg
+			}
+			if msg != "" {
+				return msg
+			}
+			if e.Code != "" {
+				return e.Code
+			}
 		}
 		if len(probe.Fault.Error) > 0 {
 			e := probe.Fault.Error[0]

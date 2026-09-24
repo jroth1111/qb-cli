@@ -23,6 +23,7 @@ var gqlMutationFlagVerbs = []struct{ verb, op string }{
 	{"batch-update-products", "BatchUpdateProducts"},
 	{"assign-dimensions", "AssignDimensionsForProducts"},
 	{"cancel-reconcile", "CancelReconcile__integration_banking_reconcile_ui_qbo"},
+	{"start-reconcile", "StartReconcile__integration_banking_reconcile_ui_qbo"},
 	{"receive-inventory", "CommerceReceiveInventory"},
 	{"consume-inventory", "CommerceConsumeInventory"},
 	{"activate-products", "UpdateItemStatus"},

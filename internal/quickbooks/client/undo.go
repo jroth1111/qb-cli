@@ -34,3 +34,16 @@ func ReplayUndo(ctx context.Context, accountID string, olbTxnIDs []string) error
 	_, err = postPlanned(ctx, plan)
 	return err
 }
+
+// ReplayUnpost POSTs the same undoTransactions endpoint with nextTxnInfo
+// reviewState ACCEPTED — the live contract the Posted tab's Undo button
+// sends (verified TC2 2026-09-19). Moves ACCEPTED rows back to PENDING and
+// deletes the transaction the accept created. Empty id list is rejected.
+func ReplayUnpost(ctx context.Context, accountID string, olbTxnIDs []string) error {
+	plan, err := PlanUnpost(accountID, olbTxnIDs)
+	if err != nil {
+		return err
+	}
+	_, err = postPlanned(ctx, plan)
+	return err
+}

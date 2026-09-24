@@ -398,7 +398,7 @@ var auParamOverlay = map[string][]paramDoc{
 	"QBO.FEED.TXN_MATCH": {
 		{Name: "ids", Type: "strings", Required: true, Help: "pending feed transaction ids to match — olbTxnId only, never display :ofx ids"},
 		{Name: "match-id", Type: "strings", Required: true, Help: "existing QuickBooks record ids to match against (repeatable or comma-separated)"},
-		{Name: "txn-type", Type: "string", Required: false, Help: "QBO record type of the match targets (Bill, Expense, Deposit, Cheque)"},
+		{Name: "txn-type", Type: "string", Required: false, Help: "Advisory type hint, including Transfer; the live match candidate supplies the authoritative type"},
 		{Name: "account-id", Type: "string", Required: false, Help: "connected bank/credit-card account that owns the feed row"},
 	},
 	"QBO.FEED.TXN_SPLIT": {
@@ -421,8 +421,11 @@ var auParamOverlay = map[string][]paramDoc{
 		{Name: "account-id", Type: "string", Required: false, Help: "filter to one connected account"},
 	},
 	"QBO.FEED.REC_AUTO_ADJUST": {
-		{Name: "account-id", Type: "string", Required: true, Help: "account being reconciled"},
-		{Name: "amount", Type: "string", Required: true, Help: "adjustment amount to force balance"},
+		{Name: "account-id", Type: "string", Required: true, Help: "bank account id with an open reconcile session (required)"},
+		{Name: "date", Type: "string", Required: false, Help: "adjusting entry date yyyy-MM-dd (defaults to the statement ending date)"},
+		{Name: "adjust-account", Type: "string", Required: false, Help: "adjusting entry account — v3 account id or Relay node id (defaults to Reconciliation Discrepancies)"},
+		{Name: "exchange-rate", Type: "string", Required: false, Help: "adjusting entry exchange rate (defaults to 1, the home-currency rate)"},
+		{Name: "ending-date", Type: "string", Required: false, Help: "statement ending date yyyy-MM-dd (defaults to the open session's date)"},
 	},
 	"QBO.FEED.REC_REPORT": {
 		{Name: "account-id", Type: "string", Required: false, Help: "account to report on"},
@@ -899,7 +902,7 @@ var auNoteOverlay = map[string]string{
 	"QBO.COMPANY.CUSTOMERS_IMPORT":            "Import customers from Outlook, Gmail, Excel, or Google Sheets (CSV/XLS/XLSX); first row maps fields and is not imported. You cannot import a contact that already exists; rename duplicates before importing. L4OYJRFdj",
 	"QBO.COMPANY.ITEMS_IMPORT":                "Import products and services from Excel or CSV via Batch-import products & services; a sample file defines the importable fields. Overwrite cannot be undone after you select Import. L4OYJRFdj",
 	"QBO.COMPANY.SUPPLIERS_IMPORT":            "Import suppliers from Outlook, Gmail, Excel, or Google Sheets (CSV/XLS/XLSX); same field-mapping and first-row rules as customers. Duplicate supplier names are rejected; rename duplicates first. L4OYJRFdj",
-	"QBO.COMPANY.MARKETING_READ":              "Marketing integrations live under Customers & leads > Marketing; the Mailchimp integration syncs QuickBooks data to segment Mailchimp audiences. Mailchimp is a third-party service; QuickBooks support cannot assist with the Mailchimp account itself. L1UOG3NYz",
+	"QBO.COMPANY.MARKETING_READ":              "In-product marketing offers for the signed-in company — personalization.api /v1/experience/ipd/placement/{placement} (offerData). L1UOG3NYz",
 	"QBO.COMPANY.ROLE_CREATE":                 "Custom roles (define access per area: banking, sales, payroll, etc.) require QuickBooks Online Advanced. Custom roles are a QBO Advanced feature; not available on Simple Start/Essentials/Plus. L66POfRrI",
 	"QBO.COMPANY.ROLE_DELETE":                 "Custom firm roles can be deactivated (restorable) or deleted (permanent) in QuickBooks Online Accountant. Deleting a role removes it from all assigned team members. L4Gb8rBPt",
 	"QBO.COMPANY.ROLE_EDIT":                   "Edit custom firm roles in QuickBooks Online Accountant; assign team members to a role after creation. Deactivating a role can be restored; deleting a role is permanent. L4Gb8rBPt",
@@ -984,7 +987,7 @@ var auNoteOverlay = map[string]string{
 	"QBO.FEED.ACCOUNT_LINK":                   "Three AU feed types: Open Banking (CDR, 365-day consent, real-time), standard (web-scrape), and direct (SISS-processed, ~10 business days to activate). AU: legacy feeds are being disconnected on bank-specific cutoff dates; migrate to Open Banking before the deadline or imports stop. L4yDAHMNH",
 	"QBO.FEED.TXN_LOOKUP":                     "Searches transaction fields (amount, description, name, date, etc.); results may span all transaction types. L4hBemuUP",
 	"QBO.FEED.TXN_CATEGORISE":                 "Categorising assigns an income/expense (or other) account; the choice drives tax forms and reports. If QuickBooks shows a potential-match warning, pause: categorising may create a duplicate when the matching record has not arrived yet. L3u8U0wRA",
-	"QBO.FEED.TXN_MATCH":                      "Match pairs a downloaded row with an existing QuickBooks record of the same amount within 90 days before and 20 days after. Matching to the wrong record creates bookkeeping errors; unmatch returns the downloaded row to For Review. L6qyw0PvP",
+	"QBO.FEED.TXN_MATCH":                      "Match pairs a downloaded row with an existing QuickBooks record of the same amount within 90 days before and 30 days after. Matching to the wrong record creates bookkeeping errors; unmatch returns the downloaded row to For Review. L6qyw0PvP",
 	"QBO.FEED.TXN_SPLIT":                      "Use a split when one downloaded row must hit multiple accounts. L2uiuS0Ls",
 	"QBO.FEED.TXN_TRANSFER":                   "Posts a downloaded row as a transfer between bank and credit card accounts. Multi-currency transfers between bank and credit card accounts are not supported. L8ctRmlZz",
 	"QBO.FEED.ACCOUNT_LIST":                   "Lists connected bank/credit card accounts and their feed connection type: Open Banking, standard, or direct. AU: banks are phasing out legacy feeds for Open Banking; check the connection status page for disconnection dates. L4yDAHMNH",
