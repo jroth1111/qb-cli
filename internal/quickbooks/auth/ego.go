@@ -123,6 +123,9 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		if bytes.Contains(bytes.ToLower(out), []byte("user has taken control")) {
 			return nil, ErrEgoUserControl
 		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("ego-browser capture stopped before authentication could be verified: %w", ctx.Err())
+		}
 		return nil, fmt.Errorf("ego-browser capture failed: %w%s", err, trimOutput(out))
 	}
 	raw, err := os.ReadFile(outPath)

@@ -11,14 +11,15 @@ import (
 // unreconcile a transaction or retry the write through a different transport.
 var ErrReconciliationUnsafe = errors.New("reconciliation safety not established; no mutation submitted")
 
-// The register's UI-observed states 1 (cleared) and 2 (blank) are the only
-// non-reconciled states currently proven by our captured contract. Unknown,
-// absent, and other states fail closed. A date inside a statement period is
-// deliberately not used as a proxy for reconciliation membership.
-func requireUnreconciledRegister(row map[string]any) error {
+// A CLEARED feed link must agree with the independently read register's
+// UI-observed state 1 (cleared). State 2 (blank) is not reconciled, but it
+// contradicts that feed link and must not authorize deletion. Unknown,
+// absent, reconciled, and contradictory states fail closed. A date inside a
+// statement period is never used as a proxy for reconciliation membership.
+func requireClearedRegister(row map[string]any) error {
 	if row != nil {
 		switch jsonNumberString(row["clearState"]) {
-		case "1", "2":
+		case "1":
 			return nil
 		}
 	}
@@ -49,7 +50,7 @@ func preflightUnpostReconciliation(ctx context.Context, ac *apiClient, account s
 					continue
 				}
 				found = true
-				if jsonNumberString(entry["lineAccountId"]) != account || requireUnreconciledRegister(entry) != nil {
+				if jsonNumberString(entry["lineAccountId"]) != account || requireClearedRegister(entry) != nil {
 					return fmt.Errorf("%w: linked transaction %s register state", ErrReconciliationUnsafe, id)
 				}
 			}

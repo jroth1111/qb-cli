@@ -9,8 +9,7 @@
 // + cookie jar + CSRF), so it goes through newAPIClient().get. The response
 // shape is not fully captured; ReplayRegister projects the known fields
 // (id/txnId, date/txnDate, amount, description/memo/payee) and, when the
-// shape is unrecognised, returns a safe result with an empty transaction
-// list and a byte-count — never the raw body.
+// shape is unrecognised, fails rather than reporting a false empty register.
 package client
 
 import (
@@ -56,11 +55,9 @@ type RegisterResult struct {
 // (items=0-{limit-1}). It fails fast with a wrapped ErrNoCredentials when
 // no credentials are saved, before any network activity.
 //
-// The response shape is not fully known. When the body cannot be decoded
-// into a recognisable transaction list, ReplayRegister returns a
-// RegisterResult with the HTTP status, a "bytes" count (body length), and
-// an empty transaction slice — the raw body is never included in the
-// result or any error. No secrets are returned.
+// The response shape is not fully known. An unrecognisable or truncated body
+// is an error, never an empty-register result. The raw body is not included
+// in output or errors.
 func ReplayRegister(ctx context.Context, accountID string, limit int) (*RegisterResult, error) {
 	return ReplayRegisterPage(ctx, accountID, 0, limit)
 }
@@ -117,12 +114,7 @@ func replayRegisterOnce(ctx context.Context, accountID string, offset, limit int
 
 	txns, ok := extractRegisterTxns(body)
 	if !ok {
-		// Unknown shape: report the byte count without dumping the body.
-		return &RegisterResult{
-			Status:       resp.StatusCode,
-			Counts:       map[string]int{"bytes": len(body)},
-			Transactions: []RegisterTxn{},
-		}, nil
+		return nil, fmt.Errorf("register response is not a transaction list (%d bytes); use a smaller --limit and explicit --offset pagination", len(body))
 	}
 	return projectRegister(txns), nil
 }

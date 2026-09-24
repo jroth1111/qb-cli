@@ -27,7 +27,7 @@ func TestRegisterClearStateProjection(t *testing.T) {
 }
 
 func TestUnpostReconciliationRefusesBeforePOST(t *testing.T) {
-	for _, state := range []string{`0`, `3`, `null`, `"RECONCILED"`} {
+	for _, state := range []string{`0`, `2`, `3`, `null`, `"RECONCILED"`} {
 		t.Run(state, func(t *testing.T) {
 			saveUsable(t)
 			posts := 0

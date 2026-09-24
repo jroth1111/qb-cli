@@ -269,11 +269,8 @@ func TestExtractRegisterTxnsTransactionsEnvelope(t *testing.T) {
 }
 
 // TestExtractRegisterTxnsUnknownShape asserts extractRegisterTxns returns
-// false for an unrecognised body shape, so ReplayRegister reports a byte
-// count instead of dumping the raw body. This is the register negative
-// case: a regression that parsed an unknown shape into empty transactions
-// would silently swallow data, and one that included the raw body would
-// leak secrets.
+// false for an unrecognised body shape, so ReplayRegister refuses to report
+// a false empty register without leaking the raw body.
 func TestExtractRegisterTxnsUnknownShape(t *testing.T) {
 	body := []byte(`{"error":"throttled","requestId":"abc"}`)
 	txns, ok := extractRegisterTxns(body)

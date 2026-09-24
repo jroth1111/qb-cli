@@ -36,6 +36,21 @@ func TestCaptureATSFromEgoMissingBinary(t *testing.T) {
 	}
 }
 
+func TestCaptureATSFromEgoTimeoutReportsDeadlineNotSignal(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "ego-browser")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 10\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := CaptureATSFromEgo(ctx, "", "")
+	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "signal: killed") {
+		t.Fatalf("timeout presented as process failure: %v", err)
+	}
+}
+
 func TestCaptureATSFromEgoFakeBinary(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "ego-browser")

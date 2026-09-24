@@ -28,6 +28,19 @@ func TestRegisterPageUsesCapturedRangeAndKeepsLineIdentity(t *testing.T) {
 	}
 }
 
+func TestRegisterTruncatedOrUnknownBodyFailsClosed(t *testing.T) {
+	saveUsable(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"txnId":123}`))
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	res, err := ReplayRegisterPage(context.Background(), "204", 0, 10000)
+	if res != nil || err == nil || !strings.Contains(err.Error(), "smaller --limit") || strings.Contains(err.Error(), "txnId") {
+		t.Fatalf("truncated register accepted or leaked: result=%v error=%v", res, err)
+	}
+}
+
 func TestRegisterPreservesBookedReferences(t *testing.T) {
 	for _, body := range []string{
 		`[{"txnId":123,"accountId":7,"accountName":"Supplies","lineAccountId":204,"klassId":12,"klass":"Property","txnTypeId":54,"txnTypeString":"Expense","authorization":"secret"}]`,
