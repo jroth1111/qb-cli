@@ -37,6 +37,19 @@ func TestMaintainSessionReadOnlyAndTemporaryFailures(t *testing.T) {
 	}
 }
 
+func TestMaintainSessionStopsForEgoUserControl(t *testing.T) {
+	saveUsable(t)
+	expected, _ := auth.Load()
+	srv := newDomServer(t, 401, `{"error":"expired"}`)
+	interceptHTTP(t, srv.URL)
+	old := refreshQuiet
+	refreshQuiet = func(context.Context, *auth.TokenSet, bool) error { return auth.ErrEgoUserControl }
+	t.Cleanup(func() { refreshQuiet = old })
+	if ok, status, state := MaintainSession(context.Background(), expected, false); ok || status != 401 || state != "user_control" {
+		t.Fatalf("ok=%v status=%d state=%s", ok, status, state)
+	}
+}
+
 func TestRejectedWriteIsNotReplayedAfterRenewal(t *testing.T) {
 	saveUsable(t)
 	srv := newDomServer(t, 401, `{"error":"expired"}`)

@@ -132,6 +132,23 @@ func TestKeeperDoesNotFollowNewLoginAndStopsForReauthentication(t *testing.T) {
 	}
 }
 
+func TestKeeperStopsWhenUserTakesEgoControl(t *testing.T) {
+	tok := keeperTestSession(t)
+	if err := writeKeeperFile("keepalive-policy.json", keeperPolicy{true, tok.SessionID, 5 * time.Minute, false}); err != nil {
+		t.Fatal(err)
+	}
+	old := maintainSession
+	maintainSession = func(context.Context, *auth.TokenSet, bool) (bool, int, string) { return false, 401, "user_control" }
+	t.Cleanup(func() { maintainSession = old })
+	if err := runKeeper(context.Background(), tok.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	var s keeperStatus
+	if readKeeperFile("keepalive-status.json", &s) != nil || s.State != "user_control" || !s.NextCheck.IsZero() {
+		t.Fatalf("keeper failed to stop for user control: %+v", s)
+	}
+}
+
 func TestLoginKeepaliveDefaultsAndOptout(t *testing.T) {
 	flags := &rootFlags{}
 	cmd := buildLoginCmd("login", flags)

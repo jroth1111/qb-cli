@@ -51,6 +51,9 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 		if errors.Is(err, auth.ErrSessionChanged) {
 			return false, 0, "session_changed"
 		}
+		if errors.Is(err, auth.ErrEgoUserControl) {
+			return false, status, "user_control"
+		}
 		if errors.Is(err, auth.ErrRemintNeedsLogin) || errors.Is(err, auth.ErrNoATSAuthorization) || errors.Is(err, auth.ErrSessionIdentityUnverified) {
 			return false, status, "needs_login"
 		}

@@ -209,7 +209,9 @@ func runKeeper(ctx context.Context, id string) error {
 	defer unlock()
 	status := keeperStatus{SessionID: id, State: "starting", PID: os.Getpid(), Realm: expected.RealmID}
 	defer func() {
-		if status.State != "needs_login" {
+		switch status.State {
+		case "needs_login", "user_control", "session_changed", "credentials_unavailable":
+		default:
 			status.State = "stopped"
 		}
 		_ = writeKeeperFile("keepalive-status.json", status)
@@ -229,7 +231,7 @@ func runKeeper(ctx context.Context, id string) error {
 		status.LastCheck = time.Now().UTC()
 		status.HTTPStatus = httpStatus
 		status.State = state
-		if state == "needs_login" || state == "session_changed" || state == "credentials_unavailable" {
+		if state == "needs_login" || state == "user_control" || state == "session_changed" || state == "credentials_unavailable" {
 			status.NextCheck = time.Time{}
 			return nil
 		}
@@ -301,7 +303,7 @@ func newAuthKeepaliveCmd(flags *rootFlags) *cobra.Command {
 		var s keeperStatus
 		_ = readKeeperFile("keepalive-policy.json", &p)
 		_ = readKeeperFile("keepalive-status.json", &s)
-		running := p.Enabled && p.SessionID == s.SessionID && keeperStillWanted(p.SessionID) && s.State != "stopped" && s.State != "needs_login" && time.Now().Before(s.NextCheck.Add(time.Minute)) && keeperLeaseHeld()
+		running := p.Enabled && p.SessionID == s.SessionID && keeperStillWanted(p.SessionID) && s.State != "stopped" && s.State != "needs_login" && s.State != "user_control" && time.Now().Before(s.NextCheck.Add(time.Minute)) && keeperLeaseHeld()
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"enabled": p.Enabled, "running": running, "state": s.State, "realm": s.Realm, "pid": s.PID, "last_check": s.LastCheck, "next_check": s.NextCheck, "http_status": s.HTTPStatus})
 	}}
 	cmd.AddCommand(start, stop, status)

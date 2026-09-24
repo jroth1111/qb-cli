@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
-// RefreshQuiet never navigates an existing user tab or opens an interactive
-// login. First read cookies from a matching live tab, then try an already-
-// existing managed profile headlessly. MFA/sign-in still requires the user.
+// RefreshQuiet never opens an interactive login or follows another principal.
+// For a captured Ego source, a rejected server probe may reload only the
+// source-pinned existing banking tab; the user-control gate remains authoritative.
+// Other sources use matching relay cookies or an existing managed profile.
+// MFA/sign-in still requires the user.
 func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) error {
 	if IsHarness() {
 		return ErrRemintNeedsLogin
@@ -25,6 +27,19 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 	}
 	if current.CapturedAt.After(expected.CapturedAt) {
 		return nil
+	}
+	if current.EgoSpace != "" || current.Source == "ego-existing" {
+		space := current.EgoSpace
+		if space == "" {
+			space = "qb-gql" // legacy existing-Ego capture
+		}
+		ectx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		cap, err := captureExistingEgo(WithExistingEgo(ectx, space, current.EgoTargetID), BankingCaptureURL, BankingCaptureURL)
+		if err != nil {
+			return err
+		}
+		return SaveRenewedCapture(current, cap, "ego-existing")
 	}
 	rctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	relay := resolveRelayURL()
