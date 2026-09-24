@@ -51,7 +51,11 @@ const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKe
 const tabs = await task.tabs();
 const existing = tabs.find(t => isQBOApp(t.url));
 let page;
-if (existing) page = existing.label ? task.page(existing.label) : await task.adopt(existing.targetId);
+if (existing) {
+ if (existing.label) page = task.page(existing.label);
+ else if (existing.page && typeof existing.page.fetch === 'function') page = existing.page;
+ else page = await task.adopt(existing.page);
+}
 else {
  const blank = tabs.find(t => t.label && t.url === 'about:blank');
  page = blank ? task.page(blank.label) : await task.newPage();
