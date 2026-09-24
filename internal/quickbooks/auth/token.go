@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/url"
 	"strings"
 	"time"
 )
@@ -9,6 +10,8 @@ import (
 // Secrets live only in this file (mode 0600). Never print field values
 // that hold credentials.
 type TokenSet struct {
+	SessionID    string    `json:"session_id,omitempty"`
+	LastUsedAt   time.Time `json:"last_used_at,omitzero"`
 	Version      int       `json:"version"`
 	CapturedAt   time.Time `json:"captured_at"`
 	Source       string    `json:"source"` // relay-session | chrome-cookies | press-auth
@@ -46,6 +49,7 @@ type TokenSet struct {
 
 // Cookie is one captured browser cookie. Value is secret.
 type Cookie struct {
+	HostOnly bool      `json:"host_only,omitempty"`
 	Name     string    `json:"name"`
 	Value    string    `json:"value"`
 	Domain   string    `json:"domain"`
@@ -57,17 +61,19 @@ type Cookie struct {
 
 // Status is the secret-free view of a TokenSet for CLI output.
 type Status struct {
-	OK                  bool   `json:"ok"`
-	Source              string `json:"source"`
-	RealmID             string `json:"realm_id,omitempty"`
-	CompanyName         string `json:"company_name,omitempty"`
-	Email               string `json:"email,omitempty"`
-	CookieCount         int    `json:"cookie_count"`
-	HasAccessToken      bool   `json:"has_access_token"`
-	HasRefreshToken     bool   `json:"has_refresh_token"`
-	HasATSAuthorization bool   `json:"has_ats_authorization"`
-	HasRequestHeaders   bool   `json:"has_request_headers"`
-	RequestHeaderCount  int    `json:"request_header_count,omitempty"`
+	KeepAlive           string    `json:"keep_alive,omitempty"`
+	LastUsedAt          time.Time `json:"last_used_at,omitzero"`
+	OK                  bool      `json:"ok"`
+	Source              string    `json:"source"`
+	RealmID             string    `json:"realm_id,omitempty"`
+	CompanyName         string    `json:"company_name,omitempty"`
+	Email               string    `json:"email,omitempty"`
+	CookieCount         int       `json:"cookie_count"`
+	HasAccessToken      bool      `json:"has_access_token"`
+	HasRefreshToken     bool      `json:"has_refresh_token"`
+	HasATSAuthorization bool      `json:"has_ats_authorization"`
+	HasRequestHeaders   bool      `json:"has_request_headers"`
+	RequestHeaderCount  int       `json:"request_header_count,omitempty"`
 
 	AccessExpiry  time.Time `json:"access_expiry,omitzero"`
 	RefreshExpiry time.Time `json:"refresh_expiry,omitzero"`
@@ -86,10 +92,11 @@ const (
 
 // AuthenticatedURL reports whether u is a post-login QBO app URL.
 func AuthenticatedURL(u string) bool {
-	if u == "" {
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || !strings.EqualFold(parsed.Hostname(), "qbo.intuit.com") {
 		return false
 	}
-	return strings.Contains(u, "qbo.intuit.com/app/") &&
+	return strings.HasPrefix(parsed.Path, "/app/") &&
 		!strings.Contains(u, "sign-in") &&
 		!strings.Contains(u, "UNAUTHENTICATED")
 }

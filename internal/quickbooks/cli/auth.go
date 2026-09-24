@@ -23,6 +23,7 @@ func newAuthCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(newAuthStatusCmd(flags))
 	cmd.AddCommand(newAuthWhoamiCmd(flags))
 	cmd.AddCommand(newAuthLogoutCmd(flags))
+	cmd.AddCommand(newAuthKeepaliveCmd(flags))
 	return cmd
 }
 
@@ -138,6 +139,7 @@ persistent-profile Chromium, else ego Space.
 		"relay only: wait for an already-open QBO tab (no ego Space)")
 	cmd.Flags().StringVar(&lf.fromMitm, "from-mitm", "",
 		"optional mitmproxy dump instead of a live intercept")
+	cmd.Flags().Bool("keep-alive", true, "automatically maintain the captured session; --keep-alive=false disables startup")
 	return cmd
 }
 
@@ -219,6 +221,7 @@ func newAuthLogoutCmd(flags *rootFlags) *cobra.Command {
 			if err := auth.Delete(); err != nil {
 				return &ExitError{Code: ExitAuthError, Err: fmt.Errorf("deleting credentials: %w", err)}
 			}
+			_ = stopKeeper()
 			if flags.asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")

@@ -6,9 +6,27 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestEgoCaptureNeverRetakesUserControlledSpace(t *testing.T) {
+	dir, err := scriptDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, egoCaptureScript))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "claimTaskSpace(") {
+		t.Fatal("capture may silently retake a user-controlled space")
+	}
+	if !strings.Contains(string(body), "QB_KEEP_CAPTURE_SPACE") {
+		t.Fatal("login retention flag not consumed")
+	}
+}
 
 func TestCaptureATSFromEgoMissingBinary(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")

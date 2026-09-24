@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +49,15 @@ func CredPath() string {
 // (no cookies and no access/refresh token) with ErrEmptyTokenSet so a
 // failed capture can never overwrite a known-good session.
 func Save(t *TokenSet) error {
+	unlock, err := credentialLock(HomeDir())
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return saveAt(HomeDir(), t)
+}
+
+func saveAt(dir string, t *TokenSet) error {
 	if t == nil {
 		return ErrEmptyTokenSet
 	}
@@ -56,8 +67,13 @@ func Save(t *TokenSet) error {
 	if t.Version == 0 {
 		t.Version = CurrentVersion
 	}
-
-	dir := HomeDir()
+	if t.SessionID == "" {
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			return err
+		}
+		t.SessionID = hex.EncodeToString(id[:])
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating qb home %s: %w", dir, err)
 	}
@@ -67,7 +83,7 @@ func Save(t *TokenSet) error {
 		return fmt.Errorf("encoding credentials: %w", err)
 	}
 
-	final := CredPath()
+	final := filepath.Join(dir, credentialsFile)
 	tmp, err := os.CreateTemp(dir, ".credentials-*.json.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp credentials file: %w", err)
@@ -101,7 +117,11 @@ func Save(t *TokenSet) error {
 // Load reads and decodes the persisted TokenSet. A missing file yields
 // ErrNoCredentials; any other read or decode failure is wrapped.
 func Load() (*TokenSet, error) {
-	data, err := os.ReadFile(CredPath())
+	return loadAt(HomeDir())
+}
+
+func loadAt(home string) (*TokenSet, error) {
+	data, err := os.ReadFile(filepath.Join(home, credentialsFile))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrNoCredentials
@@ -118,6 +138,11 @@ func Load() (*TokenSet, error) {
 // Delete removes the persisted credentials file. A missing file is not an
 // error (logout is idempotent).
 func Delete() error {
+	unlock, err := credentialLock(HomeDir())
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if err := os.Remove(CredPath()); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil

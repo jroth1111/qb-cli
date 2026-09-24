@@ -14,6 +14,7 @@ Printed by the [Printing Press](https://printingpress.dev) (`cli-printing-press`
 go build -o qb ./cmd/qb
 ./qb login                 # sign in once (managed Chromium window)
 ./qb auth whoami           # Signed in live as <company> (<email>, realm <id>)
+./qb auth keepalive status --json
 ./qb company company-info get
 ```
 
@@ -22,8 +23,10 @@ go build -o qb ./cmd/qb
 ## Auth model
 
 - **Session rules.** No configured company, no allowlist: every command operates on whatever company you signed in as. Verify anytime with `qb auth whoami` (live tab) or `qb auth status --live` (v3 ping: `live` / `STALE` / `unknown`).
-- **Auto-renewal is the default.** Any 401 ladders relay → headless profile refresh → replays the failed call. A dead session costs one slow command, then just works. Nothing to configure; `QB_NO_MANAGED=1` opts out of the browser rung.
+- **Session maintenance is the default.** Login starts a profile-bound background keeper with read-only probes every five minutes. Rotated cookies are persisted; recovery stays in the same company/principal and respects logout. Safe reads can recover once after a 401; writes are not blindly repeated. `qb auth keepalive stop` stops maintenance; `login --keep-alive=false` or `QB_NO_KEEPALIVE=1` disables automatic startup. `QB_NO_MANAGED=1` disables managed-browser recovery. Intuit can still require sign-in/MFA.
 - Secrets live only in `~/.config/qb/credentials.json` (0600). `--json` output never includes them.
+
+See [session lifecycle and controls](docs/SESSION_LIFECYCLE.md) for recovery, backoff and provider limits.
 
 ## Coverage (548 primitives)
 

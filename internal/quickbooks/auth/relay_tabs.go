@@ -13,6 +13,9 @@ func resolveRelayURL() string {
 	if v := os.Getenv("QB_RELAY_URL"); v != "" {
 		return strings.TrimRight(v, "/")
 	}
+	if tok, err := Load(); err == nil && tok.RelayURL != "" {
+		return strings.TrimRight(tok.RelayURL, "/")
+	}
 	return DefaultRelayURL
 }
 

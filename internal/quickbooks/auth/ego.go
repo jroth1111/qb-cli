@@ -24,6 +24,9 @@ var ErrEgoMissing = errors.New("ego-browser not found on PATH: install ego lite 
 // Secrets are written only to a 0600 temp file that this function reads
 // and then deletes. stdout from ego is redacted JSON only.
 func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCapture, error) {
+	if IsHarness() {
+		return nil, ErrRemintNeedsLogin
+	}
 	if _, err := exec.LookPath("ego-browser"); err != nil {
 		return nil, ErrEgoMissing
 	}
@@ -69,6 +72,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		space = os.Getenv("QB_EGO_SPACE")
 	}
 	preamble := "process.env.QB_CAPTURE_OUT = " + strconv.Quote(outPath) + ";\n" +
+		"process.env.QB_KEEP_CAPTURE_SPACE = " + strconv.Quote(strconv.FormatBool(retainBrowser(ctx))) + ";\n" +
 		"process.env.QB_LOGIN_URL = " + strconv.Quote(loginURL) + ";\n" +
 		"process.env.QB_BANKING_URL = " + strconv.Quote(bankingURL) + ";\n" +
 		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
@@ -76,6 +80,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), script...))
 	cmd.Env = append(os.Environ(),
+		"QB_KEEP_CAPTURE_SPACE="+strconv.FormatBool(retainBrowser(ctx)),
 		"QB_CAPTURE_OUT="+outPath,
 		"QB_LOGIN_URL="+loginURL,
 		"QB_BANKING_URL="+bankingURL,

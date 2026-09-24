@@ -96,7 +96,7 @@ func TestApplyATSCaptureEmptyATSAuthorizationErrors(t *testing.T) {
 	}
 }
 
-// TestApplyAndSaveCapturePreservesAuditKey verifies that applyAndSaveCapture
+// TestApplyAndSaveCapturePreservesAuditKey verifies that saveCaptureForAuditTest
 // does not wipe an existing AuditAuthorization when the new capture lacks one.
 func TestApplyAndSaveCapturePreservesAuditKey(t *testing.T) {
 	setQBHome(t)
@@ -105,7 +105,8 @@ func TestApplyAndSaveCapturePreservesAuditKey(t *testing.T) {
 	const newBankingKey = "Intuit_APIKey intuit_apikey=banking2,intuit_apikey_version=1.0"
 
 	if err := Save(&TokenSet{
-		Version:            CurrentVersion,
+		Version: CurrentVersion,
+		RealmID: "1", Email: "person@example.test",
 		Authorization:      bankingKey,
 		AuditAuthorization: oldAuditKey,
 		Cookies:            []Cookie{{Name: "qbo.ticket", Value: "v", Domain: ".qbo.intuit.com", Path: "/"}},
@@ -113,7 +114,7 @@ func TestApplyAndSaveCapturePreservesAuditKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	// New capture has a fresh banking key but NO audit key.
-	if err := applyAndSaveCapture(&ATSCapture{
+	if err := saveCaptureForAuditTest(&ATSCapture{
 		Headers:            map[string]string{"Authorization": newBankingKey},
 		AuditAuthorization: "",
 	}, "relay-session"); err != nil {
@@ -140,14 +141,15 @@ func TestApplyAndSaveCaptureOverwritesAuditKey(t *testing.T) {
 	const newAuditKey = "Intuit_APIKey intuit_apikey=new-audit,intuit_apikey_version=1.0"
 
 	if err := Save(&TokenSet{
-		Version:            CurrentVersion,
+		Version: CurrentVersion,
+		RealmID: "1", Email: "person@example.test",
 		Authorization:      bankingKey,
 		AuditAuthorization: oldAuditKey,
 		Cookies:            []Cookie{{Name: "qbo.ticket", Value: "v", Domain: ".qbo.intuit.com", Path: "/"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyAndSaveCapture(&ATSCapture{
+	if err := saveCaptureForAuditTest(&ATSCapture{
 		Headers:            map[string]string{"Authorization": bankingKey},
 		AuditAuthorization: newAuditKey,
 	}, "relay-session"); err != nil {
@@ -198,4 +200,13 @@ func containsStr(haystack, needle string) bool {
 		}
 	}
 	return false
+}
+
+func saveCaptureForAuditTest(cap *ATSCapture, source string) error {
+	expected, err := Load()
+	if err != nil {
+		return err
+	}
+	cap.Identity = Identity{Realm: expected.RealmID, Email: expected.Email}
+	return SaveRenewedCapture(expected, cap, source)
 }

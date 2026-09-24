@@ -165,11 +165,17 @@ func pingV3URL(ctx context.Context, t *TokenSet, authz, base string) error {
 		req.Header.Set("User-Agent", ua)
 	}
 	req.Header.Set("Accept", "application/json")
+	BindRequest(req, t, "")
+	req, err = PrepareSessionRequest(req)
+	if err != nil {
+		return err
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("v3 ping: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	_ = ObserveSessionResponse(req, resp)
 	switch resp.StatusCode {
 	case http.StatusOK:
 		return nil

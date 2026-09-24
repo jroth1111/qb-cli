@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/enetx/http/httptrace"
 	"github.com/enetx/surf"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
 
 // impersonatedTransport is an offline test seam; production leaves it nil.
@@ -105,13 +108,30 @@ var browserHTTPClient = sync.OnceValues(func() (*http.Client, error) {
 // Keep the complete request intact: verb, body, headers, context and redirects.
 // Reuse the client so paginated requests can reuse connections. There is no
 // plain-TLS fallback, including for downloads, uploads and error responses.
-func impersonatedDo(req *http.Request) (*http.Response, error) {
-	if impersonatedTransport != nil {
-		return (&http.Client{Transport: impersonatedTransport, Timeout: httpTimeout}).Do(req)
-	}
-	client, err := browserHTTPClient()
+func sessionDo(req *http.Request, dial func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+	var err error
+	req, err = auth.PrepareSessionRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	return client.Do(req)
+	resp, err := dial(req)
+	if err == nil {
+		if perr := auth.ObserveSessionResponse(req, resp); perr != nil && !errors.Is(perr, auth.ErrSessionChanged) {
+			log.Print("qb: could not persist session rotation; request outcome is unchanged")
+		}
+	}
+	return resp, err
+}
+
+func impersonatedDo(req *http.Request) (*http.Response, error) {
+	return sessionDo(req, func(req *http.Request) (*http.Response, error) {
+		if impersonatedTransport != nil {
+			return (&http.Client{Transport: impersonatedTransport, Timeout: httpTimeout}).Do(req)
+		}
+		client, err := browserHTTPClient()
+		if err != nil {
+			return nil, err
+		}
+		return client.Do(req)
+	})
 }

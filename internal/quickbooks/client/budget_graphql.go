@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"net/http"
 	"strings"
 	"time"
@@ -163,6 +164,7 @@ func (c *apiClient) postBudgetGraphQL(ctx context.Context, body []byte) (*http.R
 	if c.cookies != "" {
 		req.Header.Set("Cookie", c.cookies)
 	}
+	auth.BindRequest(req, c.tok, "budgeting.api.intuit.com")
 	return impersonatedDo(req)
 }
 

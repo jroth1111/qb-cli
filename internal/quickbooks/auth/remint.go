@@ -14,6 +14,10 @@ import (
 // refresh); only a 401 pays it, and success heals silently.
 const RemintTimeout = 12 * time.Second
 
+func IsHarness() bool {
+	return os.Getenv("PRINTING_PRESS_VERIFY") == "1" || os.Getenv("PRINTING_PRESS_DOGFOOD") == "1"
+}
+
 // AuditCaptureTimeout bounds the best-effort audit-ui key capture that runs
 // after a successful ATS banking capture. It is shorter than RemintTimeout so
 // the audit pass can never block a `qb feed` remint past its own deadline.
@@ -38,10 +42,29 @@ func TryRelayRemint(ctx context.Context) error {
 //  3. ego Space, only when the context deadline is longer than
 //     RemintTimeout (explicit remint / login).
 func RemintATS(ctx context.Context) error {
+	if IsHarness() {
+		return fmt.Errorf("%w: browser renewal disabled under verification harness", ErrRemintNeedsLogin)
+	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, managedRemintCeiling)
 		defer cancel()
+	}
+	expected, err := Load()
+	if err != nil {
+		return err
+	}
+	unlock, err := LockProfile(ctx, HomeDir(), "renewal")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	current, err := Load()
+	if err != nil || !SameSession(expected, current) {
+		return ErrSessionChanged
+	}
+	if current.CapturedAt.After(expected.CapturedAt) {
+		return nil
 	}
 
 	relayErr := remintFromRelay(ctx, resolveRelayURL())
@@ -55,8 +78,6 @@ func RemintATS(ctx context.Context) error {
 	if allowManagedRemint(ctx) {
 		if err := RemintManaged(ctx); err == nil {
 			return nil
-		} else {
-			return fmt.Errorf("remint: relay: %v; managed: %w", relayErr, err)
 		}
 	}
 
@@ -95,6 +116,10 @@ func allowEgoRemint(ctx context.Context) bool {
 }
 
 func remintFromRelay(ctx context.Context, relayURL string) error {
+	expected, err := Load()
+	if err != nil {
+		return err
+	}
 	tabs, err := listRelayPages(ctx, relayURL)
 	if err != nil {
 		return fmt.Errorf("relay list: %w", err)
@@ -116,7 +141,7 @@ func remintFromRelay(ctx context.Context, relayURL string) error {
 	if cap.AuditAuthorization == "" {
 		cap.AuditAuthorization = captureAuditBestEffort(relayURL, tab.ID)
 	}
-	return applyAndSaveCapture(cap, "relay-session")
+	return SaveRenewedCapture(expected, cap, "relay-session")
 }
 
 // captureAuditBestEffort navigates the audit log UI and returns its
@@ -135,28 +160,13 @@ func captureAuditBestEffort(relayURL, tabID string) string {
 }
 
 func remintFromEgo(ctx context.Context) error {
+	expected, err := Load()
+	if err != nil {
+		return err
+	}
 	cap, err := CaptureATSFromEgo(ctx, DefaultLoginURL, BankingCaptureURL)
 	if err != nil {
 		return err
 	}
-	return applyAndSaveCapture(cap, "ego-space")
-}
-
-func applyAndSaveCapture(cap *ATSCapture, source string) error {
-	tok, err := Load()
-	if err != nil {
-		if !errors.Is(err, ErrNoCredentials) {
-			return fmt.Errorf("remint load: %w", err)
-		}
-		tok = &TokenSet{Version: CurrentVersion}
-	}
-	tok.CapturedAt = time.Now().UTC()
-	tok.Source = source
-	if err := tok.ApplyATSCapture(cap); err != nil {
-		return err
-	}
-	if err := Save(tok); err != nil {
-		return fmt.Errorf("remint save: %w", err)
-	}
-	return nil
+	return SaveRenewedCapture(expected, cap, "ego-space")
 }

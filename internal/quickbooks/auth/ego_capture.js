@@ -12,8 +12,8 @@ const spaceKey = process.env.QB_EGO_SPACE || "qb-login";
 // An operator-designated Space (QB_EGO_SPACE/QB_EGO_SPACE_ID set) is a shared
 // resource — e.g. an authenticated exec Space serving remint. Keep it alive
 // on success; only the self-created default is completed after capture.
-const keepSpaceOnSuccess = process.env.QB_EGO_SPACE !== undefined &&
-  process.env.QB_EGO_SPACE !== "";
+const keepSpaceOnSuccess = process.env.QB_KEEP_CAPTURE_SPACE === "true" ||
+  (process.env.QB_EGO_SPACE !== undefined && process.env.QB_EGO_SPACE !== "");
 
 function fail(msg, code) {
   cliLog(JSON.stringify({ ok: false, error: msg }));
@@ -22,7 +22,10 @@ function fail(msg, code) {
 
 function isAuthURL(url) {
   if (!url) return false;
-  return url.includes("qbo.intuit.com/app/") &&
+  let parsed;
+  try { parsed = new URL(url); } catch (_) { return false; }
+  return parsed.protocol === "https:" && parsed.hostname === "qbo.intuit.com" &&
+    !parsed.username && !parsed.password && parsed.pathname.startsWith("/app/") &&
     !url.includes("sign-in") &&
     !url.includes("UNAUTHENTICATED");
 }
@@ -74,11 +77,8 @@ async function main() {
 
   let task;
   if (/^\d+$/.test(spaceKey)) {
-    try {
-      task = await h.switchTaskSpace(Number(spaceKey));
-    } catch (e) {
-      task = await h.claimTaskSpace(Number(spaceKey));
-    }
+    // User-control/ownership failures are a stop, never permission to retake it.
+    task = await h.switchTaskSpace(Number(spaceKey));
   } else {
     task = await h.useOrCreateTaskSpace(spaceKey);
   }

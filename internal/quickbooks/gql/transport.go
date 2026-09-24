@@ -74,10 +74,29 @@ func (r *Response) Data(v any) error {
 // (The OMP-relay CDP path was retired: CONTRACT.md forbids Target.* CDP and
 // the relay is gone; ego helpers are the sanctioned browser channel.)
 func Execute(ctx context.Context, req Request) (*Response, error) {
-	// No company gate: the session realm rules. Credential validation
-	// happens in the ego execution path.
+	expected, _ := auth.Load()
+	if expected != nil && expected.SessionID == "" {
+		expected, _ = auth.EnsureSession()
+	}
+	resp, err := executeEgoFn(ctx, req)
+	// Browser cookies stay browser-owned. Only an explicitly read-only query
+	// may be repeated after a definite 401; never replay a mutation/unknown op.
+	if err != nil || resp == nil || resp.Status != 401 || req.Op == nil || req.Op.Kind != "query" || expected == nil {
+		return resp, err
+	}
+	rctx, cancel := context.WithTimeout(ctx, 100*time.Second)
+	defer cancel()
+	if err = remintGQL(rctx); err != nil {
+		return nil, err
+	}
+	current, err := auth.Load()
+	if err != nil || !auth.SameSession(expected, current) {
+		return nil, auth.ErrSessionChanged
+	}
 	return executeEgoFn(ctx, req)
 }
+
+var remintGQL = auth.RemintATS
 
 // executeEgoFn runs the ego-browser execution. Tests replace it so Execute
 // is exercised without a browser.

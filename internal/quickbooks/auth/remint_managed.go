@@ -22,6 +22,9 @@ const managedRemintCeiling = 100 * time.Second
 // who isn't there. Merge rules mirror the relay refresh: a freshly
 // intercepted ATS key wins, otherwise fresh cookies join the stored key.
 func RemintManaged(ctx context.Context) error {
+	if IsHarness() {
+		return ErrRemintNeedsLogin
+	}
 	if os.Getenv(managedDisableEnv) == "1" {
 		return fmt.Errorf("managed refresh disabled via %s", managedDisableEnv)
 	}
@@ -30,27 +33,15 @@ func RemintManaged(ctx context.Context) error {
 		ctx, cancel = context.WithTimeout(ctx, managedRemintCeiling)
 		defer cancel()
 	}
+	expected, err := Load()
+	if err != nil {
+		return err
+	}
 	cap, err := captureManagedHeadless(ctx, BankingCaptureURL)
 	if err != nil {
 		return err
 	}
-	tok, err := Load()
-	if err != nil {
-		return fmt.Errorf("managed refresh: %w", err)
-	}
-	if cap.HasKey() {
-		tok.ApplyATSHeaders(cap.Headers)
-	}
-	tok.MergeCookies(cap.Cookies)
-	tok.ApplyIdentity(cap.Identity)
-	tok.CapturedAt = time.Now().UTC()
-	if !tok.HasUsableCredential() {
-		return ErrNoATSAuthorization
-	}
-	if err := Save(tok); err != nil {
-		return fmt.Errorf("managed refresh save: %w", err)
-	}
-	return nil
+	return SaveRenewedCapture(expected, cap, "managed-profile")
 }
 
 // HasKey reports whether the capture holds a live ATS Authorization.

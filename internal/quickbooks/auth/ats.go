@@ -89,24 +89,24 @@ func (t *TokenSet) ApplyATSHeaders(headers map[string]string) {
 	}
 }
 
-// MergeCookies unions extra into t.Cookies by name (extra wins).
+// MergeCookies unions extra by cookie identity (name/domain/path).
 func (t *TokenSet) MergeCookies(extra []Cookie) {
 	if t == nil || len(extra) == 0 {
 		return
 	}
 	byName := make(map[string]int, len(t.Cookies))
 	for i, c := range t.Cookies {
-		byName[c.Name] = i
+		byName[cookieKey(c)] = i
 	}
 	for _, c := range extra {
 		if c.Name == "" {
 			continue
 		}
-		if i, ok := byName[c.Name]; ok {
+		if i, ok := byName[cookieKey(c)]; ok {
 			t.Cookies[i] = c
 			continue
 		}
-		byName[c.Name] = len(t.Cookies)
+		byName[cookieKey(c)] = len(t.Cookies)
 		t.Cookies = append(t.Cookies, c)
 	}
 }

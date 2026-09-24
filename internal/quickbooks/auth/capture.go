@@ -271,6 +271,7 @@ func getQBOCookies(ctx context.Context, conn *cdpConn, sid string) ([]Cookie, er
 			Name:     c.Name,
 			Value:    c.Value,
 			Domain:   c.Domain,
+			HostOnly: !strings.HasPrefix(c.Domain, "."),
 			Path:     c.Path,
 			Expires:  unixExpiry(c.Expires),
 			Secure:   c.Secure,

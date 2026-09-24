@@ -8,7 +8,23 @@
 // and never reaches the network.
 package client
 
-import "errors"
+import (
+	"errors"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
+)
+
+var ErrWriteNotReplayed = errors.New("QBO rejected the write with 401; session renewed but write was not replayed; inspect current state before retrying")
+
+func (c *apiClient) reloadedSession() (*apiClient, error) {
+	next, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	if !auth.SameSession(c.tok, next.tok) {
+		return nil, auth.ErrSessionChanged
+	}
+	return next, nil
+}
 
 // ErrMutationNotWired is returned by mutation command stubs. The mutation
 // commands exist in the CLI tree so the command catalog is complete, but no

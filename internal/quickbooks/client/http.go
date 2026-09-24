@@ -59,6 +59,12 @@ func newAPIClient() (*apiClient, error) {
 	if !tok.HasUsableCredential() {
 		return nil, fmt.Errorf("%w: saved session has no ATS Intuit_APIKey", ErrNoCredentials)
 	}
+	if tok.SessionID == "" && !auth.IsHarness() {
+		tok, err = auth.EnsureSession()
+		if err != nil {
+			return nil, err
+		}
+	}
 	c := &apiClient{
 		tok:     tok,
 		realm:   tok.RealmID,
@@ -89,6 +95,7 @@ func (c *apiClient) neoFeedURL() string {
 // Cookie is always taken from the full persisted jar. x-range from the
 // caller overlays the captured pagination header.
 func (c *apiClient) applyHeaders(req *http.Request, xRange string) {
+	auth.BindRequest(req, c.tok, "")
 	if len(c.tok.RequestHeaders) > 0 {
 		for k, v := range c.tok.RequestHeaders {
 			if v == "" || skipReplayHeader(k) {
@@ -181,7 +188,7 @@ func (c *apiClient) get(ctx context.Context, url, xRange string) (*http.Response
 		if rerr != nil {
 			return nil, fmt.Errorf("ATS 401: %w", rerr)
 		}
-		next, nerr := newAPIClient()
+		next, nerr := c.reloadedSession()
 
 		if nerr != nil {
 			return nil, fmt.Errorf("ATS 401 remint reload: %w", nerr)
@@ -206,7 +213,7 @@ func (c *apiClient) getJSON(ctx context.Context, url, xRange string) (*http.Resp
 		if rerr != nil {
 			return nil, fmt.Errorf("ATS 401: %w", rerr)
 		}
-		next, nerr := newAPIClient()
+		next, nerr := c.reloadedSession()
 		if nerr != nil {
 			return nil, fmt.Errorf("ATS 401 remint reload: %w", nerr)
 		}
@@ -255,12 +262,12 @@ func (c *apiClient) postJSONExtra(ctx context.Context, rawURL string, body []byt
 		if rerr != nil {
 			return nil, fmt.Errorf("ATS 401: %w", rerr)
 		}
-		next, nerr := newAPIClient()
+		next, nerr := c.reloadedSession()
 		if nerr != nil {
 			return nil, fmt.Errorf("ATS 401 remint reload: %w", nerr)
 		}
 		next.skipRemint = true
-		return next.postJSONExtra(ctx, rawURL, body, extra)
+		return nil, ErrWriteNotReplayed
 	}
 	return resp, nil
 }
@@ -320,12 +327,12 @@ func (c *apiClient) post(ctx context.Context, url string, body []byte) (*http.Re
 		if rerr != nil {
 			return nil, fmt.Errorf("ATS 401: %w", rerr)
 		}
-		next, nerr := newAPIClient()
+		next, nerr := c.reloadedSession()
 		if nerr != nil {
 			return nil, fmt.Errorf("ATS 401 remint reload: %w", nerr)
 		}
 		next.skipRemint = true
-		return next.post(ctx, url, body)
+		return nil, ErrWriteNotReplayed
 	}
 	return resp, nil
 }

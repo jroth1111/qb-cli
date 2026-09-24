@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +20,25 @@ import (
 var uriHostTransport func(req *http.Request) (*http.Response, error)
 
 func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, body []byte, overrides ...map[string]string) (*http.Response, error) {
+	resp, err := c.doURIHostOnce(ctx, method, rawURL, host, body, overrides...)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || c.skipRemint || method != http.MethodGet {
+		return resp, err
+	}
+	_ = drainAndClose(resp)
+	rctx, cancel := context.WithTimeout(ctx, remintTimeout)
+	defer cancel()
+	if err = remint(rctx); err != nil {
+		return nil, err
+	}
+	next, err := c.reloadedSession()
+	if err != nil {
+		return nil, err
+	}
+	next.skipRemint = true
+	return next.doURIHostOnce(ctx, method, rawURL, host, body, overrides...)
+}
+
+func (c *apiClient) doURIHostOnce(ctx context.Context, method, rawURL, host string, body []byte, overrides ...map[string]string) (*http.Response, error) {
 	if err := validateIntuitDestination(rawURL); err != nil {
 		return nil, err
 	}
@@ -95,8 +115,9 @@ func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, 
 	if c.cookies != "" {
 		req.Header.Set("Cookie", c.cookies)
 	}
+	auth.BindRequest(req, c.tok, host)
 	if uriHostTransport != nil {
-		return uriHostTransport(req)
+		return sessionDo(req, uriHostTransport)
 	}
 	return impersonatedDo(req)
 }

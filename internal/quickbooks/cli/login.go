@@ -76,6 +76,7 @@ Cookie-only sessions are rejected. --json never prints secrets.`,
 		"relay only: wait for an already-open QBO tab (no ego Space)")
 	cmd.Flags().StringVar(&lf.fromMitm, "from-mitm", "",
 		"import credentials from a mitmproxy dump file (no Chrome/relay)")
+	cmd.Flags().Bool("keep-alive", true, "automatically maintain the captured session; --keep-alive=false disables startup")
 	return cmd
 }
 
@@ -83,6 +84,9 @@ Cookie-only sessions are rejected. --json never prints secrets.`,
 var tryRelayRemint = auth.TryRelayRemint
 
 func runLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error {
+	if auth.IsHarness() {
+		return &ExitError{Code: ExitAuthError, Err: fmt.Errorf("session capture disabled under verification harness")}
+	}
 	if lf.fromMitm != "" {
 		return runLoginFromMitm(cmd, flags, lf)
 	}
@@ -95,6 +99,8 @@ func runLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error {
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
+	keep, _ := cmd.Flags().GetBool("keep-alive")
+	ctx = auth.WithRetainedBrowser(ctx, keep && os.Getenv("QB_NO_KEEPALIVE") != "1")
 	if err := tryRelayRemint(ctx); err == nil {
 		tok, lerr := auth.Load()
 		if lerr != nil {
@@ -208,7 +214,7 @@ var captureATSEgo = auth.CaptureATSFromEgo
 // Explicit login builds a fresh TokenSet, so accumulated state the capture
 // did not observe this pass — harvested per-host header maps and the
 // audit-ui key — is carried forward from the existing credential file
-// (the remint path already does this via applyAndSaveCapture's Load first).
+// (automatic renewal separately merges a complete capture into its pinned login).
 func persistLogin(cmd *cobra.Command, flags *rootFlags, tok *auth.TokenSet) error {
 	stderr := cmd.ErrOrStderr()
 	stdout := cmd.OutOrStdout()
@@ -225,11 +231,15 @@ func persistLogin(cmd *cobra.Command, flags *rootFlags, tok *auth.TokenSet) erro
 			tok.AuditAuthorization = prev.AuditAuthorization
 		}
 	}
+	// An explicit login/remint replaces the profile epoch, even if the fast
+	// path reused the same company's browser capture. Old keepers must stop.
+	tok.SessionID = ""
 	if err := auth.Save(tok); err != nil {
 		fmt.Fprintf(stderr, "qb: saving credentials failed: %v\n", err)
 		return &ExitError{Code: ExitAuthError, Err: fmt.Errorf("saving credentials: %w", err), Silent: flags.asJSON}
 	}
 	status := tok.RedactedStatus()
+	status.KeepAlive = autoStartKeeper(cmd, flags)
 	status.OK = tok.HasATSAuthorization()
 	if flags.asJSON {
 		enc := json.NewEncoder(stdout)

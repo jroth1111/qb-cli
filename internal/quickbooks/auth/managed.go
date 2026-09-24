@@ -50,6 +50,9 @@ func captureManagedHeadless(ctx context.Context, bankingURL string) (*ATSCapture
 }
 
 func captureManaged(ctx context.Context, loginURL, bankingURL string, headless bool) (*ATSCapture, error) {
+	if IsHarness() {
+		return nil, ErrRemintNeedsLogin
+	}
 	if loginURL == "" {
 		loginURL = DefaultLoginURL
 	}
@@ -220,6 +223,7 @@ func snapshotManagedCookies(ctx context.Context) ([]Cookie, error) {
 		}
 		out = append(out, Cookie{
 			Name: c.Name, Value: c.Value, Domain: c.Domain,
+			HostOnly: !strings.HasPrefix(c.Domain, "."),
 			Path:     path,
 			Expires:  time.Unix(int64(c.Expires), 0).UTC(),
 			Secure:   c.Secure,

@@ -30,6 +30,8 @@ func TestRemintFromEgoFakeBinary(t *testing.T) {
 	if err := Save(&TokenSet{
 		Authorization: "Intuit_APIKey intuit_apikey=old,intuit_apikey_version=1.0",
 		Source:        "mitm-login",
+		RealmID:       "1",
+		Email:         "person@example.test",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,8 +41,9 @@ func TestRemintFromEgoFakeBinary(t *testing.T) {
 python3 - <<'PY'
 import json, os
 open(os.environ["QB_CAPTURE_OUT"], "w").write(json.dumps({
-  "headers": {"Authorization": "Intuit_APIKey intuit_apikey=new,intuit_apikey_version=1.0", "authtype": "browser_auth"},
+  "headers": {"Authorization": "Intuit_APIKey intuit_apikey=new,intuit_apikey_version=1.0", "authtype": "browser_auth", "intuit-company-id":"1"},
   "cookies": [{"name": "qbo.ticket", "value": "v", "domain": ".qbo.intuit.com", "path": "/"}],
+  "identity": {"realm":"1","email":"person@example.test"},
 }))
 print('{"ok":true}')
 PY

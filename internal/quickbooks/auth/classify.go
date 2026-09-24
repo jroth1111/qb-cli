@@ -82,6 +82,7 @@ func (t *TokenSet) RedactedStatus() Status {
 	s.RefreshExpiry = t.RefreshExpiry
 	s.LongestExpiry = t.LongestExpiry()
 	s.CapturedAt = t.CapturedAt
+	s.LastUsedAt = t.LastUsedAt
 	s.FinalURL = t.FinalURL
 	return s
 }
