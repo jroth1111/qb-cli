@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -422,15 +424,22 @@ func postResolved(ctx context.Context, ac *apiClient, plan *RequestPlan, body []
 		return 0, fmt.Errorf("nil request plan")
 	}
 	url := strings.ReplaceAll(plan.URL, realmToken, ac.realm)
+	evidence, err := startMutationEvidence("feed-"+plan.op, map[string]any{"operation": plan.op}, body)
+	if err != nil {
+		return 0, err
+	}
 	submittingMutation(ctx)
 	resp, err := ac.post(ctx, url, body)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", plan.op, err)
+		return 0, fmt.Errorf("%w: %s: %v (evidence %s)", ErrMutationUnverified, plan.op, err, evidence)
 	}
 	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	raw, err := readBody(resp)
 	if err != nil {
-		return resp.StatusCode, fmt.Errorf("reading %s: %w", plan.op, err)
+		return resp.StatusCode, fmt.Errorf("%w: reading %s: %v (evidence %s)", ErrMutationUnverified, plan.op, err, evidence)
+	}
+	if err := os.WriteFile(filepath.Join(evidence, "response.json"), raw, 0600); err != nil {
+		return resp.StatusCode, fmt.Errorf("%w: receipt persistence failed (evidence %s)", ErrMutationUnverified, evidence)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return resp.StatusCode, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
@@ -440,7 +449,7 @@ func postResolved(ctx context.Context, ac *apiClient, plan *RequestPlan, body []
 			return resp.StatusCode, err
 		}
 		if err := verifyAcceptReadback(ctx, ac, body, raw); err != nil {
-			return resp.StatusCode, err
+			return resp.StatusCode, fmt.Errorf("%w (evidence %s)", err, evidence)
 		}
 	}
 	if plan.op == "processCsvFile" {

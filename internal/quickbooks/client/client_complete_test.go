@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,7 +73,7 @@ func TestProjectTxnOrigDescriptionPreference(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := projectTxn(tc.in)
-			if got != tc.want {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("projectTxn = %+v, want %+v", got, tc.want)
 			}
 		})
@@ -226,8 +227,10 @@ func (l *localTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type feedServer struct {
 	*httptest.Server
 
-	accountID string // qboAccountId reported by getInitialData
-	numTxn    *int   // numTxnToReview; nil omits the field
+	accountID string              // qboAccountId reported by getInitialData
+	numTxn    *int                // numTxnToReview; nil omits the field
+	totalTxn  *int                // getTransactions totalTransactionsCount; nil omits it
+	totalAt   func(start int) int // endpoint may grow the reported count by page
 	page      func(start, size int) []rawTxn
 
 	mu              sync.Mutex
@@ -274,7 +277,13 @@ func (fs *feedServer) handle(w http.ResponseWriter, r *http.Request) {
 		fs.lastStartIndex = start
 		fs.lastChunkSize = size
 		fs.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+		response := map[string]any{"items": items}
+		if fs.totalAt != nil {
+			response["totalTransactionsCount"] = fs.totalAt(start)
+		} else if fs.totalTxn != nil {
+			response["totalTransactionsCount"] = *fs.totalTxn
+		}
+		_ = json.NewEncoder(w).Encode(response)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -439,6 +448,36 @@ func TestFetchFeedPageNon200ReplayError(t *testing.T) {
 
 // --- ReplayFeedComplete: full walk ------------------------------------------
 
+func TestProjectTxnCarriesPostedAccountingLinks(t *testing.T) {
+	var raw rawTxn
+	if err := json.Unmarshal([]byte(`{"id":"34387:ofx","amount":-15.20,"matchedQboTxns":[{"qboTxnId":"36533","qboTxnSeqId":"0","txnFdmName":"Purchase","txnTypeId":"54","amount":-15.20,"clearState":"CLEARED","categorizedAccountId":99}]}`), &raw); err != nil {
+		t.Fatal(err)
+	}
+	got := projectTxn(raw)
+	if len(got.AccountingLinks) != 1 {
+		t.Fatalf("AccountingLinks = %d, want 1", len(got.AccountingLinks))
+	}
+	link := got.AccountingLinks[0]
+	if link.EntityID != "36533" || link.EntityType != "Purchase" || link.TxnTypeID != "54" || link.SequenceID != "0" || link.Amount != -15.20 || link.ClearState != "CLEARED" || link.CategoryID != "99" {
+		t.Fatalf("projected posted accounting link = %+v", link)
+	}
+}
+
+func TestProjectTxnCarriesPendingSuggestion(t *testing.T) {
+	var raw rawTxn
+	if err := json.Unmarshal([]byte(`{"id":"32724:ofx","amount":-136.45,"addAsQboTxn":{"nameId":"269","txnFdmName":"Purchase","details":[{"categoryId":"115","klassId":"503999","amount":136.45}]}}`), &raw); err != nil {
+		t.Fatal(err)
+	}
+	got := projectTxn(raw)
+	if got.PendingSuggestion == nil || got.PendingSuggestion.EntityType != "Purchase" || got.PendingSuggestion.PayeeID != "269" || len(got.PendingSuggestion.Details) != 1 {
+		t.Fatalf("pending suggestion = %+v", got.PendingSuggestion)
+	}
+	line := got.PendingSuggestion.Details[0]
+	if line.AccountID != "115" || line.ClassID != "503999" || line.Amount != 136.45 {
+		t.Fatalf("pending suggested line = %+v", line)
+	}
+}
+
 func TestReplayFeedLargeLimitUsesPages(t *testing.T) {
 	saveUsable(t)
 	fs := newFeedServer(t, "204", nil, func(start, size int) []rawTxn {
@@ -457,11 +496,57 @@ func TestReplayFeedLargeLimitUsesPages(t *testing.T) {
 	if len(res.Transactions) != 650 || res.Counts["transactions"] != 650 {
 		t.Fatalf("paged result = %d, want 650", len(res.Transactions))
 	}
-	if _, calls := fs.stats(); calls != 3 {
-		t.Fatalf("getTransactions calls = %d, want 3", calls)
+	if _, calls := fs.stats(); calls != 4 {
+		t.Fatalf("getTransactions calls = %d, want 4 including empty terminal page", calls)
 	}
 	if res.Transactions[649].ID != "row-649" {
 		t.Fatalf("last id = %q, want row-649", res.Transactions[649].ID)
+	}
+}
+
+func TestReplayFeedLargePostedLimitChecksServerTotal(t *testing.T) {
+	saveUsable(t)
+	total := 650
+	fs := newFeedServer(t, "204", nil, func(start, size int) []rawTxn {
+		if start >= total {
+			return nil
+		}
+		return pageOf(min(size, total-start), func(i int) string { return "posted-" + strconv.Itoa(start+i) })
+	})
+	fs.totalAt = func(start int) int {
+		if start == 0 {
+			return 350 // QBO's intermediate grouping count is not final.
+		}
+		return total
+	}
+	interceptHTTP(t, fs.URL)
+
+	res, err := ReplayFeed(context.Background(), "204", "ACCEPTED", 1200)
+	if err != nil {
+		t.Fatalf("ReplayFeed: %v", err)
+	}
+	if !res.Complete || res.Expected != total || len(res.Transactions) != total {
+		t.Fatalf("posted result complete=%v expected=%d rows=%d, want true/%d/%d",
+			res.Complete, res.Expected, len(res.Transactions), total, total)
+	}
+}
+
+func TestReplayFeedLargePostedLimitRejectsFinalShortage(t *testing.T) {
+	saveUsable(t)
+	actual := 650
+	reported := 651
+	fs := newFeedServer(t, "204", nil, func(start, size int) []rawTxn {
+		if start >= actual {
+			return nil
+		}
+		return pageOf(min(size, actual-start), func(i int) string { return "posted-" + strconv.Itoa(start+i) })
+	})
+	fs.totalTxn = &reported
+	interceptHTTP(t, fs.URL)
+	res, err := ReplayFeed(context.Background(), "204", "ACCEPTED", 1200)
+	if !errors.Is(err, ErrIncomplete) || res == nil || res.Complete || len(res.Transactions) != actual {
+		t.Fatalf("want incomplete %d-row result, got rows=%v complete=%v err=%v",
+			actual, len(res.Transactions), res.Complete, err)
 	}
 }
 

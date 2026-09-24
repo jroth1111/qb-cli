@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strconv"
+	"time"
 )
 
 // verifyAcceptReadback proves both the feed transition and the accounting
@@ -48,6 +50,7 @@ func verifyAcceptReadback(ctx context.Context, ac *apiClient, request, response 
 	if err != nil {
 		return fmt.Errorf("%w: accepted feed read: %v", ErrMutationUnverified, err)
 	}
+	seenBooks := map[string]bool{}
 	for _, row := range after {
 		id := mapStr(row, "olbTxnId")
 		before := old[id]
@@ -69,11 +72,49 @@ func verifyAcceptReadback(ctx context.Context, ac *apiClient, request, response 
 		if !expectedIDs[id][recordID] {
 			return fmt.Errorf("%w: feed linked a different entity", ErrMutationUnverified)
 		}
+		bookKey := entity + "/" + recordID
+		if seenBooks[bookKey] {
+			return fmt.Errorf("%w: distinct ADD rows share a ledger record", ErrMutationUnverified)
+		}
+		seenBooks[bookKey] = true
 		record, err := readMutationEntity(ctx, ac, entity, recordID)
 		if err != nil || record == nil {
 			return fmt.Errorf("%w: linked accounting record unavailable", ErrMutationUnverified)
 		}
+		fundingKey, incoming := "AccountRef", false
+		switch entity {
+		case "Purchase":
+			if credit, present := record["Credit"]; present && credit != nil {
+				var valid bool
+				incoming, valid = credit.(bool)
+				if !valid {
+					return fmt.Errorf("%w: unrecognized accounting direction", ErrMutationUnverified)
+				}
+			}
+		case "CreditCardCredit":
+			incoming = true
+		case "Deposit":
+			fundingKey = "DepositToAccountRef"
+			incoming = true
+		default:
+			return fmt.Errorf("%w: unsupported posting entity %s", ErrMutationUnverified, entity)
+		}
+		funding, _ := record[fundingKey].(map[string]any)
+		if jsonNumberString(funding["value"]) != req.Next.Account {
+			return fmt.Errorf("%w: accounting funding account differs", ErrMutationUnverified)
+		}
+		flow, ok := before["amount"].(float64)
+		if !ok || flow > 0 && !incoming || flow < 0 && incoming {
+			return fmt.Errorf("%w: accounting direction differs", ErrMutationUnverified)
+		}
 		add, _ := before["addAsQboTxn"].(map[string]any)
+		date := normalizeDate(mapStr(add, "txnDate"))
+		if stamp, err := time.Parse(time.RFC3339Nano, date); err == nil {
+			date = stamp.Format("2006-01-02")
+		}
+		if _, err := time.Parse("2006-01-02", date); err != nil || record["TxnDate"] != date {
+			return fmt.Errorf("%w: accounting date differs or is unrecognized", ErrMutationUnverified)
+		}
 		details := sliceObjects(add["details"])
 		lines := sliceObjects(record["Line"])
 		actual := []map[string]any{}
@@ -95,16 +136,17 @@ func verifyAcceptReadback(ctx context.Context, ac *apiClient, request, response 
 			if jsonNumberString(account["value"]) != jsonNumberString(want["categoryId"]) || jsonNumberString(klass["value"]) != jsonNumberString(want["klassId"]) {
 				return fmt.Errorf("%w: accounting category/Class differs", ErrMutationUnverified)
 			}
-			if amount, ok := want["amount"].(float64); ok {
+			if value, present := want["amount"]; present && value != nil && value != "" {
+				amount, ok := readbackAmount(value)
 				got, valid := actual[i]["Amount"].(float64)
-				if !valid || math.Abs(math.Abs(got)-math.Abs(amount)) > 0.000001 {
+				if !ok || !valid || math.Abs(got-math.Abs(amount)) > 0.000001 {
 					return fmt.Errorf("%w: split amount differs", ErrMutationUnverified)
 				}
 			}
 		}
 		amount, ok := before["amount"].(float64)
 		total, valid := record["TotalAmt"].(float64)
-		if !ok || !valid || math.Abs(math.Abs(amount)-math.Abs(total)) > 0.000001 {
+		if !ok || !valid || total < 0 || math.Abs(math.Abs(amount)-total) > 0.000001 {
 			return fmt.Errorf("%w: accounting total differs", ErrMutationUnverified)
 		}
 		if memo, ok := add["txnMemo"].(string); ok {
@@ -120,4 +162,10 @@ func verifyAcceptReadback(ctx context.Context, ac *apiClient, request, response 
 	}
 	confirmMutation(ctx)
 	return nil
+}
+
+func readbackAmount(value any) (float64, bool) {
+	text := jsonNumberString(value)
+	n, err := strconv.ParseFloat(text, 64)
+	return n, err == nil && !math.IsNaN(n) && !math.IsInf(n, 0)
 }

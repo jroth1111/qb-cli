@@ -56,6 +56,51 @@ func TestCategoriseEmptyMemoClearMustBeReadBack(t *testing.T) {
 	}
 }
 
+func TestPostingVerifiesFundingAndDirection(t *testing.T) {
+	for _, which := range []string{"funding", "direction", "date"} {
+		t.Run(which, func(t *testing.T) {
+			saveUsable(t)
+			ms := newMutationServer(t, []map[string]any{feedRowFixture("3")}, nil)
+			switch which {
+			case "funding":
+				wrong := "209"
+				ms.fundingOverride = &wrong
+			case "direction":
+				ms.reverseCredit = true
+			default:
+				wrong := "2026-08-24"
+				ms.dateOverride = &wrong
+			}
+			interceptHTTP(t, ms.URL)
+			_, err := ReplayBatchAccept(context.Background(), "204", []string{"3"})
+			if !errors.Is(err, ErrMutationUnverified) || !strings.Contains(err.Error(), which) || ms.postCount() != 1 {
+				t.Fatalf("wrong posting verified: %v", err)
+			}
+		})
+	}
+}
+
+func TestSplitReadbackChecksStringAmounts(t *testing.T) {
+	saveUsable(t)
+	ms := newMutationServer(t, []map[string]any{feedRowFixture("3")}, nil)
+	ms.splitAmountsOverride = []float64{10, 40}
+	interceptHTTP(t, ms.URL)
+	_, err := ReplaySplit(context.Background(), "204", []string{"3"}, "Purchase", []SplitLine{{Amount: 20, CategoryRef: RefValue{Value: "7"}}, {Amount: 30, CategoryRef: RefValue{Value: "8"}}})
+	if !errors.Is(err, ErrMutationUnverified) || !strings.Contains(err.Error(), "split amount") || ms.postCount() != 1 {
+		t.Fatalf("wrong split allocation verified: %v", err)
+	}
+}
+
+func TestDistinctFeedAddsCannotShareOneBookRecord(t *testing.T) {
+	saveUsable(t)
+	ms := newMutationServer(t, []map[string]any{feedRowFixture("3"), feedRowFixture("4")}, nil)
+	interceptHTTP(t, ms.URL)
+	_, err := ReplayBatchAccept(context.Background(), "204", []string{"3", "4"})
+	if !errors.Is(err, ErrMutationUnverified) || !strings.Contains(err.Error(), "share a ledger") || ms.postCount() != 1 {
+		t.Fatalf("duplicated accounting linkage verified: %v", err)
+	}
+}
+
 func TestAttachNoteReceiptDoesNotProveSavedNote(t *testing.T) {
 	saveUsable(t)
 	posts := 0

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -31,14 +32,18 @@ type capturedPost struct {
 type mutationServer struct {
 	*httptest.Server
 
-	feedItems         []map[string]any
-	acceptedItems     []map[string]any
-	excludedItems     []map[string]any
-	statesRead        []string
-	suppressStateMove bool
-	regRows           []map[string]any
-	bookRecords       map[string]map[string]any
-	memoOverride      *string
+	feedItems            []map[string]any
+	acceptedItems        []map[string]any
+	excludedItems        []map[string]any
+	statesRead           []string
+	suppressStateMove    bool
+	regRows              []map[string]any
+	bookRecords          map[string]map[string]any
+	memoOverride         *string
+	fundingOverride      *string
+	dateOverride         *string
+	reverseCredit        bool
+	splitAmountsOverride []float64
 
 	mu      sync.Mutex
 	posts   []capturedPost
@@ -194,7 +199,7 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 					add, _ := row["addAsQboTxn"].(map[string]any)
 					lines := []any{}
 					details := sliceObjects(add["details"])
-					for _, detail := range details {
+					for i, detail := range details {
 						lineDetail := map[string]any{"AccountRef": map[string]any{"value": detail["categoryId"]}}
 						if detail["klassId"] != nil {
 							lineDetail["ClassRef"] = map[string]any{"value": detail["klassId"]}
@@ -203,12 +208,33 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 						if amount == nil {
 							amount = row["amount"]
 						}
-						lines = append(lines, map[string]any{"Amount": amount, "AccountBasedExpenseLineDetail": lineDetail})
+						numeric, _ := strconv.ParseFloat(jsonNumberString(amount), 64)
+						numeric = math.Abs(numeric)
+						if i < len(ms.splitAmountsOverride) {
+							numeric = ms.splitAmountsOverride[i]
+						}
+						lines = append(lines, map[string]any{"Amount": numeric, "AccountBasedExpenseLineDetail": lineDetail})
 					}
 					if ms.bookRecords == nil {
 						ms.bookRecords = map[string]map[string]any{}
 					}
-					ms.bookRecords["900003"] = map[string]any{"Id": "900003", "TotalAmt": row["amount"], "Line": lines, "PrivateNote": add["txnMemo"]}
+					flow, _ := row["amount"].(float64)
+					credit := flow > 0
+					if ms.reverseCredit {
+						credit = !credit
+					}
+					funding := req.Next.Account
+					if ms.fundingOverride != nil {
+						funding = *ms.fundingOverride
+					}
+					date := mapStr(add, "txnDate")
+					if len(date) > 10 {
+						date = date[:10]
+					}
+					if ms.dateOverride != nil {
+						date = *ms.dateOverride
+					}
+					ms.bookRecords["900003"] = map[string]any{"Id": "900003", "TxnDate": date, "TotalAmt": math.Abs(flow), "Credit": credit, "AccountRef": map[string]any{"value": funding}, "Line": lines, "PrivateNote": add["txnMemo"]}
 					if ms.memoOverride != nil {
 						ms.bookRecords["900003"]["PrivateNote"] = *ms.memoOverride
 					}

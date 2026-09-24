@@ -39,14 +39,42 @@ type AccountsResult struct {
 
 // Transaction is the secret-free projection of a pending review txn.
 type Transaction struct {
-	DisplayDescription string  `json:"displayDescription,omitempty"`
-	ReviewState        string  `json:"reviewState,omitempty"`
-	ID                 string  `json:"id"`
-	OLBTxnID           string  `json:"olbTxnId,omitempty"`
-	Date               string  `json:"date"`
-	Amount             float64 `json:"amount"`
-	Description        string  `json:"description"`
-	AcceptType         string  `json:"acceptType"`
+	DisplayDescription string             `json:"displayDescription,omitempty"`
+	ReviewState        string             `json:"reviewState,omitempty"`
+	AccountingLinks    []AccountingLink   `json:"accountingLinks,omitempty"`
+	PendingSuggestion  *PendingSuggestion `json:"pendingSuggestion,omitempty"`
+	ID                 string             `json:"id"`
+	OLBTxnID           string             `json:"olbTxnId,omitempty"`
+	Date               string             `json:"date"`
+	Amount             float64            `json:"amount"`
+	Description        string             `json:"description"`
+	AcceptType         string             `json:"acceptType"`
+}
+
+// PendingSuggestion is QBO's current bank-feed draft, not a booked entity.
+// Its Class/account IDs must be independently checked before a future post.
+type PendingSuggestion struct {
+	EntityType string                 `json:"entityType,omitempty"`
+	PayeeID    string                 `json:"payeeId,omitempty"`
+	Details    []PendingSuggestedLine `json:"details,omitempty"`
+}
+
+type PendingSuggestedLine struct {
+	AccountID string  `json:"accountId,omitempty"`
+	ClassID   string  `json:"classId,omitempty"`
+	Amount    float64 `json:"amount,omitempty"`
+}
+
+// AccountingLink is the secret-free posted-feed pointer to its booked entity.
+// A feed state alone is not proof of a current accounting/register posting.
+type AccountingLink struct {
+	EntityID   string  `json:"entityId"`
+	EntityType string  `json:"entityType"`
+	TxnTypeID  string  `json:"txnTypeId,omitempty"`
+	SequenceID string  `json:"sequenceId,omitempty"`
+	Amount     float64 `json:"amount"`
+	ClearState string  `json:"clearState,omitempty"`
+	CategoryID string  `json:"categoryId,omitempty"`
 }
 
 // PendingResult is the JSON envelope returned by ReplayPending.
@@ -186,11 +214,18 @@ func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, li
 	}
 	out := make([]Transaction, 0, limit)
 	seen := make(map[string]struct{})
+	expected := -1
+	terminalPageSeen := false
 	for start := 0; start < limit; start += pageSize {
 		size := min(pageSize, limit-start)
 		page, err := fetchFeedPage(ctx, ac, accountID, state, start, size)
 		if err != nil {
 			return nil, err
+		}
+		if page.TotalTransactionsCount != nil {
+			// QBO's intermediate total grows with grouping/pagination. Only the
+			// empty terminal page reports the final census for this review state.
+			expected = *page.TotalTransactionsCount
 		}
 		for _, t := range page.Items {
 			if _, exists := seen[t.ID]; !exists {
@@ -198,11 +233,19 @@ func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, li
 				out = append(out, projectTxn(t))
 			}
 		}
-		if len(page.Items) < size {
+		if len(page.Items) == 0 {
+			terminalPageSeen = true
 			break
 		}
 	}
-	return &PendingResult{Status: http.StatusOK, Counts: map[string]int{"transactions": len(out)}, Transactions: out, AccountID: accountID}, nil
+	complete := terminalPageSeen && expected >= 0 && len(out) == expected
+	res := &PendingResult{Status: http.StatusOK, Counts: map[string]int{"transactions": len(out)}, Transactions: out,
+		Expected: expected, Complete: complete, AccountID: accountID}
+	if expected >= 0 && !complete {
+		return res, fmt.Errorf("%w: fetched %d unique %s IDs; final server count %d; terminal=%v",
+			ErrIncomplete, len(out), state, expected, terminalPageSeen)
+	}
+	return res, nil
 }
 
 func replayFeedOnce(ctx context.Context, accountID, reviewState string, limit int) (*PendingResult, error) {
@@ -405,13 +448,34 @@ func projectTxn(t rawTxn) Transaction {
 	if t.OrigDescription != "" && (desc == "" || len(t.OrigDescription) > len(desc)) {
 		desc = t.OrigDescription
 	}
+	var links []AccountingLink
+	for _, matched := range t.MatchedQboTxns {
+		links = append(links, AccountingLink{
+			EntityID: rawID(matched.QBOTxnID), EntityType: matched.TxnFDMName,
+			TxnTypeID:  rawID(matched.TxnTypeID),
+			SequenceID: rawID(matched.QBOTxnSeqID), Amount: orZero(matched.Amount),
+			ClearState: matched.ClearState, CategoryID: rawID(matched.CategorizedAccountID),
+		})
+	}
+	var suggested *PendingSuggestion
+	if t.AddAsQboTxn != nil {
+		lines := make([]PendingSuggestedLine, 0, len(t.AddAsQboTxn.Details))
+		for _, detail := range t.AddAsQboTxn.Details {
+			lines = append(lines, PendingSuggestedLine{AccountID: rawID(detail.CategoryID),
+				ClassID: rawID(detail.KlassID), Amount: orZero(detail.Amount)})
+		}
+		suggested = &PendingSuggestion{EntityType: t.AddAsQboTxn.TxnFDMName,
+			PayeeID: rawID(t.AddAsQboTxn.NameID), Details: lines}
+	}
 	return Transaction{
-		ID:          t.ID,
-		OLBTxnID:    t.OlbTxnID,
-		Date:        t.OlbTxnDate,
-		Amount:      orZero(t.Amount),
-		Description: desc,
-		AcceptType:  t.AcceptType,
+		AccountingLinks:   links,
+		PendingSuggestion: suggested,
+		ID:                t.ID,
+		OLBTxnID:          t.OlbTxnID,
+		Date:              t.OlbTxnDate,
+		Amount:            orZero(t.Amount),
+		Description:       desc,
+		AcceptType:        t.AcceptType,
 	}
 }
 
@@ -536,14 +600,36 @@ type pendingData struct {
 }
 
 type rawTxn struct {
-	QBOAccountID    json.RawMessage `json:"qboAccountId"`
-	ID              string          `json:"id"`
-	OlbTxnID        string          `json:"olbTxnId"`
-	OlbTxnDate      string          `json:"olbTxnDate"`
-	Amount          *float64        `json:"amount"`
-	Description     string          `json:"description"`
-	OrigDescription string          `json:"origDescription"`
-	AcceptType      string          `json:"acceptType"`
+	QBOAccountID    json.RawMessage  `json:"qboAccountId"`
+	ID              string           `json:"id"`
+	OlbTxnID        string           `json:"olbTxnId"`
+	OlbTxnDate      string           `json:"olbTxnDate"`
+	Amount          *float64         `json:"amount"`
+	Description     string           `json:"description"`
+	OrigDescription string           `json:"origDescription"`
+	AcceptType      string           `json:"acceptType"`
+	MatchedQboTxns  []rawMatchedTxn  `json:"matchedQboTxns"`
+	AddAsQboTxn     *rawSuggestedTxn `json:"addAsQboTxn"`
+}
+
+type rawSuggestedTxn struct {
+	NameID     json.RawMessage `json:"nameId"`
+	TxnFDMName string          `json:"txnFdmName"`
+	Details    []struct {
+		CategoryID json.RawMessage `json:"categoryId"`
+		KlassID    json.RawMessage `json:"klassId"`
+		Amount     *float64        `json:"amount"`
+	} `json:"details"`
+}
+
+type rawMatchedTxn struct {
+	QBOTxnID             json.RawMessage `json:"qboTxnId"`
+	QBOTxnSeqID          json.RawMessage `json:"qboTxnSeqId"`
+	TxnFDMName           string          `json:"txnFdmName"`
+	TxnTypeID            json.RawMessage `json:"txnTypeId"`
+	Amount               *float64        `json:"amount"`
+	ClearState           string          `json:"clearState"`
+	CategorizedAccountID json.RawMessage `json:"categorizedAccountId"`
 }
 
 // --- projection (secret-free output) -------------------------------------

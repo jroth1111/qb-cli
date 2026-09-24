@@ -44,6 +44,7 @@ func ReplaySplit(ctx context.Context, accountID string, olbTxnIDs []string, enti
 		add := addAsQboTxnMap(row)
 		add["details"] = splitDetailList(lines)
 		add["txnMemo"] = mapStr(row, "description")
+		add["txnDate"] = mapStr(row, "olbTxnDate")
 		return nil
 	})
 }

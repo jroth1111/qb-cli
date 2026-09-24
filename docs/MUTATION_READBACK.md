@@ -29,7 +29,7 @@ gate; they do not mutate ledger records.
 | Purchase recategorise | Fresh Purchase GET with requested category/Class/payee and preserved funding account, other lines and amounts |
 | V3 batch | All-item preflight, unique bIds, correlated receipts, per-mutation entity readback; partial results retained on failure |
 | Invoice write-off | Credit memo GET, apply-payment GET with both links, invoice balance/invariants, consumed credit memo balance |
-| Feed ADD/categorise/split | Accepted-state read, exact linked accounting ID, ledger category/Class/amount/memo, pending-state absence |
+| Feed ADD/categorise/split | Accepted-state read, distinct linked accounting IDs, funding account/direction, category/Class/individual split amounts/memo, pending-state absence |
 | Feed exclude/undo/unpost | Destination presence, source absence, feed invariants, linked record preservation/deletion |
 | Match | Independent accepted feed/link and register readback |
 | Bank rules | Before/after snapshots, target rule fields or deletion, unrelated rule preservation |
@@ -63,6 +63,9 @@ Never blindly retry an unverified write. Perform GET-only recovery against the
 exact entity/feed IDs and evidence directory. V3 mutation and batch evidence is
 private under the profile's mutation-evidence directory. A timeout, a readback
 error or an unsuccessful batch item does not prove that nothing changed.
+Feed posting also preserves its request and response privately. Feed reads
+expose `accountingLinks` with the linked entity type/ID and sequence, so recovery
+can inspect the actual accounting record rather than guess from dates/amounts.
 
 The gate applies to the public CLI. Internal low-level service functions without
 adapters remain available for implementation/testing but are not independently
