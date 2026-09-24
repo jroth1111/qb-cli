@@ -115,44 +115,7 @@ func feedRowMatchesID(row map[string]any, id string) bool {
 // editSequence and the payment/deposit amount the acceptTransactions
 // selectedMatches contract needs.
 func registerRowsForAccount(ctx context.Context, ac *apiClient, accountID string) ([]map[string]any, error) {
-	var out []map[string]any
-	seen := make(map[string]bool)
-	for page := range 10 {
-		start := page * feedMutationPageSize
-		url := fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, accountID)
-		resp, err := ac.get(ctx, url, fmt.Sprintf("items=%d-%d", start, start+feedMutationPageSize-1))
-		if err != nil {
-			return nil, fmt.Errorf("register transactions: %w", err)
-		}
-		body, err := readBody(resp)
-		_ = drainAndClose(resp)
-		if err != nil {
-			return nil, fmt.Errorf("reading register transactions: %w", err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(body)}
-		}
-		items, err := registerRowItems(body)
-		if err != nil {
-			return nil, fmt.Errorf("decoding register transactions: %w", err)
-		}
-		fresh := 0
-		for _, row := range items {
-			key := jsonNumberString(row["txnId"])
-			if key == "" {
-				key = fmt.Sprintf("%p", row)
-			}
-			if !seen[key] {
-				seen[key] = true
-				fresh++
-				out = append(out, row)
-			}
-		}
-		if len(items) < feedMutationPageSize || fresh == 0 {
-			break
-		}
-	}
-	return out, nil
+	return reconciliationRegisterRows(ctx, ac, accountID)
 }
 
 // registerRowItems decodes the register response into raw row objects. The

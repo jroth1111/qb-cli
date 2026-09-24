@@ -3,11 +3,49 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestMatchRegisterCensusFindsOldRecordPastTenPages(t *testing.T) {
+	saveUsable(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("X-Range"), "items=%d-%d", &start, &end); err != nil || end-start != 299 {
+			t.Errorf("wrong register range %q", r.Header.Get("X-Range"))
+			return
+		}
+		if start == 3300 {
+			_, _ = w.Write([]byte(`[{"txnId":"16688","sequence":0,"lineAccountId":204,"clearState":2}]`))
+			return
+		}
+		if start > 3300 {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[`))
+		for i := range 300 {
+			if i > 0 {
+				_, _ = w.Write([]byte(`,`))
+			}
+			_, _ = fmt.Fprintf(w, `{"txnId":"%d","sequence":0}`, start+i+1)
+		}
+		_, _ = w.Write([]byte(`]`))
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	ac, err := newAPIClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := registerRowsForAccount(context.Background(), ac, "204")
+	if err != nil || len(rows) != 3301 || findRegisterRow(rows, "16688") == nil {
+		t.Fatalf("old target lost after ten pages: rows=%d err=%v", len(rows), err)
+	}
+}
 
 func TestRegisterClearStateProjection(t *testing.T) {
 	for _, value := range []string{`0`, `1`, `2`, `"RECONCILED"`, `null`} {
