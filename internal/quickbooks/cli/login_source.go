@@ -84,6 +84,9 @@ func runSourceLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error 
 		return &ExitError{Code: ExitAuthError, Err: err}
 	}
 	tok := &auth.TokenSet{Version: auth.CurrentVersion, CapturedAt: time.Now().UTC(), Source: lf.source + "-existing", RelayURL: endpoint, FinalURL: auth.BankingCaptureURL}
+	if lf.source == "ego" {
+		tok.EgoSpace, tok.EgoTargetID = lf.egoSpace, lf.targetID
+	}
 	if err := tok.ApplyATSCapture(cap); err != nil {
 		return err
 	}

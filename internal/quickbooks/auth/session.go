@@ -167,9 +167,27 @@ func CookieHeaderForURL(cookies []Cookie, u *url.URL, now time.Time) string {
 	}
 	out := make([]string, 0, len(keep))
 	for _, c := range keep {
-		out = append(out, (&http.Cookie{Name: c.Name, Value: c.Value}).String())
+		// Chrome's captured values can contain quotes (e.g. JSON preference
+		// cookies). http.Cookie.String sanitizes them and logs warnings, changing
+		// the session on the wire. Preserve browser bytes; reject delimiters and
+		// control bytes instead of repairing a potentially injected header.
+		if pair, ok := capturedCookiePair(c); ok {
+			out = append(out, pair)
+		}
 	}
 	return strings.Join(out, "; ")
+}
+
+func capturedCookiePair(c Cookie) (string, bool) {
+	if (&http.Cookie{Name: c.Name, Value: "safe"}).Valid() != nil {
+		return "", false
+	}
+	for i := 0; i < len(c.Value); i++ {
+		if c.Value[i] < 0x20 || c.Value[i] >= 0x7f || c.Value[i] == ';' {
+			return "", false
+		}
+	}
+	return c.Name + "=" + c.Value, true
 }
 
 // ObserveSessionResponse persists rotation as a conditional merge. It never

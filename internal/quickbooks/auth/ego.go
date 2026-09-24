@@ -31,6 +31,8 @@ func WithExistingEgo(ctx context.Context, space, target string) context.Context 
 // ErrEgoMissing is returned when the ego-browser CLI is not on PATH.
 var ErrEgoMissing = errors.New("ego-browser not found on PATH: install ego lite (ego-browser onboarding) or use --from-mitm / --no-open")
 
+var ErrEgoUserControl = errors.New("QBO Ego space is user-controlled; browser access stopped, explicitly continue/claim it before remint")
+
 // CaptureATSFromEgo runs the bundled ego_capture.js inside an isolated
 // ego-browser Space, waits for an authenticated QBO tab, intercepts one
 // ATS Intuit_APIKey request, and returns the header map plus Intuit cookies.
@@ -118,6 +120,9 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if bytes.Contains(bytes.ToLower(out), []byte("user has taken control")) {
+			return nil, ErrEgoUserControl
+		}
 		return nil, fmt.Errorf("ego-browser capture failed: %w%s", err, trimOutput(out))
 	}
 	raw, err := os.ReadFile(outPath)

@@ -45,6 +45,8 @@ type TokenSet struct {
 	RefreshExpiry time.Time `json:"refresh_expiry,omitzero"`
 	Cookies       []Cookie  `json:"cookies"`
 	RelayURL      string    `json:"relay_url,omitempty"`
+	EgoSpace      string    `json:"ego_space,omitempty"`
+	EgoTargetID   string    `json:"ego_target_id,omitempty"`
 }
 
 // Cookie is one captured browser cookie. Value is secret.

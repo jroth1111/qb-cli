@@ -66,6 +66,22 @@ func RemintATS(ctx context.Context) error {
 	if current.CapturedAt.After(expected.CapturedAt) {
 		return nil
 	}
+	// A captured Ego session must renew from that same existing source. Trying
+	// an unrelated managed profile first exhausts the deadline and never reaches
+	// the authenticated browser. Never open login or claim a user-controlled tab.
+	if current.EgoSpace != "" || current.Source == "ego-existing" {
+		ectx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		space := current.EgoSpace
+		if space == "" {
+			space = "qb-gql"
+		} // legacy existing-Ego captures
+		cap, err := captureExistingEgo(WithExistingEgo(ectx, space, current.EgoTargetID), BankingCaptureURL, BankingCaptureURL)
+		if err != nil {
+			return fmt.Errorf("existing Ego session renewal failed (no browser fallback): %w", err)
+		}
+		return SaveRenewedCapture(current, cap, "ego-existing")
+	}
 
 	relayErr := remintFromRelay(ctx, resolveRelayURL())
 	if relayErr == nil {
@@ -93,6 +109,8 @@ func RemintATS(ctx context.Context) error {
 	}
 	return fmt.Errorf("remint: %w", relayErr)
 }
+
+var captureExistingEgo = CaptureATSFromEgo
 
 // allowManagedRemint gates the headless refresh: enough deadline left to
 // matter (a warm refresh takes ~30s) and not explicitly disabled.
