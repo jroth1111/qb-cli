@@ -217,6 +217,7 @@ func newFormDeleteCmd(flags *rootFlags, command, entity, txnType, catalogID stri
 func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
 	var (
 		id, catID, classID, payee, lineID              string
+		catAlias, payeeAlias                           string
 		expectedToken, expectedCategory, expectedClass string
 		repairCreditCardType                           bool
 	)
@@ -230,12 +231,16 @@ func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
 			}
 			if catID != "" {
 				fm["category-id"] = catID
+			} else if catAlias != "" {
+				fm["category-id"] = catAlias
 			}
 			if classID != "" {
 				fm["class-id"] = classID
 			}
 			if payee != "" {
 				fm["payee-id"] = payee
+			} else if payeeAlias != "" {
+				fm["payee-id"] = payeeAlias
 			}
 			if lineID != "" {
 				fm["line-id"] = lineID
@@ -277,6 +282,8 @@ func newExpenseRecategoriseCmd(flags *rootFlags) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&id, "id", "", "v3 Purchase (expense) id to recategorise (required)")
 	cmd.Flags().StringVar(&catID, "category-id", "", "GL account id applied as the new category on account-based lines")
+	cmd.Flags().StringVar(&catAlias, "category", "", "alias for --category-id")
+	cmd.Flags().StringVar(&payeeAlias, "payee", "", "alias for --payee-id")
 	cmd.Flags().StringVar(&classID, "class-id", "", "Class id applied to the selected account-based line; none clears its Class")
 	cmd.Flags().StringVar(&payee, "payee-id", "", "vendor/customer id applied as the new payee (EntityRef)")
 	cmd.Flags().StringVar(&lineID, "line-id", "", "only recategorise this Purchase line id")

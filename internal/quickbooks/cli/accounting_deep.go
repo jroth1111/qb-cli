@@ -186,10 +186,7 @@ func newAccountingDimensionMutateCmd(flags *rootFlags, entity, verb, catalogID s
 		Use:   verb,
 		Short: entity + " " + verb + " (v3)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if verb == "update" && id == "" {
-				return exitInput(client.ErrMissingMutateID)
-			}
-			if verb == "delete" && id == "" {
+			if id == "" {
 				return exitInput(client.ErrMissingMutateID)
 			}
 			fm := localFlagMap(cmd)
@@ -202,8 +199,15 @@ func newAccountingDimensionMutateCmd(flags *rootFlags, entity, verb, catalogID s
 				op = "deactivate"
 			}
 			if flags.dryRun {
+				// The command label is the invoked path (catalog), not the
+				// entity: `accounting location update` replays a Department
+				// sparse update (v3 has no Location entity).
+				label := "accounting " + lower(entity) + " " + verb
+				if ce, ok := catalogByID(catalogID); ok && ce.Command != "" {
+					label = ce.Command
+				}
 				return writePlan(cmd, flags, planEnvelope{
-					Command: "accounting " + lower(entity) + " " + verb,
+					Command: label,
 					ID:      catalogID,
 					Mode:    modeWired,
 					Method:  "POST",
@@ -223,8 +227,12 @@ func newAccountingDimensionMutateCmd(flags *rootFlags, entity, verb, catalogID s
 		},
 	}
 	cmd.Flags().StringVar(&id, "id", "", "target "+lower(entity)+" id")
-	cmd.Flags().StringVar(&name, "name", "", "new display name (update)")
-	cmd.Flags().StringVar(&active, "active", "", "set to false to deactivate")
+	if verb == "update" {
+		// name/active are update fields; attaching them to delete would
+		// advertise flags the op never consumes.
+		cmd.Flags().StringVar(&name, "name", "", "new display name (update)")
+		cmd.Flags().StringVar(&active, "active", "", "set to false to deactivate")
+	}
 	applyCatalogHelp(cmd, catalogID)
 	return cmd
 }

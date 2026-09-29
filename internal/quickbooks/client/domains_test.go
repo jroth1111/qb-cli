@@ -368,7 +368,7 @@ func TestCompanyDomainMutationsPostV3Bodies(t *testing.T) {
 	}{
 		{"currency create", "CompanyCurrency", "create", "", map[string]string{"code": "usd"}, `{"CompanyCurrency":{"Id":"4","SyncToken":"0","Name":"USD"}}`},
 		{"tag create", "Class", "create", "", map[string]string{"name": "NSW"}, `{"Class":{"Id":"61","SyncToken":"0","Name":"NSW"}}`},
-		{"tag update", "Class", "update", "61", nil, `{"Class":{"Id":"61","SyncToken":"2"}}`},
+		{"tag update", "Class", "update", "61", map[string]string{"name": "VIC"}, `{"Class":{"Id":"61","SyncToken":"2"}}`},
 		{"tag delete", "Class", "delete", "61", nil, `{"Class":{"Id":"61","SyncToken":"3"}}`},
 		{"user create", "Employee", "create", "", map[string]string{"name": "Pat"}, `{"Employee":{"Id":"55","SyncToken":"0","DisplayName":"Pat"}}`},
 	} {
@@ -752,9 +752,10 @@ func TestPayrollDomainWritesUseEmployeeAndTimeActivity(t *testing.T) {
 	for _, tc := range []struct {
 		name, entity, op, id string
 		existing, ack        string
+		flags                map[string]string
 	}{
-		{"employee delete", "Employee", "delete", "55", `{"Employee":{"Id":"55","SyncToken":"7"}}`, `{"Employee":{"Id":"55","SyncToken":"7"}}`},
-		{"timesheet update", "TimeActivity", "update", "301", `{"TimeActivity":{"Id":"301","SyncToken":"2","Hours":3}}`, `{"TimeActivity":{"Id":"301","SyncToken":"3","Hours":4}}`},
+		{"employee delete", "Employee", "delete", "55", `{"Employee":{"Id":"55","SyncToken":"7"}}`, `{"Employee":{"Id":"55","SyncToken":"7"}}`, nil},
+		{"timesheet update", "TimeActivity", "update", "301", `{"TimeActivity":{"Id":"301","SyncToken":"2","Hours":3}}`, `{"TimeActivity":{"Id":"301","SyncToken":"3","Hours":4}}`, map[string]string{"hours": "4"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var after map[string]any
@@ -801,7 +802,7 @@ func TestPayrollDomainWritesUseEmployeeAndTimeActivity(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 			interceptHTTP(t, srv.URL)
-			out, err := ReplayMutate(ctx, tc.entity, tc.op, tc.id, nil)
+			out, err := ReplayMutate(ctx, tc.entity, tc.op, tc.id, tc.flags)
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}

@@ -43,6 +43,7 @@ func salesOrderParamDocs(id string) ([]paramDoc, bool) {
 		p("billing-address", "string", "free-form billing address; omitted updates preserve the address", false, ""),
 		p("shipping-address", "string", "free-form shipping address; omitted updates preserve the address", false, ""),
 		p("print-template-id", "string", "native sales-form print-template ID, when required by the account", false, ""),
+		p("ignore-duplicate-order-num", "bool", "allow a duplicate --order-number (true|false); the service rejects duplicates otherwise", false, ""),
 	)
 	return ps, true
 }

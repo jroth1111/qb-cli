@@ -1166,3 +1166,22 @@ func TestAccountingDeepNoCredsFastFail(t *testing.T) {
 		}
 	}
 }
+
+// TestJournalLineEmitsClassRef asserts the optional class id lands on the
+// emitted v3 line detail so paired entries can carry the same property class
+// on both sides.
+func TestJournalLineEmitsClassRef(t *testing.T) {
+	with := journalLine("Debit", "89", 647.90, "3700000000000906240")
+	detail, ok := with["JournalEntryLineDetail"].(map[string]any)
+	if !ok {
+		t.Fatalf("line detail = %+v", with)
+	}
+	ref, ok := detail["ClassRef"].(map[string]any)
+	if !ok || ref["value"] != "3700000000000906240" {
+		t.Fatalf("ClassRef missing: %+v", detail)
+	}
+	without := journalLine("Credit", "1", 647.90, "")
+	if _, ok := without["JournalEntryLineDetail"].(map[string]any)["ClassRef"]; ok {
+		t.Fatal("ClassRef must be omitted when no class is supplied")
+	}
+}

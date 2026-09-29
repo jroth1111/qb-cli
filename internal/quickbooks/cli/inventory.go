@@ -78,13 +78,10 @@ func newInventoryV3MutateCmd(flags *rootFlags, e primitiveEntry, command, entity
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "target QBO id")
-	ensureFlag(cmd, "item", "item id to count/build/adjust")
-	ensureFlag(cmd, "counted-qty", "corrected physical count (count create)")
-	ensureFlag(cmd, "qty", "units to build or starting quantity")
-	ensureFlag(cmd, "cost", "starting unit cost (startingvalue create)")
-	ensureFlag(cmd, "asset-account", "inventory asset account id (startingvalue create)")
-	ensureFlag(cmd, "date", "transaction date dd/MM/yyyy")
-	ensureFlag(cmd, "memo", "reason for the adjustment")
+	// Each inline mutation binds exactly its dedicatedConsumed contract
+	// entry — count/build-assembly/starting-value/adjust-delete read
+	// different subsets, so the contract drives attachment per command.
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -133,15 +130,10 @@ func newItemReceiptMutateCmd(flags *rootFlags, e primitiveEntry, command string)
 		},
 	}
 	attachParamFlags(cmd, e.ID)
-	ensureFlag(cmd, "vendor-id", "supplier id the goods were received from (create)")
-	ensureFlag(cmd, "item-id", "inventory item id being received (create)")
-	ensureFlag(cmd, "qty", "received quantity on line 1")
-	ensureFlag(cmd, "rate", "unit cost on line 1")
-	ensureFlag(cmd, "date", "receipt date dd/MM/yyyy (defaults to today)")
-	ensureFlag(cmd, "ref-no", "receipt reference number")
-	ensureFlag(cmd, "memo", "receipt memo")
-	ensureFlag(cmd, "currency", "ISO 4217 code; omitted uses the company home currency")
-	ensureFlag(cmd, "id", "item receipt id (update)")
+	if use == "create" {
+		ensureFlag(cmd, "vendor-id", "supplier id the goods were received from (create)")
+	}
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -183,7 +175,7 @@ func newPOPartialCmd(flags *rootFlags, e primitiveEntry, command string) *cobra.
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "purchase order id to receive against")
-	ensureFlag(cmd, "items", `JSON array of partial lines, e.g. [{"line-id":"1","qty":2}] or [{"item-id":"3","qty":2}]`)
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }

@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -71,6 +72,20 @@ func parseIDList(raw string) []string {
 		}
 	}
 	return out
+}
+
+// isNumericID reports whether a flag value is a plain v3 entity id — used to
+// distinguish an entity reference from a free-text label on shared builders.
+func isNumericID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 var v3Path = map[string]string{
@@ -193,6 +208,18 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 			// v3 /budget creates the same entity the UI lists.
 		}
 		body, err = buildCreateBody(entity, flags)
+		if err == nil && entity == "Deposit" {
+			body, err = linkDepositPayments(ctx, ac, body, flags)
+		}
+		if err == nil && (entity == "Purchase" || entity == "BillPayment") {
+			body, err = reconcileFundingType(ctx, ac, body, flags)
+		}
+		if err == nil && entity == "BillPayment" {
+			body, err = linkBillPaymentCredits(ctx, ac, body, flags)
+		}
+		if err == nil {
+			err = validateLineTotal(entity, body, flags)
+		}
 	case "update", "edit":
 		if strings.TrimSpace(id) == "" {
 			id = flags["id"]
@@ -205,6 +232,9 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 			return nil, errf
 		}
 		body, err = buildUpdateBody(entity, flags, existing)
+		if err == nil && !bodyHasChanges(body, existing) {
+			err = fmt.Errorf("%s %s: no field changes requested", entity, op)
+		}
 		if err == nil && entity == "RecurringTransaction" {
 			body = map[string]any{"Invoice": body}
 		}
@@ -216,6 +246,15 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		}
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
+		}
+		// cheque delete declares --mode (void|delete) but v3 cannot void a
+		// Purchase — a void request must fail loudly rather than hard-delete.
+		if entity == "Purchase" {
+			switch mode := strings.ToLower(strings.TrimSpace(flags["mode"])); mode {
+			case "", "delete":
+			default:
+				return nil, fmt.Errorf("cheque delete --mode %q: v3 cannot void a Purchase; void the cheque in the QBO UI, or pass --mode delete to permanently delete", mode)
+			}
 		}
 		existing, errf := fetchExisting(path, id)
 		if errf != nil {
@@ -244,6 +283,12 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 		if strings.TrimSpace(id) == "" {
 			id = flags["id"]
 		}
+		// payroll employee delete declares --employee as the target id; the
+		// shared deactivate path reads --id, so alias it here (scoped to
+		// Employee — --employee is a real field flag on TimeActivity).
+		if entity == "Employee" && strings.TrimSpace(id) == "" {
+			id = flags["employee"]
+		}
 		if strings.TrimSpace(id) == "" {
 			return nil, ErrMissingMutateID
 		}
@@ -252,6 +297,13 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 			return nil, errf
 		}
 		body = map[string]any{"Id": existing["Id"], "SyncToken": existing["SyncToken"], "Active": false}
+		if entity == "Employee" {
+			// `payroll employee delete --date` is the declared termination
+			// date; deactivation otherwise leaves it unset.
+			if d := transactionDateFlag(flags); d != "" {
+				body["TerminationDate"] = normalizeDate(d)
+			}
+		}
 		for _, k := range []string{"Name", "DisplayName", "GivenName", "FamilyName", "AccountType", "AccountSubType", "Type", "Code", "DueDays", "DiscountPercent", "DiscountDays", "DayOfMonthDue", "DueNextMonthDays", "IncomeAccountRef", "ExpenseAccountRef", "AssetAccountRef"} {
 			if v := existing[k]; v != nil {
 				body[k] = v
@@ -374,6 +426,11 @@ func ReplayMutate(ctx context.Context, entity, op, id string, flags map[string]s
 			return nil, errf
 		}
 		body = stripForCopy(existing)
+		// --customer retargets the clone (e.g. duplicate an invoice onto a
+		// different customer) instead of silently ignoring the flag.
+		if c := firstFlag(flags, "customer"); c != "" {
+			body["CustomerRef"] = map[string]any{"value": c}
+		}
 		op = "create"
 	default:
 		return nil, fmt.Errorf("unsupported mutate op %q", op)
@@ -545,44 +602,55 @@ func fetchV3(ctx context.Context, ac *apiClient, path, id string) (map[string]an
 }
 
 func fetchRecurringByID(ctx context.Context, ac *apiClient, id string) (map[string]any, error) {
-	qs := "select * from RecurringTransaction maxresults 100"
-	u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/query?query=%s&minorversion=73", ac.realm, url.QueryEscape(qs))
+	// Walk the recurring-transaction population in server page windows until
+	// the id matches; no client-side row cap — the walk ends on a short page.
+	const pageSize = 100
+	nests := []string{"Invoice", "Bill", "Purchase", "Estimate", "JournalEntry", "SalesReceipt"}
+	for start := 1; ; start += pageSize {
+		qs := fmt.Sprintf("select * from RecurringTransaction startposition %d maxresults %d", start, pageSize)
+		u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/query?query=%s&minorversion=73", ac.realm, url.QueryEscape(qs))
 
-	resp, err := ac.getJSON(ctx, u, "")
-	if err != nil {
-		return nil, err
-	}
-	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
-	raw, err := readBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
-	}
-	var wrap struct {
-		QueryResponse map[string]json.RawMessage `json:"QueryResponse"`
-	}
-	if json.Unmarshal(raw, &wrap) != nil || wrap.QueryResponse == nil {
-		return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
-	}
-	var rows []map[string]json.RawMessage
-	if json.Unmarshal(wrap.QueryResponse["RecurringTransaction"], &rows) != nil {
-		return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
-	}
-	for _, row := range rows {
-		for _, nest := range []string{"Invoice", "Bill", "Purchase", "Estimate", "JournalEntry", "SalesReceipt"} {
-			raw, ok := row[nest]
-			if !ok {
-				continue
+		resp, err := ac.getJSON(ctx, u, "")
+		if err != nil {
+			return nil, err
+		}
+		raw, err := readBody(resp)
+		status := resp.StatusCode
+		_ = drainAndClose(resp)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusOK {
+			return nil, &ReplayError{Status: status, Message: errorMessage(raw)}
+		}
+		var wrap struct {
+			QueryResponse map[string]json.RawMessage `json:"QueryResponse"`
+		}
+		if json.Unmarshal(raw, &wrap) != nil || wrap.QueryResponse == nil {
+			return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
+		}
+		rawRows := wrap.QueryResponse["RecurringTransaction"]
+		var rows []map[string]json.RawMessage
+		if len(rawRows) > 0 && json.Unmarshal(rawRows, &rows) != nil {
+			return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
+		}
+		for _, row := range rows {
+			for _, nest := range nests {
+				raw, ok := row[nest]
+				if !ok {
+					continue
+				}
+				var obj map[string]any
+				if json.Unmarshal(raw, &obj) != nil {
+					continue
+				}
+				if fmt.Sprint(obj["Id"]) == id {
+					return obj, nil
+				}
 			}
-			var obj map[string]any
-			if json.Unmarshal(raw, &obj) != nil {
-				continue
-			}
-			if fmt.Sprint(obj["Id"]) == id {
-				return obj, nil
-			}
+		}
+		if len(rows) < pageSize {
+			break
 		}
 	}
 	return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
@@ -599,7 +667,18 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 	}
 	amt, amtSet, amtErr := numericFlag(flags, "amount")
 	cust := firstFlag(flags, "customer")
+	// --payee is the catalog-declared name on expense/cheque create;
+	// --supplier is the v3-native alias. Without the alias the required
+	// payee flag was silently dropped and the Purchase posted payee-less.
+	// Only numeric values alias — EntityRef requires a v3 entity id, and
+	// bank-fee create reuses this path with a free-text payee label that
+	// must not become an EntityRef.
 	vend := firstFlag(flags, "supplier")
+	if vend == "" {
+		if payee := firstFlag(flags, "payee"); isNumericID(payee) {
+			vend = payee
+		}
+	}
 	item := firstFlag(flags, "item")
 	acct := firstFlag(flags, "from-account", "account")
 	toAcct := firstFlag(flags, "to-account")
@@ -653,13 +732,27 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			if out["BillAddr"].(map[string]any)["PostalCode"] == "" {
 				out["BillAddr"].(map[string]any)["PostalCode"] = "2000"
 			}
+			if phone := firstFlag(flags, "phone"); phone != "" {
+				out["PrimaryPhone"] = map[string]any{"FreeFormNumber": phone}
+			}
+			if cur := firstFlag(flags, "currency"); cur != "" {
+				out["CurrencyRef"] = map[string]any{"value": strings.ToUpper(cur)}
+			}
+		}
+		if entity == "Vendor" {
+			if id := firstFlag(flags, "supplier-id"); id != "" {
+				out["AcctNum"] = id
+			}
+			applyContactFields(out, flags)
 		}
 	case "Budget":
 		if name == "" {
 			name = "QB-CLI-TEST-BUDGET"
 		}
 		out["Name"] = name
-		start := firstFlag(flags, "start-date")
+		// --fiscal-year (e.g. 2026) is the catalog-declared budget anchor;
+		// a bare year resolves to the AU FY start (1 Jul).
+		start := firstFlag(flags, "start-date", "fiscal-year")
 		if start == "" {
 			start = date
 		}
@@ -721,14 +814,52 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 		if !amtSet {
 			amt = 1
 		}
+		recurType := firstFlag(flags, "template-type", "recur-type", "recurring-type")
+		if recurType == "" {
+			recurType = "Unscheduled"
+		}
+		switch strings.ToLower(recurType) {
+		case "scheduled", "reminder", "unscheduled", "automated":
+			recurType = strings.ToUpper(recurType[:1]) + strings.ToLower(recurType[1:])
+		default:
+			return nil, fmt.Errorf("recurring create: --template-type %q not supported (Scheduled, Reminder, Unscheduled, Automated)", recurType)
+		}
+		recurringInfo := map[string]any{
+			"Name":      name,
+			"RecurType": recurType,
+			"Active":    true,
+		}
+		schedule := map[string]any{}
+		if interval := strings.TrimSpace(firstFlag(flags, "interval", "interval-type")); interval != "" {
+			switch strings.ToLower(interval) {
+			case "daily", "weekly", "monthly", "yearly":
+				schedule["IntervalType"] = strings.ToUpper(interval[:1]) + strings.ToLower(interval[1:])
+				schedule["Interval"] = 1
+			default:
+				return nil, fmt.Errorf("recurring create: --interval %q not supported (daily, weekly, monthly, yearly)", interval)
+			}
+		}
+		if days := strings.TrimSpace(firstFlag(flags, "days-in-advance", "days-before")); days != "" {
+			if d, err := strconv.Atoi(days); err == nil && d >= 0 {
+				schedule["DaysBefore"] = d
+			} else {
+				return nil, fmt.Errorf("recurring create: --days-in-advance %q must be a non-negative integer", days)
+			}
+		}
+		for _, pair := range [][2]string{
+			{"start-date", "StartDate"}, {"end-date", "EndDate"}, {"next-date", "NextDate"},
+		} {
+			if v := strings.TrimSpace(flags[pair[0]]); v != "" {
+				schedule[pair[1]] = normalizeDate(v)
+			}
+		}
+		if len(schedule) > 0 {
+			recurringInfo["ScheduleInfo"] = schedule
+		}
 		out["Invoice"] = map[string]any{
-			"CustomerRef": map[string]any{"value": cust},
-			"Line":        salesLines(flags, amt, amtSet, firstFlag(flags, "item")),
-			"RecurringInfo": map[string]any{
-				"Name":      name,
-				"RecurType": "Unscheduled",
-				"Active":    true,
-			},
+			"CustomerRef":   map[string]any{"value": cust},
+			"Line":          salesLines(flags, amt, amtSet, firstFlag(flags, "item")),
+			"RecurringInfo": recurringInfo,
 		}
 
 	case "Project":
@@ -821,19 +952,22 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			inc = "1"
 		}
 		out["IncomeAccountRef"] = map[string]any{"value": inc}
+		if err := applyItemFields(out, flags); err != nil {
+			return nil, err
+		}
 		if strings.EqualFold(typ, "Inventory") {
 			exp := firstFlag(flags, "expense-account", "cogs-account")
 			if exp == "" {
 				exp = "40"
 			}
-			asset := firstFlag(flags, "asset-account")
+			asset := firstFlag(flags, "asset-account", "inventory-asset-account")
 			if asset == "" {
 				asset = "42"
 			}
 			out["ExpenseAccountRef"] = map[string]any{"value": exp}
 			out["AssetAccountRef"] = map[string]any{"value": asset}
 			out["TrackQtyOnHand"] = true
-			qty, qtySet, qerr := numericFlag(flags, "qty", "quantity", "new-qty")
+			qty, qtySet, qerr := numericFlag(flags, "qty", "quantity", "new-qty", "initial-qty")
 			if qerr != nil {
 				return nil, qerr
 			}
@@ -977,6 +1111,10 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			"Amount":    amt,
 			"LinkedTxn": []map[string]any{{"TxnId": billID, "TxnType": "Bill"}},
 		}}
+		// bill pay declares --payment-method (e.g. EFT/BPAY ref).
+		if pm := firstFlag(flags, "payment-method"); pm != "" {
+			out["PaymentMethodRef"] = map[string]any{"value": pm}
+		}
 	case "Purchase":
 		// --account, --payment-account and --bank-account are aliases for
 		// the cash side; previously only --account fed payAcct, so the
@@ -1021,15 +1159,30 @@ func buildCreateBody(entity string, flags map[string]string) (map[string]any, er
 			return nil, amtErr
 		}
 		out["Line"] = expenseLines(flags, amt, amtSet, lineAcct)
+		if vend == "" {
+			// bank-fee create declares --payee as a free-text label that
+			// cannot become an EntityRef; fold it into the memo so the
+			// declared flag leaves a trace instead of silently dropping.
+			if label := strings.TrimSpace(firstFlag(flags, "payee")); label != "" {
+				if m := firstFlag(flags, "memo", "notes"); m != "" {
+					flags["memo"] = "Payee: " + label + " — " + m
+				} else {
+					flags["memo"] = "Payee: " + label
+				}
+			}
+		}
 
 	case "JournalEntry":
 		out["TxnDate"] = date
-		if raw := firstFlag(flags, "lines", "line-items"); raw != "" && strings.HasPrefix(strings.TrimSpace(raw), "[") {
-			var parsed []map[string]any
-			if json.Unmarshal([]byte(raw), &parsed) == nil && len(parsed) > 0 {
-				out["Line"] = parsed
-				break
+		if raw := firstFlag(flags, "lines", "line-items", "items-json"); raw != "" {
+			if strings.HasPrefix(strings.TrimSpace(raw), "[") {
+				var parsed []map[string]any
+				if err := json.Unmarshal([]byte(raw), &parsed); err == nil && len(parsed) > 0 {
+					out["Line"] = parsed
+					break
+				}
 			}
+			return nil, fmt.Errorf("journal --line-items must be a non-empty JSON array of journal lines")
 		}
 		if amtErr != nil {
 			return nil, amtErr
@@ -1168,14 +1321,71 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	if amountErr != nil {
 		return nil, amountErr
 	}
+	if entity == "Attachable" {
+		copyExisting(out, existing, "FileName", "Note", "Category")
+		if note := firstFlag(flags, "note", "memo"); note != "" {
+			out["Note"] = note
+		}
+	}
 	if entity == "Transfer" {
 		copyExisting(out, existing, "FromAccountRef", "ToAccountRef", "Amount")
+		// Declared on transfer edit; previously only copied, never applied.
+		if from := firstFlag(flags, "from-account"); from != "" {
+			out["FromAccountRef"] = map[string]any{"value": from}
+		}
+		if to := firstFlag(flags, "to-account"); to != "" {
+			out["ToAccountRef"] = map[string]any{"value": to}
+		}
 	}
 	if entity == "Deposit" {
 		copyExisting(out, existing, "DepositToAccountRef", "Line")
+		// --account/--deposit-to/--to-account move the deposit target. The
+		// catalog-declared --from-account retargets a single-line deposit's
+		// source account; multi-line deposits must be reshaped with
+		// --line-items.
+		if dep := firstFlag(flags, "account", "deposit-to", "to-account"); dep != "" {
+			out["DepositToAccountRef"] = map[string]any{"value": dep}
+		}
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		} else if src := firstFlag(flags, "from-account", "category-account"); src != "" {
+			if err := applySoleLineAccount(out, "DepositLineDetail", src); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if entity == "JournalEntry" {
 		copyExisting(out, existing, "Line", "TxnDate", "CurrencyRef")
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		}
+		from, to := firstFlag(flags, "from-account"), firstFlag(flags, "to-account")
+		if from != "" || to != "" {
+			lines, ok := out["Line"].([]any)
+			if !ok || len(lines) != 2 {
+				return nil, fmt.Errorf("journal account updates require a balanced two-line entry")
+			}
+			for _, value := range lines {
+				line, ok := value.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("invalid journal line")
+				}
+				detail, ok := line["JournalEntryLineDetail"].(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("invalid journal detail")
+				}
+				switch fmt.Sprint(detail["PostingType"]) {
+				case "Debit":
+					if from != "" {
+						detail["AccountRef"] = map[string]any{"value": from}
+					}
+				case "Credit":
+					if to != "" {
+						detail["AccountRef"] = map[string]any{"value": to}
+					}
+				}
+			}
+		}
 		if raw := firstFlag(flags, "amount"); raw != "" {
 			amount, err := strconv.ParseFloat(raw, 64)
 			if err != nil || amount == 0 {
@@ -1208,12 +1418,39 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		}
 	}
 	if entity == "Item" {
-		copyExisting(out, existing, "Type", "IncomeAccountRef", "ExpenseAccountRef")
+		copyExisting(out, existing, "Type", "IncomeAccountRef", "ExpenseAccountRef", "AssetAccountRef", "Sku", "UnitPrice", "PurchaseCost", "PrefVendorRef", "ReorderPoint", "Description", "TrackQtyOnHand", "QtyOnHand", "InvStartDate")
+		if inc := firstFlag(flags, "income-account"); inc != "" {
+			out["IncomeAccountRef"] = map[string]any{"value": inc}
+		}
+		if exp := firstFlag(flags, "expense-account", "cogs-account"); exp != "" {
+			out["ExpenseAccountRef"] = map[string]any{"value": exp}
+		}
+		if asset := firstFlag(flags, "asset-account", "inventory-asset-account"); asset != "" {
+			out["AssetAccountRef"] = map[string]any{"value": asset}
+		}
+		if err := applyItemFields(out, flags); err != nil {
+			return nil, err
+		}
+		// starting-value = the declared name for QtyOnHand adjustments on an
+		// existing tracked item.
+		if raw := firstFlag(flags, "starting-value"); raw != "" {
+			n, err := strconv.ParseFloat(raw, 64)
+			if err != nil {
+				return nil, fmt.Errorf("item --starting-value must be a number")
+			}
+			out["QtyOnHand"] = n
+			out["TrackQtyOnHand"] = true
+		}
 	}
 	if entity == "Bill" || entity == "VendorCredit" || entity == "PurchaseOrder" || entity == "ItemReceipt" {
 		copyExisting(out, existing, "VendorRef", "Line", "CurrencyRef")
 		if lines := lineItemsFlag(flags); lines != nil {
 			out["Line"] = lines
+		}
+		// --supplier is catalog-declared on bill edit; without applying it the
+		// flag was silently ignored and the vendor never moved.
+		if vend := firstFlag(flags, "supplier", "payee", "vendor"); vend != "" {
+			out["VendorRef"] = map[string]any{"value": vend}
 		}
 	}
 	if entity == "CreditCardCredit" {
@@ -1247,6 +1484,35 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		if lines := lineItemsFlag(flags); lines != nil {
 			out["Line"] = lines
 		}
+		// --payee/--payee-id move the expense payee (cheque edit declares
+		// --payee; recategorise uses --payee-id). applyPayee keeps the
+		// existing entity type.
+		if payee := firstFlag(flags, "payee", "payee-id"); payee != "" {
+			if err := applyPayee(out, existing, payee); err != nil {
+				return nil, err
+			}
+		}
+		// --billable/--project are per-line fields declared on expense edit;
+		// they apply to a single-line document, erroring on multi-line.
+		// Explicit --line-items lines carry their own BillableStatus/ProjectRef,
+		// and collectFlags lands the unset bool as "false" — applying it would
+		// clobber supplied lines and fail multi-line docs.
+		if lines := lineItemsFlag(flags); lines == nil {
+			if b := strings.ToLower(firstFlag(flags, "billable")); b == "true" || b == "1" || b == "yes" || b == "false" || b == "0" || b == "no" {
+				status := "Billable"
+				if b == "false" || b == "0" || b == "no" {
+					status = "NotBillable"
+				}
+				if err := applySoleLineField(out, "AccountBasedExpenseLineDetail", "BillableStatus", status); err != nil {
+					return nil, err
+				}
+			}
+			if proj := firstFlag(flags, "project"); proj != "" {
+				if err := applySoleLineField(out, "AccountBasedExpenseLineDetail", "ProjectRef", map[string]any{"value": proj}); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 	if entity == "TimeActivity" {
 		copyExisting(out, existing, "NameOf", "EmployeeRef", "VendorRef", "CustomerRef", "ItemRef", "Hours", "Minutes", "HourlyRate", "TxnDate", "Description", "BillableStatus")
@@ -1263,6 +1529,9 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	}
 	if entity == "Invoice" || entity == "Estimate" || entity == "CreditMemo" {
 		copyExisting(out, existing, "CustomerRef", "Line", "TxnDate", "BillEmail", "BillAddr")
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		}
 	}
 	if entity == "Preferences" {
 		copyExisting(out, existing, "SalesFormsPrefs", "AccountingInfoPrefs", "VendorAndPurchasesPrefs", "TimeTrackingPrefs", "TaxPrefs", "CurrencyPrefs", "ProductAndServicesPrefs", "ReportPrefs", "OtherPrefs")
@@ -1271,12 +1540,23 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		// Without copied lines the server recomputes the total from the
 		// old lines and TotalAmt-only updates silently do nothing.
 		copyExisting(out, existing, "Line", "CustomerRef", "TxnDate", "DepositToAccountRef")
+		if lines := lineItemsFlag(flags); lines != nil {
+			out["Line"] = lines
+		}
 	}
 	if entity == "Term" {
 		// Server revalidates the whole term on update; Name-only sparse
 		// bodies 400 demanding day-of-month (TC2 2026-09-08). Carry the
 		// schedule fields so renames keep DueDays/Type intact.
 		copyExisting(out, existing, "Type", "DueDays", "DiscountPercent", "DiscountDays", "DayOfMonthDue", "DueNextMonthDays")
+		if typ := firstFlag(flags, "type"); typ != "" {
+			out["Type"] = typ
+		}
+		if days, set, derr := numericFlag(flags, "due-days", "due_days", "duedays"); derr != nil {
+			return nil, derr
+		} else if set {
+			out["DueDays"] = int(days)
+		}
 	}
 
 	if name := firstFlag(flags, "name", "title"); name != "" {
@@ -1306,12 +1586,24 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 		if tpar := firstFlag(flags, "tpar"); tpar != "" {
 			out["Vendor1099"] = tpar == "true" || tpar == "1"
 		}
+		if id := firstFlag(flags, "supplier-id"); id != "" {
+			out["AcctNum"] = id
+		}
+		applyContactFields(out, flags)
+	}
+	if entity == "Customer" {
+		copyExisting(out, existing, "BillAddr", "ShipAddr", "PrimaryPhone", "PrimaryEmailAddr", "CurrencyRef", "CompanyName", "Notes")
+		applyContactFields(out, flags)
 	}
 	if due := firstFlag(flags, "due-date"); due != "" && (entity == "Invoice" || entity == "Bill") {
 		out["DueDate"] = normalizeDate(due)
 	}
 	if memo := firstFlag(flags, "memo", "notes"); memo != "" {
-		if entity == "Purchase" {
+		switch entity {
+		case "Purchase", "Bill", "BillPayment", "VendorCredit", "CreditCardCredit":
+			// Ledger memos carry bracketed annotations ([Card: Jacob],
+			// [rcpt R...]) that are audit linkage; a plain overwrite would
+			// silently destroy them.
 			previous, _ := existing["PrivateNote"].(string)
 			merged, err := preserveManagedMemo(previous, memo)
 			if err != nil {
@@ -1329,14 +1621,22 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 			out["Amount"] = a
 		} else {
 			out["TotalAmt"] = a
-			applyLineAmount(out, a)
+			// Caller-supplied --line-items are authoritative; folding the
+			// total into line[0] corrupts multi-line updates (Deposit
+			// update requires --amount, so this fired on every multi-line
+			// write). Single-line entities still map total → line.
+			if lineItemsFlag(flags) == nil {
+				applyLineAmount(out, a)
+			}
 		}
 		if entity == "RecurringTransaction" {
 			// fetchRecurringByID returns the nested template itself, so
 			// its lines live on existing (not existing["Invoice"]). Copy
 			// them or amount updates silently do nothing.
 			copyExisting(out, existing, "Line", "CustomerRef", "TxnDate")
-			applyLineAmount(out, a)
+			if lineItemsFlag(flags) == nil {
+				applyLineAmount(out, a)
+			}
 		}
 	}
 	if disc := parseAmount(firstFlag(flags, "discount")); disc != 0 && entity == "Invoice" {
@@ -1578,12 +1878,24 @@ func expenseLines(flags map[string]string, amt float64, amtSet bool, acct string
 	if acct == "" {
 		acct = "7"
 	}
+	detail := map[string]any{
+		"AccountRef": map[string]any{"value": acct},
+	}
+	// --billable/--project are per-line fields; on the synthesized single
+	// line they land directly, on --line-items they ride inside the JSON.
+	switch strings.ToLower(firstFlag(flags, "billable")) {
+	case "true", "1", "yes":
+		detail["BillableStatus"] = "Billable"
+	case "false", "0", "no":
+		detail["BillableStatus"] = "NotBillable"
+	}
+	if proj := firstFlag(flags, "project"); proj != "" {
+		detail["ProjectRef"] = map[string]any{"value": proj}
+	}
 	return []map[string]any{{
-		"Amount":     amt,
-		"DetailType": "AccountBasedExpenseLineDetail",
-		"AccountBasedExpenseLineDetail": map[string]any{
-			"AccountRef": map[string]any{"value": acct},
-		},
+		"Amount":                        amt,
+		"DetailType":                    "AccountBasedExpenseLineDetail",
+		"AccountBasedExpenseLineDetail": detail,
 	}}
 }
 
@@ -1617,10 +1929,335 @@ func copyExisting(out, existing map[string]any, keys ...string) {
 	for _, k := range keys {
 		if v := existing[k]; v != nil {
 			if _, ok := out[k]; !ok {
-				out[k] = v
+				out[k] = deepCopyJSON(v)
 			}
 		}
 	}
+}
+
+// deepCopyJSON returns a recursive copy of a decoded JSON value so update
+// bodies never share structure with the fetched `existing` document —
+// in-place edits (e.g. a journal-line account rewrite) would otherwise
+// corrupt the comparison snapshot.
+func deepCopyJSON(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(t))
+		for k, x := range t {
+			m[k] = deepCopyJSON(x)
+		}
+		return m
+	case []any:
+		s := make([]any, len(t))
+		for i, x := range t {
+			s[i] = deepCopyJSON(x)
+		}
+		return s
+	default:
+		return v
+	}
+}
+
+// bodyHasChanges reports whether an update body differs from the existing
+// document in any field other than the identity envelope — a no-op sparse
+// update would otherwise bump SyncToken while changing nothing.
+func bodyHasChanges(body, existing map[string]any) bool {
+	for k, v := range body {
+		switch k {
+		case "Id", "SyncToken", "sparse":
+			continue
+		}
+		if !reflect.DeepEqual(v, existing[k]) {
+			return true
+		}
+	}
+	return false
+}
+
+// linkDepositPayments wires --payments into Deposit LinkedTxn lines. Each id
+// is fetched to recover TotalAmt; the synthesized default line is dropped
+// when only payments are given, while explicit --line-items (add-funds lines)
+// are appended after the payment links.
+func linkDepositPayments(ctx context.Context, ac *apiClient, body map[string]any, flags map[string]string) (map[string]any, error) {
+	raw := firstFlag(flags, "payments")
+	if raw == "" {
+		return body, nil
+	}
+	ids := parseIDList(raw)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("deposit --payments must list payment ids")
+	}
+	var payLines []map[string]any
+	for _, pid := range ids {
+		p, err := fetchV3(ctx, ac, "payment", pid)
+		if err != nil {
+			return nil, fmt.Errorf("deposit --payments: payment %s: %w", pid, err)
+		}
+		amt, err := strconv.ParseFloat(fmt.Sprint(p["TotalAmt"]), 64)
+		if err != nil {
+			return nil, fmt.Errorf("deposit --payments: payment %s has no TotalAmt", pid)
+		}
+		payLines = append(payLines, map[string]any{
+			"Amount":    amt,
+			"LinkedTxn": []map[string]any{{"TxnId": pid, "TxnType": "Payment"}},
+		})
+	}
+	var extra []map[string]any
+	if firstFlag(flags, "line-items", "lines") != "" {
+		extra = lineItemsFlag(flags)
+	}
+	body["Line"] = append(payLines, extra...)
+	return body, nil
+}
+
+// linkBillPaymentCredits wires --supplier-credit-ids/--credit-ids into a
+// BillPayment as VendorCredit LinkedTxn lines. Each credit is fetched for
+// its Balance; an unreadable or fully-consumed credit fails the create
+// instead of silently dropping the application.
+func linkBillPaymentCredits(ctx context.Context, ac *apiClient, body map[string]any, flags map[string]string) (map[string]any, error) {
+	raw := firstFlag(flags, "supplier-credit-ids", "credit-ids")
+	if raw == "" {
+		return body, nil
+	}
+	ids := parseIDList(raw)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("bill-payment --supplier-credit-ids must list vendor credit ids")
+	}
+	var lines []map[string]any
+	switch v := body["Line"].(type) {
+	case []map[string]any:
+		lines = v
+	case []any:
+		for _, l := range v {
+			if m, ok := l.(map[string]any); ok {
+				lines = append(lines, m)
+			}
+		}
+	}
+	for _, cid := range ids {
+		vc, err := fetchV3(ctx, ac, "vendorcredit", cid)
+		if err != nil {
+			return nil, fmt.Errorf("bill-payment --supplier-credit-ids: credit %s: %w", cid, err)
+		}
+		amt, err := strconv.ParseFloat(fmt.Sprint(vc["Balance"]), 64)
+		if err != nil || amt == 0 {
+			amt, err = strconv.ParseFloat(fmt.Sprint(vc["TotalAmt"]), 64)
+		}
+		if err != nil || amt <= 0 {
+			return nil, fmt.Errorf("bill-payment --supplier-credit-ids: credit %s has no usable balance", cid)
+		}
+		lines = append(lines, map[string]any{
+			"Amount":    amt,
+			"LinkedTxn": []map[string]any{{"TxnId": cid, "TxnType": "VendorCredit"}},
+		})
+	}
+	body["Line"] = lines
+	return body, nil
+}
+
+// reconcileFundingType checks the funding account's type against the declared
+// payment type. A credit-card account with an explicit non-CreditCard type is
+// an error (that mismatch is what produced the unmuable legacy Check docs);
+// when no --payment-type was given the type is inferred from the account.
+func reconcileFundingType(ctx context.Context, ac *apiClient, body map[string]any, flags map[string]string) (map[string]any, error) {
+	var acctID, payType string
+	// explicit = the user named a payment type; a structural default (Check
+	// on BillPayment, Cash on Purchase) can be inferred away, a requested
+	// one cannot.
+	explicit := firstFlag(flags, "payment-type", "pay-type", "mode", "type") != "" || flags["cheque"] != ""
+	switch {
+	case body["AccountRef"] != nil: // Purchase
+		acctID = fmt.Sprint(body["AccountRef"].(map[string]any)["value"])
+		payType, _ = body["PaymentType"].(string)
+	case body["CheckPayment"] != nil: // BillPayment on bank account
+		acctID = fmt.Sprint(body["CheckPayment"].(map[string]any)["BankAccountRef"].(map[string]any)["value"])
+		payType = "Check"
+	case body["CreditCardPayment"] != nil:
+		acctID = fmt.Sprint(body["CreditCardPayment"].(map[string]any)["CCAccountRef"].(map[string]any)["value"])
+		payType = "CreditCard"
+	default:
+		return body, nil
+	}
+	if !isNumericID(acctID) {
+		return body, nil
+	}
+	acct, err := fetchV3(ctx, ac, "account", acctID)
+	if err != nil {
+		return body, nil // can't verify — don't block the write
+	}
+	isCard := fmt.Sprint(acct["AccountType"]) == "Credit Card"
+	isCardType := strings.EqualFold(payType, "CreditCard")
+	switch {
+	case isCard && isCardType, !isCard && !isCardType:
+		return body, nil // consistent
+	case isCard && explicit:
+		return nil, fmt.Errorf("funding account %s is a credit card but payment type %q was requested — use --payment-type CreditCard", acctID, payType)
+	case !isCard && explicit:
+		return nil, fmt.Errorf("funding account %s is not a credit card but payment type %q was requested", acctID, payType)
+	}
+	// Not explicit: infer the correct type from the funding account.
+	if isCard {
+		if body["AccountRef"] != nil {
+			body["PaymentType"] = "CreditCard"
+		} else {
+			body["PayType"] = "CreditCard"
+			body["CreditCardPayment"] = body["CheckPayment"]
+			delete(body, "CheckPayment")
+		}
+	}
+	return body, nil
+}
+
+// validateLineTotal rejects a create where --amount disagrees with the sum of
+// the supplied --line-items — otherwise the silent divergence lands as a
+// posting that matches neither the slip nor the split.
+func validateLineTotal(entity string, body map[string]any, flags map[string]string) error {
+	// BillPayment is excluded: --supplier-credit-ids add VendorCredit lines
+	// whose amounts are credit applications, not parts of TotalAmt.
+	switch entity {
+	case "Purchase", "Bill", "VendorCredit", "PurchaseOrder", "ItemReceipt",
+		"Deposit", "CreditCardCredit", "Invoice", "Estimate", "CreditMemo",
+		"SalesReceipt", "RefundReceipt", "Payment":
+	default:
+		return nil
+	}
+	amt, amtSet, err := numericFlag(flags, "amount")
+	if err != nil || !amtSet {
+		return err
+	}
+	if firstFlag(flags, "line-items", "lines") == "" && firstFlag(flags, "payments") == "" {
+		return nil
+	}
+	raw, ok := body["Line"]
+	if !ok {
+		return nil
+	}
+	var lines []any
+	switch v := raw.(type) {
+	case []any:
+		lines = v
+	case []map[string]any:
+		for _, m := range v {
+			lines = append(lines, m)
+		}
+	}
+	var sum float64
+	counted := 0
+	for _, r := range lines {
+		m, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		if a, err := strconv.ParseFloat(fmt.Sprint(m["Amount"]), 64); err == nil {
+			sum += a
+			counted++
+		}
+	}
+	if counted == 0 {
+		return nil
+	}
+	if diff := math.Abs(sum - amt); diff > 0.005 {
+		return fmt.Errorf("%s create: --amount %.2f does not match the %d supplied line(s) totalling %.2f", entity, amt, counted, sum)
+	}
+	return nil
+}
+
+// applyContactFields applies sparse address/phone/currency flags for Vendor
+// and Customer bodies — no defaults, so updates never write a fake address.
+func applyContactFields(out map[string]any, flags map[string]string) {
+	line1 := firstFlag(flags, "address", "line1")
+	city := firstFlag(flags, "city")
+	state := firstFlag(flags, "state")
+	postal := firstFlag(flags, "postcode", "postal")
+	if line1 != "" || city != "" || state != "" || postal != "" {
+		addr := map[string]any{"Country": "AU"}
+		if line1 != "" {
+			addr["Line1"] = line1
+		}
+		if city != "" {
+			addr["City"] = city
+		}
+		if state != "" {
+			addr["CountrySubDivisionCode"] = state
+		}
+		if postal != "" {
+			addr["PostalCode"] = postal
+		}
+		out["BillAddr"] = addr
+	}
+	if phone := firstFlag(flags, "phone"); phone != "" {
+		out["PrimaryPhone"] = map[string]any{"FreeFormNumber": phone}
+	}
+	if cur := firstFlag(flags, "currency"); cur != "" {
+		out["CurrencyRef"] = map[string]any{"value": strings.ToUpper(cur)}
+	}
+}
+
+// applyItemFields applies the item-attribute flags declared by the catalog
+// (sku, prices, preferred supplier, reorder point) to an Item create/update
+// body. Numeric fields validate and error like other money flags.
+func applyItemFields(out map[string]any, flags map[string]string) error {
+	if v := firstFlag(flags, "sku"); v != "" {
+		out["Sku"] = v
+	}
+	if v := firstFlag(flags, "description"); v != "" {
+		out["Description"] = v
+	}
+	for _, f := range []struct{ flag, key string }{
+		{"sales-price", "UnitPrice"},
+		{"purchase-cost", "PurchaseCost"},
+		{"initial-cost", "PurchaseCost"},
+		{"reorder-point", "ReorderPoint"},
+	} {
+		if raw := firstFlag(flags, f.flag); raw != "" {
+			n, err := strconv.ParseFloat(raw, 64)
+			if err != nil {
+				return fmt.Errorf("item --%s must be a number", f.flag)
+			}
+			out[f.key] = n
+		}
+	}
+	if v := firstFlag(flags, "preferred-supplier"); v != "" {
+		out["PrefVendorRef"] = map[string]any{"value": v}
+	}
+	return nil
+}
+
+// applySoleLineField sets key inside detailKey (e.g. DepositLineDetail) on a
+// single-line document body. Multi-line documents must be reshaped with
+// --line-items instead of guessing which line to change.
+func applySoleLineField(body map[string]any, detailKey, key string, val any) error {
+	raw, ok := body["Line"]
+	if !ok {
+		return fmt.Errorf("document has no lines; use --line-items")
+	}
+	var line map[string]any
+	switch lines := raw.(type) {
+	case []any:
+		if len(lines) != 1 {
+			return fmt.Errorf("per-line updates require a single-line document; use --line-items")
+		}
+		line, _ = lines[0].(map[string]any)
+	case []map[string]any:
+		if len(lines) != 1 {
+			return fmt.Errorf("per-line updates require a single-line document; use --line-items")
+		}
+		line = lines[0]
+	}
+	if line == nil {
+		return fmt.Errorf("invalid document line")
+	}
+	detail, _ := line[detailKey].(map[string]any)
+	if detail == nil {
+		detail = map[string]any{}
+		line[detailKey] = detail
+	}
+	detail[key] = val
+	return nil
+}
+
+func applySoleLineAccount(body map[string]any, detailKey, acct string) error {
+	return applySoleLineField(body, detailKey, "AccountRef", map[string]any{"value": acct})
 }
 
 func applyLineAmount(out map[string]any, amt float64) {

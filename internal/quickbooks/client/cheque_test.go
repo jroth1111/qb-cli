@@ -15,6 +15,12 @@ func TestChequeCreateUsesNativeCheckPaymentType(t *testing.T) {
 	var sent map[string]any
 	var persisted map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/account/") {
+			// funding-type preflight: 67 is a bank account, so Check is consistent
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"Account": map[string]any{"Id": "67", "AccountType": "Bank"}})
+			return
+		}
 		if r.Method == http.MethodGet && persisted != nil {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"Purchase": persisted})

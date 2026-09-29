@@ -83,7 +83,7 @@ func newCustomObjectsListCmd(flags *rootFlags) *cobra.Command {
 		Use:   "list",
 		Short: "List custom object definitions (appFoundationsCustomObjectDefinitions query)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if handled, err := dryRunPOST(flags, cmd, "customobjects object list", "QBO.CUSTOMOBJECTS.OBJECT_LIST", client.PlanCustomObjectList()); handled {
+			if handled, err := dryRunPOST(flags, cmd, "customobjects list", "QBO.CUSTOMOBJECTS.OBJECT_LIST", client.PlanCustomObjectList()); handled {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
@@ -108,7 +108,7 @@ func newCustomObjectsGetCmd(flags *rootFlags) *cobra.Command {
 			if err != nil {
 				return feedErr(flags, err)
 			}
-			if handled, derr := dryRunPOST(flags, cmd, "customobjects object get", "", plan); handled {
+			if handled, derr := dryRunPOST(flags, cmd, "customobjects get", "", plan); handled {
 				return derr
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
@@ -161,7 +161,7 @@ func newCostGroupsCreateCmd(flags *rootFlags) *cobra.Command {
 				return feedErr(flags, err)
 			}
 			if flags.dryRun {
-				return writePlan(cmd, flags, planFromClient(cmd, "costgroups group create", "QBO.COSTGROUPS.GROUP_CREATE", modeWired, plan))
+				return writePlan(cmd, flags, planFromClient(cmd, "costgroups create", "QBO.COSTGROUPS.GROUP_CREATE", modeWired, plan))
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
@@ -190,7 +190,7 @@ func newCostGroupsUpdateCmd(flags *rootFlags) *cobra.Command {
 				return feedErr(flags, err)
 			}
 			if flags.dryRun {
-				return writePlan(cmd, flags, planFromClient(cmd, "costgroups group update", "QBO.COSTGROUPS.GROUP_UPDATE", modeWired, plan))
+				return writePlan(cmd, flags, planFromClient(cmd, "costgroups update", "QBO.COSTGROUPS.GROUP_UPDATE", modeWired, plan))
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
@@ -219,9 +219,9 @@ func newCostGroupsDeleteCmd(flags *rootFlags) *cobra.Command {
 			if err != nil {
 				return feedErr(flags, err)
 			}
-			command := "costgroups group delete"
+			command := "costgroups delete"
 			if ff.activate {
-				command = "costgroups group activate"
+				command = "costgroups delete --activate"
 			}
 			if flags.dryRun {
 				return writePlan(cmd, flags, planFromClient(cmd, command, "QBO.COSTGROUPS.GROUP_DELETE", modeWired, plan))

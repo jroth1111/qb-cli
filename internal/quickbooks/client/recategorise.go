@@ -254,11 +254,12 @@ func applyPayee(body, existing map[string]any, payee string) error {
 	if payee == "" {
 		return nil
 	}
-	ref, ok := existing["EntityRef"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("expense has no payee (EntityRef) to move")
+	entityType := "Vendor"
+	if ref, ok := existing["EntityRef"].(map[string]any); ok {
+		if t, _ := ref["type"].(string); t != "" {
+			entityType = t
+		}
 	}
-	entityType, _ := ref["type"].(string)
 	body["EntityRef"] = map[string]any{"value": payee, "type": entityType}
 	return nil
 }

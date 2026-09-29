@@ -160,6 +160,25 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 			if fm["id"] == "" && fm["txn-id"] != "" {
 				fm["id"] = fm["txn-id"]
 			}
+			// Contract gate: a flag the resolved entity:op never consumes is
+			// rejected loudly (documented meta params carry their reason)
+			// instead of silently dropping out of the request body.
+			var flagNames []string
+			cmd.LocalFlags().VisitAll(func(f *pflag.Flag) { flagNames = append(flagNames, f.Name) })
+			if entity != "" {
+				if verr := client.ValidateMutationFlags(entity, spec.Op, cmd.Flags().Changed,
+					flagNames, mutationDeclaredAllowance(e.ID, paramsFor(e.ID)), mutationMetaSet(e.ID)); verr != nil {
+					return exitInput(verr)
+				}
+			}
+			// --payee on expense/cheque create names a v3 entity id that
+			// becomes EntityRef; a free-text label would be silently dropped
+			// (bank-fee create's label-style payee is the exception).
+			if (e.ID == "QBO.EXPENSES.EXPENSE_CREATE" || e.ID == "QBO.EXPENSES.CHEQUE_CREATE") && spec.Op == "create" {
+				if payee := strings.TrimSpace(fm["payee"]); payee != "" && !isAllDigits(payee) {
+					return exitInput(fmt.Errorf("--payee %q is not a QBO entity id — pass the vendor/customer numeric id (bank-fee create accepts free-text payees)", payee))
+				}
+			}
 			if spec.Op == "create" {
 				for _, p := range paramsFor(e.ID) {
 					if !p.Required || (p.Name != "line-items" && p.Name != "lines" && p.Name != "items") {
@@ -206,46 +225,39 @@ func newV3MutateCmd(flags *rootFlags, e primitiveEntry, command string, spec v3M
 		cmd.Annotations[readbackAnnotation] = "false"
 	}
 	attachParamFlags(cmd, e.ID)
-	ensureFlag(cmd, "id", "target QBO id")
-	ensureFlag(cmd, "amount", "AUD amount")
-	ensureFlag(cmd, "item", "item id for sales lines")
-	ensureFlag(cmd, "account", "account id")
-	ensureFlag(cmd, "start-date", "budget start date dd/MM/yyyy (alternative to --fiscal-year)")
-	ensureFlag(cmd, "from-account", "debit/from account id")
-	ensureFlag(cmd, "to-account", "credit/to account id")
-	ensureFlag(cmd, "name", "display or account name")
-	ensureFlag(cmd, "type", "account or item type")
-	ensureFlag(cmd, "customer", "customer id")
-	ensureFlag(cmd, "supplier", "supplier/vendor id")
-	ensureFlag(cmd, "bill-id", "bill id to pay (BillPayment)")
-	ensureFlag(cmd, "category-account", "expense/category account id (distinct from payment)")
-	ensureFlag(cmd, "payment-type", "Cash, Check, or CreditCard")
-	ensureFlag(cmd, "pay-type", "Check or CreditCard (BillPayment)")
-	ensureFlag(cmd, "email", "email address to send to")
-	ensureFlag(cmd, "to", "override recipient email (invoice send)")
-	ensureFlag(cmd, "employee", "employee id for timesheets and mileage")
-	ensureFlag(cmd, "hours", "hours for TimeActivity")
-	if spec.Entity == "TimeActivity" {
-		ensureFlag(cmd, "rate", "hourly rate for TimeActivity (defaults to zero)")
-		ensureFlag(cmd, "billable", "true or false for TimeActivity billing")
+	// The shared surface is the contract's data (cli/mutation_contract.go);
+	// adding a flag here means every v3 mutate command accepts it — set-but-
+	// unconsumed flags are still rejected by ValidateMutationFlags at RunE.
+	for _, sf := range sharedMutationFlags {
+		ensureFlag(cmd, sf.name, sf.help)
 	}
-	ensureFlag(cmd, "qty", "quantity difference for inventory adjust")
-	ensureFlag(cmd, "subtype", "account subtype (e.g. SuppliesMaterialsCogs)")
-	ensureFlag(cmd, "income-account", "income account id for items")
-	ensureFlag(cmd, "expense-account", "COGS/expense account id for inventory items")
-	ensureFlag(cmd, "asset-account", "inventory asset account id")
-	ensureFlag(cmd, "discount", "invoice discount amount")
-	ensureFlag(cmd, "discount-percent", "invoice discount percent")
-	ensureFlag(cmd, "invoice-id", "invoice id to link (credit memo / write-off / payment)")
-	ensureFlag(cmd, "time-activity", "TimeActivity id to bill on an invoice")
-	ensureFlag(cmd, "address", "billing street address")
-	ensureFlag(cmd, "charge-date", "delayed charge date")
-	ensureFlag(cmd, "credit-date", "delayed credit date")
+	// Contract-driven attachment: every flag the resolved entity:op consumes
+	// must be reachable on the command — this is the reverse-drift guard made
+	// physical (consumed ⇒ attached).
+	if consumed, ok := client.MutationFlagsConsumed(spec.Entity, spec.Op); ok {
+		for _, n := range consumed {
+			ensureFlag(cmd, n, "consumed by "+spec.Entity+" "+spec.Op+" (mutation contract)")
+		}
+	}
 	if spec.Entity == "" {
 		ensureFlag(cmd, "entity", "v3 entity to void: invoice, payment, salesreceipt, bill")
 	}
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
+}
+
+// isAllDigits reports whether s is a nonempty run of ASCII digits — the
+// shape of a QBO v3 entity id.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // firstFlagString returns the first non-empty flag value among names.
@@ -334,13 +346,15 @@ func newProjectCmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Co
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "Work_Project global id (get/update)")
-	ensureFlag(cmd, "name", "project name")
-	ensureFlag(cmd, "customer", "v3 customer id the project belongs to (create)")
-	ensureFlag(cmd, "description", "project description/notes")
-	ensureFlag(cmd, "due-date", "project due date YYYY-MM-DD")
-	ensureFlag(cmd, "status", "project status enum (e.g. Inprogress)")
-	ensureFlag(cmd, "query", "client-side substring filter")
-	ensureFlag(cmd, "limit", "max results")
+	if use == "create" || use == "update" {
+		for _, n := range dedicatedConsumed[e.ID] {
+			ensureFlag(cmd, n, "consumed by "+command+" (mutation contract)")
+		}
+	}
+	if use == "get" || use == "search" {
+		ensureFlag(cmd, "query", "client-side substring filter")
+		ensureFlag(cmd, "limit", "max results")
+	}
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -420,16 +434,19 @@ func newFixedAssetCmd(flags *rootFlags, e primitiveEntry, command, op string) *c
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "assetId (update/delete)")
-	ensureFlag(cmd, "name", "asset display name")
-	ensureFlag(cmd, "price", "purchase price (alias of --cost)")
-	ensureFlag(cmd, "purchase-date", "purchase date yyyy-MM-dd")
-	ensureFlag(cmd, "asset-account", "COA account id for the asset (create)")
-	ensureFlag(cmd, "dep-expense-account", "COA account id for depreciation expense (create)")
-	ensureFlag(cmd, "life-years", "useful life in years (alias of --useful-life)")
-	ensureFlag(cmd, "salvage", "salvage value")
-	ensureFlag(cmd, "method", "depreciation method: STRAIGHT_LINE, DIMINISHING_VALUE_150")
-	ensureFlag(cmd, "currency", "currency code (default AUD)")
-	ensureFlag(cmd, "description", "asset description")
+	if op != "delete" {
+		ensureFlag(cmd, "name", "asset display name")
+		ensureFlag(cmd, "cost", "purchase cost (alias of --price)")
+		ensureFlag(cmd, "price", "purchase price (alias of --cost)")
+		ensureFlag(cmd, "purchase-date", "purchase date yyyy-MM-dd")
+		ensureFlag(cmd, "asset-account", "COA account id for the asset (create)")
+		ensureFlag(cmd, "dep-expense-account", "COA account id for depreciation expense (create)")
+		ensureFlag(cmd, "life-years", "useful life in years (alias of --useful-life)")
+		ensureFlag(cmd, "salvage", "salvage value")
+		ensureFlag(cmd, "method", "depreciation method: STRAIGHT_LINE, DIMINISHING_VALUE_150")
+		ensureFlag(cmd, "currency", "currency code (default AUD)")
+		ensureFlag(cmd, "description", "asset description")
+	}
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -547,10 +564,11 @@ func newTripMutateCmd(flags *rootFlags, e primitiveEntry, command, op string) *c
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "trip node id (update/delete)")
-	ensureFlag(cmd, "date", "trip date dd/MM/yyyy (create)")
-	ensureFlag(cmd, "start", "start address (free text)")
-	ensureFlag(cmd, "end", "end address (free text)")
-	ensureFlag(cmd, "purpose", "business purpose / description")
+	if op != "delete" {
+		for _, n := range dedicatedConsumed[e.ID] {
+			ensureFlag(cmd, n, "consumed by "+command+" (mutation contract)")
+		}
+	}
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -592,6 +610,7 @@ func newCurrencyRateCmd(flags *rootFlags, e primitiveEntry, command string) *cob
 	ensureFlag(cmd, "id", "3-letter currency code (e.g. USD)")
 	ensureFlag(cmd, "rate", "exchange rate vs home currency")
 	ensureFlag(cmd, "date", "rate effective date dd/MM/yyyy (default today)")
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -631,6 +650,7 @@ func newCurrencyDeleteCmd(flags *rootFlags, e primitiveEntry, command string) *c
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "id", "3-letter currency code (e.g. NZD)")
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -679,6 +699,7 @@ func newReclassifyCmd(flags *rootFlags, e primitiveEntry, command string) *cobra
 	ensureFlag(cmd, "from", "start date dd/MM/yyyy (default last month)")
 	ensureFlag(cmd, "to", "end date dd/MM/yyyy (default today)")
 	ensureFlag(cmd, "basis", "accrual | cash (default accrual)")
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -717,6 +738,7 @@ func newBackupCreateCmd(flags *rootFlags, e primitiveEntry, command string) *cob
 	}
 	attachParamFlags(cmd, e.ID)
 	ensureFlag(cmd, "type", "incremental | full | complete (default incremental)")
+	attachDedicatedConsumed(cmd, e.ID)
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }

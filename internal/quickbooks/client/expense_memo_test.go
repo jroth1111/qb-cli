@@ -92,3 +92,28 @@ func TestExpenseUpdateRejectsInvalidExplicitLines(t *testing.T) {
 		}
 	}
 }
+
+// collectFlags lands unset bool flags as "false"; explicit --line-items must
+// not trip the single-line billable/project write that assumes one line.
+func TestExpenseUpdateLineItemsIgnoresDefaultBillable(t *testing.T) {
+	existing := map[string]any{
+		"Id": "31767", "SyncToken": "1", "PaymentType": "CreditCard",
+		"AccountRef": map[string]any{"value": "204"},
+		"Line": []any{map[string]any{
+			"Id": "1", "Amount": 10.02, "DetailType": "AccountBasedExpenseLineDetail",
+			"AccountBasedExpenseLineDetail": map[string]any{"AccountRef": map[string]any{"value": "203"}},
+		}},
+	}
+	raw := `[{"Id":"1","Amount":4.70,"DetailType":"AccountBasedExpenseLineDetail","AccountBasedExpenseLineDetail":{"AccountRef":{"value":"203"},"ClassRef":{"value":"3700000000001534406"}}},{"Id":"2","Amount":5.32,"DetailType":"AccountBasedExpenseLineDetail","AccountBasedExpenseLineDetail":{"AccountRef":{"value":"203"},"ClassRef":{"value":"3700000000001477086"}}}]`
+	body, err := buildUpdateBody("Purchase", map[string]string{"line-items": raw, "billable": "false", "project": ""}, existing)
+	if err != nil {
+		t.Fatalf("multi-line --line-items rejected by default billable flag: %v", err)
+	}
+	var wanted []map[string]any
+	if err := json.Unmarshal([]byte(raw), &wanted); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(body["Line"], wanted) {
+		t.Fatalf("supplied lines replaced by synth-flag write: %#v", body["Line"])
+	}
+}

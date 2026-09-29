@@ -62,6 +62,271 @@ func paramsFor(id string) []paramDoc {
 	if id == "QBO.EXPENSES.EXPENSE_EDIT" {
 		out = append(out, p("memo", "string", "replace the non-empty expense memo; omitted preserves it", false, ""))
 	}
+	// Fields the v3 builders already honour (TxnDate via transactionDateFlag,
+	// PrivateNote via --memo) that the generated catalog never declared —
+	// omitting them forced backdated expenses and bill memo edits into the UI.
+	for _, x := range map[string][]paramDoc{
+		"QBO.EXPENSES.EXPENSE_CREATE": {
+			p("txn-date", "string", "posting date dd/MM/yyyy or yyyy-MM-dd; defaults to today — required for prior-period expenses", false, ""),
+			p("memo", "string", "PrivateNote memo on the expense — link provider account, service unit, invoice/receipt", false, ""),
+			p("payment-type", "string", "Cash, Check, or CreditCard; set CreditCard when the funding account is a card", false, ""),
+		},
+		"QBO.EXPENSES.CHEQUE_CREATE": {
+			p("txn-date", "string", "posting date dd/MM/yyyy or yyyy-MM-dd; defaults to today — required for prior-period cheques", false, ""),
+			p("memo", "string", "PrivateNote memo on the cheque — link provider account, service unit, invoice/receipt", false, ""),
+			p("billable", "string", "true/false — marks the synthesized expense line BillableStatus", false, ""),
+			p("project", "string", "project/customer-ref id applied to the synthesized line's ProjectRef", false, ""),
+		},
+		"QBO.EXPENSES.EXPENSE_EDIT": {
+			p("txn-date", "string", "move the posting date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("payee", "string", "move the expense to a different payee entity id (vendor/customer/employee)", false, ""),
+		},
+		"QBO.EXPENSES.BILL_CREATE": {
+			p("memo", "string", "PrivateNote memo on the bill — link provider account, service unit, invoice reference", false, ""),
+			p("billable", "string", "true/false — marks the synthesized expense line BillableStatus", false, ""),
+			p("project", "string", "project/customer-ref id applied to the synthesized line's ProjectRef", false, ""),
+		},
+		"QBO.EXPENSES.BILL_EDIT": {
+			p("txn-date", "string", "move the bill date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("due-date", "string", "bill due date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing due date", false, ""),
+			p("memo", "string", "PrivateNote memo on the bill — link provider account, service unit, invoice reference", false, ""),
+		},
+		"QBO.EXPENSES.BILL_PAYMENT_CREATE": {
+			p("txn-date", "string", "payment date dd/MM/yyyy or yyyy-MM-dd; defaults to today — required for prior-period payments", false, ""),
+			p("pay-type", "string", "Check or CreditCard; omitted is inferred from the funding account type", false, ""),
+			p("payment-method", "string", "payment method id (PaymentMethodRef) recorded on the payment", false, ""),
+			p("supplier-credit-ids", "string", "comma-separated vendor credit ids applied to the payment as LinkedTxn lines", false, ""),
+		},
+		"QBO.EXPENSES.BILL_PAY": {
+			p("txn-date", "string", "payment date dd/MM/yyyy or yyyy-MM-dd; defaults to today — required for prior-period payments", false, ""),
+			p("pay-type", "string", "Check or CreditCard; omitted is inferred from the funding account type", false, ""),
+			p("memo", "string", "PrivateNote memo; existing bracketed ledger annotations must be retained", false, ""),
+		},
+		"QBO.EXPENSES.BILL_PAYMENT_EDIT": {
+			p("txn-date", "string", "move the payment date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo; existing bracketed ledger annotations must be retained", false, ""),
+		},
+		"QBO.EXPENSES.VENDOR_CREDIT_CREATE": {
+			p("memo", "string", "PrivateNote memo on the vendor credit — link the originating bill or return", false, ""),
+			p("billable", "string", "true/false — marks the synthesized expense line BillableStatus", false, ""),
+			p("project", "string", "project/customer-ref id applied to the synthesized line's ProjectRef", false, ""),
+		},
+		"QBO.EXPENSES.VENDOR_CREDIT_EDIT": {
+			p("txn-date", "string", "move the credit date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo; existing bracketed ledger annotations must be retained", false, ""),
+			p("supplier", "string", "move the vendor credit to a different supplier id — sparse update, lines preserved", false, ""),
+		},
+		"QBO.INVENTORY.PURCHASE_ORDER_CREATE": {
+			p("memo", "string", "PrivateNote memo on the purchase order — internal note, not sent to the supplier", false, ""),
+			p("billable", "string", "true/false — marks the synthesized expense line BillableStatus", false, ""),
+			p("project", "string", "project/customer-ref id applied to the synthesized line's ProjectRef", false, ""),
+		},
+		"QBO.INVENTORY.PURCHASE_ORDER_EDIT": {
+			p("txn-date", "string", "move the PO date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo on the purchase order — internal note, not sent to the supplier", false, ""),
+			p("supplier", "string", "move the purchase order to a different supplier id — sparse update, lines preserved", false, ""),
+		},
+		"QBO.EXPENSES.CHEQUE_EDIT": {
+			p("txn-date", "string", "move the posting date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo; existing bracketed ledger annotations must be retained", false, ""),
+			p("billable", "string", "true/false — BillableStatus on a single-line cheque (use --line-items for multi-line)", false, ""),
+			p("project", "string", "project/customer-ref id applied to a single-line cheque's ProjectRef", false, ""),
+		},
+		"QBO.EXPENSES.BANK_FEE_CREATE": {
+			p("memo", "string", "PrivateNote memo on the bank fee — e.g. statement period the fee covers", false, ""),
+			p("billable", "string", "true/false — marks the synthesized expense line BillableStatus", false, ""),
+			p("project", "string", "project/customer-ref id applied to the synthesized line's ProjectRef", false, ""),
+		},
+		"QBO.EXPENSES.GIFT_CERTIFICATE_CREATE": {
+			p("memo", "string", "PrivateNote memo on the purchase — link supplier or invoice reference", false, ""),
+			p("billable", "string", "true/false — marks the synthesized expense line BillableStatus", false, ""),
+			p("project", "string", "project/customer-ref id applied to the synthesized line's ProjectRef", false, ""),
+		},
+		"QBO.ACCOUNTING.TRANSFER_CREATE": {
+			p("memo", "string", "PrivateNote memo on the transfer — describe what the movement is for", false, ""),
+		},
+		"QBO.ACCOUNTING.DEPOSIT_CREATE": {
+			p("line-items", "string", "JSON array of full v3 Deposit line objects — add-funds lines appended after --payments links", false, ""),
+			p("memo", "string", "PrivateNote memo on the deposit — add-funds lines may also carry their own memos", false, ""),
+		},
+		"QBO.ACCOUNTING.DEPOSIT_EDIT": {
+			p("account", "string", "move the deposit into a different bank account id (DepositToAccountRef)", false, ""),
+			p("line-items", "string", "JSON array of full v3 Deposit line objects; replaces all existing lines", false, ""),
+		},
+
+		"QBO.ACCOUNTING.JOURNAL_EDIT": {
+			p("line-items", "string", "JSON array of full v3 JournalEntry line objects; replaces all existing lines", false, ""),
+		},
+		"QBO.ACCOUNTING.RECURRING_CREATE": {
+			p("customer", "string", "customer id the recurring invoice template bills (required by the builder)", true, ""),
+			p("amount", "string", "AUD amount for the generated invoice line", false, ""),
+			p("name", "string", "template name stored on RecurringInfo.Name", false, ""),
+			p("item", "string", "item id for the generated sales line (defaults to a generic service item)", false, ""),
+			p("line-items", "string", "JSON array of full v3 sales line objects for the template", false, ""),
+			p("end-date", "string", "schedule end date (ScheduleInfo.EndDate) dd/MM/yyyy", false, ""),
+			p("next-date", "string", "next run date (ScheduleInfo.NextDate) dd/MM/yyyy", false, ""),
+		},
+		"QBO.SALES.INVOICE_CREATE": {
+			p("memo", "string", "PrivateNote memo on the invoice — internal note, not shown to the customer", false, ""),
+			p("email", "string", "BillEmail billing address on the invoice; omitted preserves the existing one", false, ""),
+			p("address", "string", "billing street line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+		},
+		"QBO.SALES.INVOICE_EDIT": {
+			p("txn-date", "string", "move the invoice date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("due-date", "string", "invoice due date dd/MM/yyyy or yyyy-MM-dd", false, ""),
+			p("memo", "string", "PrivateNote memo on the invoice — internal note, not shown to the customer", false, ""),
+			p("email", "string", "BillEmail billing address on the invoice; omitted preserves the existing one", false, ""),
+			p("line-items", "string", "JSON array of full v3 Line objects; replaces all existing lines", false, ""),
+		},
+		"QBO.SALES.ESTIMATE_CREATE": {
+			p("memo", "string", "PrivateNote memo on the estimate — internal note, not shown to the customer", false, ""),
+			p("email", "string", "BillEmail address on the estimate; omitted preserves the existing one", false, ""),
+			p("address", "string", "billing street line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+		},
+		"QBO.SALES.ESTIMATE_EDIT": {
+			p("txn-date", "string", "move the estimate date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo on the estimate — internal note, not shown to the customer", false, ""),
+			p("email", "string", "BillEmail address on the estimate; omitted preserves the existing one", false, ""),
+			p("line-items", "string", "JSON array of full v3 Line objects; replaces all existing lines", false, ""),
+		},
+		"QBO.SALES.CREDIT_MEMO_CREATE": {
+			p("memo", "string", "PrivateNote memo on the credit memo — link the originating invoice or return", false, ""),
+			p("address", "string", "billing street line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+			p("email", "string", "customer BillEmail address set on the credit memo", false, ""),
+		},
+		"QBO.SALES.CREDIT_MEMO_EDIT": {
+			p("txn-date", "string", "move the credit date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo on the credit memo — link the originating invoice or return", false, ""),
+			p("line-items", "string", "JSON array of full v3 Line objects; replaces all existing lines", false, ""),
+		},
+		"QBO.SALES.RECEIPT_CREATE": {
+			p("memo", "string", "PrivateNote memo on the sales receipt — link the payment or register entry", false, ""),
+			p("address", "string", "billing street line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+			p("email", "string", "customer BillEmail address set on the sales receipt", false, ""),
+		},
+		"QBO.SALES.RECEIPT_EDIT": {
+			p("txn-date", "string", "move the receipt date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo on the sales receipt — link the payment or register entry", false, ""),
+			p("line-items", "string", "JSON array of full v3 Line objects; replaces all existing lines", false, ""),
+		},
+		"QBO.SALES.REFUND_RECEIPT_CREATE": {
+			p("memo", "string", "PrivateNote memo on the refund receipt — link the original charge being refunded", false, ""),
+			p("address", "string", "billing street line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+			p("email", "string", "customer BillEmail address set on the refund receipt", false, ""),
+		},
+		"QBO.SALES.REFUND_RECEIPT_EDIT": {
+			p("txn-date", "string", "move the refund date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo on the refund receipt — link the original charge being refunded", false, ""),
+			p("line-items", "string", "JSON array of full v3 Line objects; replaces all existing lines", false, ""),
+		},
+		"QBO.SALES.PAYMENT_CREATE": {
+			p("memo", "string", "PrivateNote memo on the payment — e.g. deposit batch or remittance reference", false, ""),
+		},
+		"QBO.SALES.PAYMENT_EDIT": {
+			p("txn-date", "string", "move the payment date dd/MM/yyyy or yyyy-MM-dd; omitted preserves the existing date", false, ""),
+			p("memo", "string", "PrivateNote memo on the payment — e.g. deposit batch or remittance reference", false, ""),
+			p("amount", "string", "payment amount; the existing single-line allocation is rescaled to match", false, ""),
+		},
+		"QBO.EXPENSES.SUPPLIER_CREATE": {
+			p("city", "string", "supplier address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "supplier address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "supplier address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+			p("phone", "string", "supplier phone (PrimaryPhone); omitted preserves the existing phone", false, ""),
+			p("email", "string", "supplier email (PrimaryEmailAddr); omitted preserves the existing email", false, ""),
+		},
+		"QBO.EXPENSES.SUPPLIER_EDIT": {
+			p("email", "string", "supplier email (PrimaryEmailAddr); omitted preserves the existing email", false, ""),
+			p("phone", "string", "supplier phone (PrimaryPhone); omitted preserves the existing phone", false, ""),
+			p("city", "string", "supplier address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "supplier address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "supplier address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+			p("active", "string", "true/false — deactivate or reactivate the supplier; omitted leaves status unchanged", false, ""),
+		},
+		"QBO.CUSTOMERS.CUSTOMER_CREATE": {
+			p("address", "string", "billing address line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+		},
+		"QBO.CUSTOMERS.CUSTOMER_EDIT": {
+			p("name", "string", "display name (renames the customer); omitted preserves the existing name", false, ""),
+			p("email", "string", "customer email (PrimaryEmailAddr); omitted preserves the existing email", false, ""),
+			p("phone", "string", "customer phone (PrimaryPhone); omitted preserves the existing phone", false, ""),
+			p("address", "string", "billing address line 1 — combined with --city/--state/--postcode into BillAddr", false, ""),
+			p("city", "string", "billing address city — combined with --address/--state/--postcode into BillAddr", false, ""),
+			p("state", "string", "billing address state — combined with --address/--city/--postcode into BillAddr", false, ""),
+			p("postcode", "string", "billing address postcode — combined with --address/--city/--state into BillAddr", false, ""),
+			p("active", "string", "true/false — deactivate or reactivate the customer; omitted leaves status unchanged", false, ""),
+		},
+		"QBO.PAYROLL.EMPLOYEE_EDIT": {
+			p("email", "string", "employee email (PrimaryEmailAddr); omitted preserves the existing email", false, ""),
+			p("active", "string", "true/false — deactivate or reactivate the employee; omitted leaves status unchanged", false, ""),
+		},
+		"QBO.INVENTORY.ITEM_EDIT": {
+			p("name", "string", "item name (renames the item); omitted preserves the existing name", false, ""),
+			p("sku", "string", "stock keeping unit (Sku); omitted preserves the existing sku", false, ""),
+			p("income-account", "string", "income account id for the item (IncomeAccountRef); omitted preserves it", false, ""),
+			p("expense-account", "string", "COGS/expense account id for the item (ExpenseAccountRef); omitted preserves it", false, ""),
+			p("sales-price", "string", "unit sales price (UnitPrice); omitted preserves the existing price", false, ""),
+			p("purchase-cost", "string", "unit purchase cost (PurchaseCost); omitted preserves the existing cost", false, ""),
+			p("description", "string", "item sales description; omitted preserves the existing description", false, ""),
+			p("active", "string", "true/false — deactivate or reactivate the item; omitted leaves status unchanged", false, ""),
+		},
+		"QBO.INVENTORY.ITEM_CREATE": {
+			p("expense-account", "string", "COGS/expense account id (Inventory type); defaults to account 40", false, ""),
+			p("asset-account", "string", "inventory asset account id (alias of --inventory-asset-account); defaults to 42", false, ""),
+			p("qty", "string", "opening quantity on hand (alias of --initial-qty); defaults to 1 for Inventory", false, ""),
+			p("description", "string", "item sales description; omitted preserves the existing description", false, ""),
+			p("txn-date", "string", "inventory tracking start date (InvStartDate) for Inventory items; defaults to today", false, ""),
+		},
+		"QBO.INVENTORY.ADJUST_CREATE": {
+			p("account", "string", "adjustment GL account id (required) — the offset account for the quantity change", true, ""),
+			p("doc-number", "string", "adjustment reference number (DocNumber); defaults to QB-ADJ-<HHMMSS>", false, ""),
+		},
+
+		// Drift-audit declarations: flags the v3 builders consume that the
+		// catalog never declared (consumed-but-unattached was the silent-drop
+		// class; these make the surface match the builder).
+		"QBO.ACCOUNTING.BUDGET_CREATE": {
+			p("end-date", "string", "budget end date dd/MM/yyyy; defaults to the AU financial year end after start", false, ""),
+			p("date", "string", "budget start fallback dd/MM/yyyy when neither --start-date nor --fiscal-year is set", false, ""),
+		},
+		"QBO.COMPANY.TERM_EDIT": {
+			p("active", "string", "true/false — deactivate or reactivate the term; omitted leaves status unchanged", false, ""),
+			p("type", "string", "term type (e.g. NET/DATE_DRIVEN) — sparse overwrite of the existing Type", false, ""),
+			p("due-days", "string", "days until due (DueDays); omitted preserves the existing value", false, ""),
+		},
+		"QBO.COMPANY.PAYMENT_METHOD_EDIT": {
+			p("active", "string", "true/false — deactivate or reactivate the payment method", false, ""),
+		},
+		"QBO.ACCOUNTING.DEPARTMENT_EDIT": {
+			p("active", "string", "true/false — deactivate or reactivate the department", false, ""),
+		},
+		"QBO.PAYROLL.TIMESHEET_EDIT": {
+			p("date", "string", "activity date dd/MM/yyyy (TxnDate); omitted preserves the existing date", false, ""),
+			p("name-of", "string", "worker kind: Employee or Vendor (NameOf); switches which ref flag applies", false, ""),
+			p("description", "string", "activity description text on the timesheet row", false, ""),
+		},
+	}[id] {
+		if !hasParam(out, x.Name) {
+			out = append(out, x)
+		}
+	}
 	if id == "QBO.SALES.INVOICE_REMIND" {
 		out = append(out, p("send", "bool", "explicitly send a real email; default is preview; verification harnesses refuse sending", false, "false"), p("to", "string", "explicit recipient email; otherwise invoice/customer email", false, ""))
 	}
@@ -150,9 +415,18 @@ func reportParamDocs(id, report string) []paramDoc {
 		p("id", "string", "unsupported for reports; explicit use is rejected (use --report to select a report)", false, ""),
 		p("limit", "int", "unsupported for reports; explicit use is rejected (reports are not paginated entity lists)", false, "0"),
 	}
+	for _, rf := range reportFilterFlags {
+		help := rf.help
+		if report == "TAXABLE_PAYMENTS" {
+			help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
+		}
+		ps = append(ps, p(rf.flag, "string", help, false, ""))
+	}
+	ps = append(ps, p("param", "strings", "additional report param key=value, repeatable — forwarded verbatim to the v3 report service (klass, account, customer, vendor, department, item, term, doc_num, group_by, sort_by, sort_order, date_macro, columns, cleared, printed, qzoom, subcolumns, aging_period, num_periods, past_due, aging_method, apaccount, araccount, appaid, payment_method, source_account_type, transaction_type, name, memo, custom1..3, start/end_created, start/end_moddate, start/end_duedate, duedate_macro, moddate_macro, percent_change); unknown keys are rejected", false, "[]"))
 	if report == "TAXABLE_PAYMENTS" {
 		ps[2].Help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
 		ps[3].Help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
+		ps[len(ps)-1].Help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
 	}
 	if id == "QBO.FEED.REC_REPORT" {
 		ps = append(ps, p("account-id", "string", "unsupported for this company-wide report; explicit use is rejected", false, "204"))
@@ -230,6 +504,15 @@ func v3UniformParams(id string) ([]paramDoc, bool) {
 		p("active", "string", "v3 Active filter: true, false, or all (include inactive)", false, ""),
 		p("limit", "int", "max rows to return from the v3 query endpoint", false, "0"),
 	}, true
+}
+
+func hasParam(list []paramDoc, name string) bool {
+	for _, x := range list {
+		if x.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func firstParams(id string) []paramDoc {
