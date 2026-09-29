@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
+	"slices"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -399,20 +400,12 @@ func mutationAliasSatisfied(name string, attached func(string) bool) bool {
 		return true
 	}
 	for _, group := range mutationAliasGroups {
-		inGroup := false
-		for _, m := range group {
-			if m == name {
-				inGroup = true
-				break
-			}
-		}
+		inGroup := slices.Contains(group, name)
 		if !inGroup {
 			continue
 		}
-		for _, m := range group {
-			if attached(m) {
-				return true
-			}
+		if slices.ContainsFunc(group, attached) {
+			return true
 		}
 	}
 	return false
@@ -437,32 +430,6 @@ func mutationDeclaredAllowance(id string, declared []paramDoc) map[string]bool {
 		}
 	}
 	return out
-}
-
-// mutationAllowedAttachments returns the full set of flag names a resolved
-// command may carry: contract-consumed ∪ declared ∪ meta ∪ shared surface.
-func mutationAllowedAttachments(id, entity, op string, declared []paramDoc) map[string]bool {
-	allowed := map[string]bool{}
-	if consumed, ok := client.MutationFlagsConsumed(entity, op); ok {
-		for _, n := range consumed {
-			allowed[n] = true
-		}
-	}
-	if d, ok := dedicatedConsumed[id]; ok {
-		for _, n := range d {
-			allowed[n] = true
-		}
-	}
-	for _, p := range declared {
-		allowed[p.Name] = true
-	}
-	for n := range mutationMetaParams[id] {
-		allowed[n] = true
-	}
-	for _, sf := range sharedMutationFlags {
-		allowed[sf.name] = true
-	}
-	return allowed
 }
 
 // mutationAttachedNames lists the local flags a resolved command carries.

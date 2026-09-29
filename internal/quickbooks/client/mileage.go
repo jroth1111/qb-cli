@@ -52,8 +52,11 @@ func ReplayTripsList(ctx context.Context, id, query string, limit int) (*QueryRe
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	res := projectEdgeNodes("Trip", "trips.api.intuit.com MileageListQuery", raw,
+	res, err := projectEdgeNodes("Trip", "trips.api.intuit.com MileageListQuery", raw,
 		[]string{"data", "company", "trips", "edges"}, query, limit, resp.StatusCode)
+	if err != nil {
+		return nil, err
+	}
 	if id = strings.TrimSpace(id); id != "" {
 		var keep []QueryItem
 		for _, it := range res.Items {

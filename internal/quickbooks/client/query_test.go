@@ -74,7 +74,7 @@ func TestReplayQueryPagesStartPosition(t *testing.T) {
 		write := func(n, base int) {
 			var rows strings.Builder
 			rows.WriteString(`{"QueryResponse":{"Class":[`)
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if i > 0 {
 					rows.WriteString(",")
 				}

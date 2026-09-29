@@ -10,6 +10,7 @@ package policy
 import (
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -152,6 +153,11 @@ func DeriveOwnerNet(company, class string, r io.Reader) (OwnerNetInput, []string
 			continue
 		}
 		for _, p := range pairs {
+			dr, cr := splitLines(p)
+			if len(dr) != 1 || len(cr) != 1 || !ownerNetPairProved(dr[0], cr[0]) {
+				notes = append(notes, fmt.Sprintf("journal %s pair skipped: balance and same-class attribution not proved", e.Id))
+				continue
+			}
 			pc, _ := classIdentity(p[0])
 			pcMatch := strings.ToLower(pc) == want || strings.ToLower(p[0].ClassID) == want
 			if pc == "" || !pcMatch {
@@ -185,4 +191,13 @@ func DeriveOwnerNet(company, class string, r io.Reader) (OwnerNetInput, []string
 		in.Distribution = &dist
 	}
 	return in, notes, nil
+}
+
+func ownerNetPairProved(debit, credit CheckLine) bool {
+	dc, dr := classIdentity(debit)
+	cc, cr := classIdentity(credit)
+	return dr && cr && dc != "" && dc == cc &&
+		debit.Amount >= 0 && credit.Amount >= 0 &&
+		!math.IsInf(debit.Amount, 0) && !math.IsInf(credit.Amount, 0) &&
+		math.Abs(debit.Amount-credit.Amount) < 0.005
 }

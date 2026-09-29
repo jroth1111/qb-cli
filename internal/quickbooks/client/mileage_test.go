@@ -64,14 +64,11 @@ func TestTripsListQueryFilter(t *testing.T) {
 	}
 }
 
-func TestTripsListSurfacesGraphQLErrorInNote(t *testing.T) {
+func TestTripsListRejectsGraphQLError(t *testing.T) {
 	tripsServer(t, `{"errors":[{"message":"bad filter"}],"data":{"company":{"trips":null}}}`)
 	res, err := ReplayTripsList(context.Background(), "", "", 10)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if res.Counts["items"] != 0 || !strings.Contains(res.Note, "bad filter") {
-		t.Fatalf("result = %+v", res)
+	if err == nil || !strings.Contains(err.Error(), "bad filter") || res != nil {
+		t.Fatalf("GraphQL failure must not report successful emptiness: result=%+v err=%v", res, err)
 	}
 }
 

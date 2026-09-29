@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -78,17 +79,12 @@ func CompanyExists(company string) bool {
 	if err != nil {
 		return false
 	}
-	for _, c := range companies {
-		if c == company {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(companies, company)
 }
 
 // docTitle returns the first markdown heading line, or the basename.
 func docTitle(content string, fallback string) string {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") {
 			return strings.TrimSpace(strings.TrimLeft(line, "#"))

@@ -28,8 +28,8 @@ func recurringQueryServer(t *testing.T, rows []string, rejectWhere bool) (*httpt
 			}
 			// where Id = 'N' — match the live API: return the wrapped row.
 			var id string
-			if i := strings.Index(qs, "Id = '"); i >= 0 {
-				id = strings.SplitN(qs[i+len("Id = '"):], "'", 2)[0]
+			if _, after, ok := strings.Cut(qs, "Id = '"); ok {
+				id = strings.SplitN(after, "'", 2)[0]
 			}
 			for _, row := range rows {
 				if strings.Contains(row, `"Id":"`+id+`"`) {

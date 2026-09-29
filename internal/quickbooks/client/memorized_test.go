@@ -35,6 +35,28 @@ func TestMemorizedEdgesArrayData(t *testing.T) {
 	}
 }
 
+func TestMemorizedEdgesRejectsFalseEmpty(t *testing.T) {
+	for _, body := range []string{
+		`[]`, `null`, `[{"$type":"/Error","data":null}]`,
+		`[{"data":[{"errors":[{"message":"denied"}]}]}]`,
+		`[{"data":{"0":{"company":{"reportDefinitions":{}}}}}]`,
+		`[{"data":{"0":{"company":{"reportDefinitions":{"edges":null}}}}}]`,
+		`[{"data":{"0":{"company":{"reportDefinitions":{"edges":[{"node":null}]}}}}}]`,
+	} {
+		if rows, err := memorizedEdges([]byte(body)); err == nil {
+			t.Fatalf("invalid registry accepted: %s => %+v", body, rows)
+		}
+	}
+	for _, body := range []string{
+		`[{"data":[{"company":{"reportDefinitions":{"edges":[]}}}]}]`,
+		`[{"data":{"0":{"company":{"reportDefinitions":{"edges":[]}}}}}]`,
+	} {
+		if rows, err := memorizedEdges([]byte(body)); err != nil || len(rows) != 0 {
+			t.Fatalf("valid empty registry rejected: %+v, %v", rows, err)
+		}
+	}
+}
+
 func TestMemorizedIDMatch(t *testing.T) {
 	id := "djQuMToxOTM1MTQzMDEwOTkzNTI6NDgzYjZkNTY0Yg:42"
 	for _, want := range []string{id, "42"} {

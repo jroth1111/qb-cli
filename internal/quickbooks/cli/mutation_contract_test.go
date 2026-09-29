@@ -29,7 +29,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 
@@ -292,16 +291,6 @@ func TestMutationContractConsistency(t *testing.T) {
 			}
 		}
 	}
-}
-
-// sortedNames is a test helper for readable failure output.
-func sortedNames(set map[string]bool) []string {
-	out := make([]string, 0, len(set))
-	for n := range set {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // TestMutationBuilderDriftGuard is the source-level drift guard: it scans the

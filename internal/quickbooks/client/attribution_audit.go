@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 )
@@ -195,55 +196,37 @@ func v3QueryAll(ctx context.Context, ac *apiClient, entity, stmt string) ([]json
 	var all []json.RawMessage
 	seen := map[string]bool{}
 	for start := 1; ; start += queryPageSize {
-		page := fmt.Sprintf("%s STARTPOSITION %d MAXRESULTS %d", stmt, start, queryPageSize)
+		page := fmt.Sprintf("%s ORDERBY Id STARTPOSITION %d MAXRESULTS %d", stmt, start, queryPageSize)
 		body, status, err := v3QueryGET(ctx, ac, entity, page)
 		if err != nil {
 			return nil, err
 		}
-		if status == 429 || status >= 500 {
+		if status != http.StatusOK {
 			return nil, &ReplayError{Status: status, Message: errorMessage(body)}
 		}
-		if err := validateQueryEnvelope(entity, body); err != nil {
+		rows, err := queryCollection(entity, body)
+		if err != nil {
 			return nil, err
-		}
-		var envelope struct {
-			QueryResponse map[string]json.RawMessage `json:"QueryResponse"`
-		}
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			return nil, fmt.Errorf("v3 query %s: malformed envelope", entity)
-		}
-		key := queryResponseEntity(entity)
-		raw, ok := envelope.QueryResponse[key]
-		if !ok {
-			// pick the sole collection key if the name differs from the request
-			for k, v := range envelope.QueryResponse {
-				if k != "maxResults" && k != "startPosition" && k != "totalCount" {
-					raw, ok = v, true
-					break
-				}
-			}
-		}
-		var rows []json.RawMessage
-		if ok {
-			_ = json.Unmarshal(raw, &rows)
 		}
 		fresh := 0
 		for _, row := range rows {
 			var probe struct {
 				ID string `json:"Id"`
 			}
-			if json.Unmarshal(row, &probe) == nil && probe.ID != "" {
-				if seen[probe.ID] {
-					continue
-				}
-				seen[probe.ID] = true
+			if json.Unmarshal(row, &probe) != nil || probe.ID == "" {
+				return nil, fmt.Errorf("v3 query %s: row lacks a valid identity", entity)
 			}
+			if seen[probe.ID] {
+				continue
+			}
+			seen[probe.ID] = true
 			all = append(all, row)
 			fresh++
 		}
-		// A full page contributes no new ids — the server is echoing the same
-		// window regardless of STARTPOSITION; stop rather than walk forever.
-		if len(rows) < queryPageSize || fresh == 0 {
+		if len(rows) > 0 && fresh == 0 {
+			return nil, fmt.Errorf("v3 query %s: pagination made no progress; result is incomplete", entity)
+		}
+		if len(rows) < queryPageSize {
 			return all, nil
 		}
 	}

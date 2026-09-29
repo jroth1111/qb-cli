@@ -3,6 +3,7 @@ package gql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestWalkOffsetProgressAndTruncation(t *testing.T) {
 				body = `{"data":{"contacts":{"edges":[]}}}`
 			}
 			calls++
-			return &Response{Body: json.RawMessage(body)}, nil
+			return &Response{Status: 200, Body: json.RawMessage(body)}, nil
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -70,7 +71,7 @@ func TestWalkNestedInputClearsHasNextOnCompletion(t *testing.T) {
 			t.Fatalf("offset = %d, want %d", offset, calls)
 		}
 		calls++
-		return &Response{Body: json.RawMessage(`{"data":{"items":{"edges":[{"node":{"id":"row"}}],"totalCount":2}}}`)}, nil
+		return &Response{Status: 200, Body: json.RawMessage(fmt.Sprintf(`{"data":{"items":{"edges":[{"node":{"id":"row%d"}}],"totalCount":2}}}`, calls))}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -355,11 +356,11 @@ func TestOffsetWalkIgnoresUnrelatedTotalCount(t *testing.T) {
 	calls := 0
 	result, err := walk(context.Background(), Request{Op: op}, Walker{PageSize: 1, MaxPages: 3}, func(context.Context, Request) (*Response, error) {
 		calls++
-		body := `{"data":{"rows":{"edges":[{"node":{"id":"row"}}]},"badge":{"totalCount":0}}}`
+		body := fmt.Sprintf(`{"data":{"rows":{"edges":[{"node":{"id":"row%d"}}]},"badge":{"totalCount":0}}}`, calls)
 		if calls == 3 {
 			body = `{"data":{"rows":{"edges":[]},"badge":{"totalCount":0}}}`
 		}
-		return &Response{Body: json.RawMessage(body)}, nil
+		return &Response{Status: 200, Body: json.RawMessage(body)}, nil
 	})
 	if err != nil || len(result.Nodes) != 2 || calls != 3 {
 		t.Fatalf("calls=%d result=%+v err=%v", calls, result, err)

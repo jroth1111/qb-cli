@@ -195,8 +195,11 @@ func ReplayProjectList(ctx context.Context, id, query string, limit int) (*Query
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	res := projectEdgeNodes("Work_Project", "getJobs_workflow @ accountantworkflow", raw,
+	res, err := projectEdgeNodes("Work_Project", "getJobs_workflow @ accountantworkflow", raw,
 		[]string{"data", "company", "projects", "edges"}, query, limit, resp.StatusCode)
+	if err != nil {
+		return nil, err
+	}
 	if id = strings.TrimSpace(id); id != "" {
 		// Work_Project ids are global ids ending :<numericId> — match either.
 		var keep []QueryItem

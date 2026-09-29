@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -245,9 +246,7 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 	// terminal conditions, so no page ceiling.
 	for {
 		bodyMap := make(map[string]any, len(baseBody)+1)
-		for k, v := range baseBody {
-			bodyMap[k] = v
-		}
+		maps.Copy(bodyMap, baseBody)
 		bodyMap["offset"] = pageOffset
 		body, err := json.Marshal(bodyMap)
 		if err != nil {

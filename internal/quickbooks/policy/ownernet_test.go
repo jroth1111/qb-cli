@@ -34,7 +34,7 @@ func TestOwnerNetComputedFee(t *testing.T) {
 func TestOwnerNetFull(t *testing.T) {
 	res, err := OwnerNet(OwnerNetInput{
 		Revenue:       3100,
-		ManagementFee: f64(647.90),
+		ManagementFee: new(647.90),
 		Cleaning:      f64(210),
 		Internet:      f64(99),
 		PropertyCosts: []float64{300, 220},

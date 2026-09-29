@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
@@ -250,7 +251,9 @@ func printMemorizedRun(stdout io.Writer, flags *rootFlags, res *client.ReportRes
 			}
 			for _, a := range c.Attributes {
 				if a.Name == "indent" {
-					fmt.Sscanf(a.Value, "%d", &indent)
+					if value, err := strconv.Atoi(a.Value); err == nil {
+						indent = max(0, min(value, 64))
+					}
 				}
 			}
 			if v != "" {

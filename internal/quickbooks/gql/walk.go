@@ -2,9 +2,11 @@ package gql
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -91,6 +93,8 @@ func walk(ctx context.Context, req Request, w Walker, execute func(context.Conte
 		inp["offset"] = 0
 	}
 
+	seenPages := map[[32]byte]bool{}
+	seenCursors := map[string]bool{}
 	for page := 0; ; page++ {
 		if w.MaxPages > 0 && page >= w.MaxPages {
 			res.Truncated = res.HasNext
@@ -98,27 +102,51 @@ func walk(ctx context.Context, req Request, w Walker, execute func(context.Conte
 		}
 		resp, err := execute(ctx, Request{Op: req.Op, Variables: vars, Endpoint: req.Endpoint})
 		if err != nil {
+			res.Truncated = true
 			return res, err
+		}
+		if resp == nil || resp.Status != http.StatusOK {
+			res.Truncated = true
+			return res, fmt.Errorf("gql: walk %s page %d: unsuccessful HTTP response", req.Op.Name, page+1)
 		}
 		nodes, hasNext, endCursor, err := extractNodes(resp.Body)
 		if len(w.NodesPath) > 0 && len(resp.Errors) == 0 {
 			nodes, err = extractNodesPath(resp.Body, w.NodesPath)
 		}
 		if err != nil {
+			res.Truncated = true
 			return res, fmt.Errorf("gql: walk %s page %d: %w", req.Op.Name, page+1, err)
+		}
+		if len(nodes) > 0 {
+			b, _ := json.Marshal(nodes)
+			sum := sha256.Sum256(b)
+			if seenPages[sum] {
+				res.Truncated = true
+				return res, fmt.Errorf("gql: walk %s: repeated page; result is incomplete", req.Op.Name)
+			}
+			seenPages[sum] = true
 		}
 		res.Nodes = append(res.Nodes, nodes...)
 		res.Pages++
 		for _, ge := range resp.Errors {
 			res.Errors = append(res.Errors, ge.Message)
 		}
+		if len(res.Errors) > 0 {
+			res.Truncated = true
+			return res, nil
+		}
 		switch style {
 		case WalkCursor:
 			res.HasNext = hasNext
 			res.EndCursor = endCursor
-			if !hasNext || endCursor == "" {
+			if !hasNext {
 				return res, nil
 			}
+			if endCursor == "" || seenCursors[endCursor] {
+				res.Truncated = true
+				return res, fmt.Errorf("gql: walk %s: missing or repeated continuation cursor", req.Op.Name)
+			}
+			seenCursors[endCursor] = true
 			setVarAny(vars, endCursor, "after", "afterCursor", "cursor")
 		case WalkOffset:
 			if total, ok := extractTotalCount(resp.Body); len(w.NodesPath) > 0 && ok && int64(len(res.Nodes)) >= total {
@@ -129,12 +157,9 @@ func walk(ctx context.Context, req Request, w Walker, execute func(context.Conte
 			if len(nodes) == 0 {
 				return res, nil
 			}
-			inc, _ := toInt(w.PageSize)
-			if inc <= 0 {
-				// Without an explicit page size, advance by the rows actually
-				// returned instead of fetching the same offset indefinitely.
-				inc = int64(len(nodes))
-			}
+			// Servers may cap the requested size. Advance by observed rows so
+			// the next request cannot skip the unreturned part of a window.
+			inc := int64(len(nodes))
 			offsetNames := []string{"offset", "skip"}
 			if offsetVar != "" {
 				offsetNames = []string{offsetVar}
@@ -165,10 +190,7 @@ func walk(ctx context.Context, req Request, w Walker, execute func(context.Conte
 				return res, nil
 			}
 			res.HasNext = true
-			inc, _ := toInt(w.PageSize)
-			if inc <= 0 {
-				return res, nil
-			}
+			inc := int64(len(nodes))
 			inp := nestedInput(vars, w.InputVar)
 			cur, _ := toInt(inp["offset"])
 			inp["offset"] = cur + inc

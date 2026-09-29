@@ -273,15 +273,6 @@ var mutationEntityAlias = map[string]string{
 	"Cheque": "Purchase",
 }
 
-// mutationConsumedLookup returns the consumed flag set for an entity:op,
-// resolving the per-op wildcard ("*") when no entity-specific entry exists.
-func mutationConsumedLookup(entity, op string) []string {
-	if v, ok := mutationConsumed[entity+":"+op]; ok {
-		return v
-	}
-	return mutationConsumed["*:"+op]
-}
-
 // MutationFlagsConsumed reports the contract flag set for an entity/op after
 // entity normalization. The second return value reports whether the pair has
 // a contract entry at all.

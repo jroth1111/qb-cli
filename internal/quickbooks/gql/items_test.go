@@ -3,6 +3,7 @@ package gql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestItemsWalkPreservesVariantsAndStopsAtNativeTotal(t *testing.T) {
 			t.Fatalf("offset=%d at request %d", offset, calls)
 		}
 		calls++
-		return &Response{Body: json.RawMessage(`{"data":{"result":{"entities":[{"productsAndServicesListEntity":{"id":"7","entityName":"fixture"},"variants":[{"qboItemId":"8"}]}],"totalCount":2}}}`)}, nil
+		return &Response{Status: 200, Body: json.RawMessage(fmt.Sprintf(`{"data":{"result":{"entities":[{"productsAndServicesListEntity":{"id":"%d","entityName":"fixture"},"variants":[{"qboItemId":"8"}]}],"totalCount":2}}}`, calls))}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +35,9 @@ func TestItemsWalkPreservesVariantsAndStopsAtNativeTotal(t *testing.T) {
 
 func TestItemsWalkRejectsMissingOrMalformedNativeCollection(t *testing.T) {
 	for _, body := range []string{`{"data":{}}`, `{"data":{"result":{"entities":null}}}`, `{"data":{"result":{"entities":{}}}}`} {
-		_, err := walk(context.Background(), ItemsRequest(), Walker{NodesPath: []string{"data", "result", "entities"}}, func(context.Context, Request) (*Response, error) { return &Response{Body: json.RawMessage(body)}, nil })
+		_, err := walk(context.Background(), ItemsRequest(), Walker{NodesPath: []string{"data", "result", "entities"}}, func(context.Context, Request) (*Response, error) {
+			return &Response{Status: 200, Body: json.RawMessage(body)}, nil
+		})
 		if err == nil {
 			t.Fatalf("accepted %s", body)
 		}
@@ -43,7 +46,7 @@ func TestItemsWalkRejectsMissingOrMalformedNativeCollection(t *testing.T) {
 
 func TestEmptyWalkEncodesJSONArray(t *testing.T) {
 	result, err := walk(context.Background(), ItemsRequest(), Walker{NodesPath: []string{"data", "result", "entities"}}, func(context.Context, Request) (*Response, error) {
-		return &Response{Body: json.RawMessage(`{"data":{"result":{"entities":[],"totalCount":0}}}`)}, nil
+		return &Response{Status: 200, Body: json.RawMessage(`{"data":{"result":{"entities":[],"totalCount":0}}}`)}, nil
 	})
 	if err != nil {
 		t.Fatal(err)

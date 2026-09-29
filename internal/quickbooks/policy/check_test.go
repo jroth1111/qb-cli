@@ -5,18 +5,9 @@ import (
 	"testing"
 )
 
-func f64(v float64) *float64 { return &v }
+//go:fix inline
+func f64(v float64) *float64 { return new(v) }
 func f(v float64) string     { return strconv.FormatFloat(v, 'f', -1, 64) }
-
-func findingsByCheck(r CheckResult, check string) []Finding {
-	var out []Finding
-	for _, fnd := range r.Findings {
-		if fnd.Check == check {
-			out = append(out, fnd)
-		}
-	}
-	return out
-}
 
 func hasSeverity(r CheckResult, sev string) bool {
 	for _, fnd := range r.Findings {
@@ -163,7 +154,7 @@ func TestCheckUnbalanced(t *testing.T) {
 		{"Amount":100,"DetailType":"JournalEntryLineDetail","JournalEntryLineDetail":{"PostingType":"Debit","AccountRef":{"value":"89","name":"` + AcctMgmtFeeDebit + `"}}},
 		{"Amount":90,"DetailType":"JournalEntryLineDetail","JournalEntryLineDetail":{"PostingType":"Credit","AccountRef":{"value":"1","name":"` + AcctMgmtIncome + `"}}}]}`
 	inputs, _ := ParseCheckInputs([]byte(entry))
-	res := CheckJournal(inputs[0], CheckOpts{Revenue: f64(478.47)})
+	res := CheckJournal(inputs[0], CheckOpts{Revenue: new(478.47)})
 	if res.Verdict != "fail" || res.Balanced {
 		t.Fatalf("verdict = %s balanced=%v, want fail", res.Verdict, res.Balanced)
 	}

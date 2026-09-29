@@ -66,8 +66,11 @@ func ReplayFinanceAssets(ctx context.Context, id, query string, limit int) (*Que
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	res := projectEdgeNodes("FixedAsset", "assetservice.api.intuit.com financeAssets", raw,
+	res, err := projectEdgeNodes("FixedAsset", "assetservice.api.intuit.com financeAssets", raw,
 		[]string{"data", "financeAssets", "edges"}, query, limit, resp.StatusCode)
+	if err != nil {
+		return nil, err
+	}
 	if id = strings.TrimSpace(id); id != "" {
 		var keep []QueryItem
 		for _, it := range res.Items {

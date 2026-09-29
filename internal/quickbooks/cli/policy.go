@@ -456,8 +456,8 @@ func newPolicyCmd(flags *rootFlags) *cobra.Command {
 					return &ExitError{Code: ExitInputError, Err: fmt.Errorf("--journals requires --class to scope entries to one property"), Silent: flags.asJSON}
 				}
 				var jr io.Reader
-				switch {
-				case onJournals == "-":
+				switch onJournals {
+				case "-":
 					jr = cmd.InOrStdin()
 				default:
 					f, err := os.Open(onJournals)
@@ -484,8 +484,8 @@ func newPolicyCmd(flags *rootFlags) *cobra.Command {
 			var pnlNotes []string
 			if onPnL != "" {
 				var pr io.Reader
-				switch {
-				case onPnL == "-":
+				switch onPnL {
+				case "-":
 					pr = cmd.InOrStdin()
 				default:
 					f, err := os.Open(onPnL)

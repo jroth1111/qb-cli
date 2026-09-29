@@ -524,7 +524,7 @@ func TestExpensesBillListGetSearchUseSanitizedSelect(t *testing.T) {
 		t.Fatalf("bill search: %v", err)
 	}
 	q = expQueryOf(t, srv.lastRawQuery)
-	if got := q.Get("query"); got != "select * from Bill where DocNumber like '%QB-CLI%' maxresults 20" {
+	if got := q.Get("query"); got != "select * from Bill where DocNumber like '%QB-CLI%' orderby Id maxresults 100" {
 		t.Fatalf("search query = %q", got)
 	}
 	if len(res.Items) != 1 || res.Items[0].ID != "160" {

@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -346,13 +347,7 @@ func envFlagValue(env planEnvelope, name, want string) bool {
 		return true
 	}
 	for _, group := range mutationAliasGroups {
-		in := false
-		for _, m := range group {
-			if m == name {
-				in = true
-				break
-			}
-		}
+		in := slices.Contains(group, name)
 		if !in {
 			continue
 		}
@@ -374,7 +369,6 @@ func TestMutationDryRunExhaustive(t *testing.T) {
 
 	var noPlan, noURL []string
 	for _, e := range mutationEntries() {
-		e := e
 		t.Run(e.ID, func(t *testing.T) {
 			args, set := dryRunArgs(t, e, tmpFile)
 			stdout, elapsed, err := runQB(t, args...)

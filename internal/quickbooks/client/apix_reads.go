@@ -106,7 +106,7 @@ func apixGraphQL(ctx context.Context, ac *apiClient, entity, url, host string, d
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	return projectEdgeNodes(entity, note, raw, edgePath, query, limit, resp.StatusCode), nil
+	return projectEdgeNodes(entity, note, raw, edgePath, query, limit, resp.StatusCode)
 }
 
 // ReplayIdentityUsers lists company users via identity.api.intuit.com

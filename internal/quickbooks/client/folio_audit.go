@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -68,23 +69,26 @@ func AuditFolio(ctx context.Context, folioID, from, to string) (*FolioAudit, err
 
 	// Resolve each REPORT page's saved definition once (its stored filters).
 	var pages []*folioAuditPage
+	titles := map[string]bool{}
 	fdr, _ := obj["folioDataRequest"].(map[string]any)
 	rawPages, _ := fdr["pages"].([]any)
 	for i, rp := range rawPages {
 		b, _ := json.Marshal(rp)
 		var p folioReadPage
-		if json.Unmarshal(b, &p) != nil || p.ReportToken == "" {
-			continue
+		if err := json.Unmarshal(b, &p); err != nil {
+			return nil, fmt.Errorf("folio page p%d: %w", i, err)
 		}
 		if p.Type != "REPORT" && p.Type != "URI_REPORT" {
 			continue
 		}
+		if p.ReportToken == "" || strings.TrimSpace(p.Title) == "" || titles[p.Title] {
+			return nil, fmt.Errorf("folio page p%d requires a report token and a unique nonempty title", i)
+		}
+		titles[p.Title] = true
 		ap := &folioAuditPage{Seq: i, Title: p.Title, Token: p.ReportToken,
 			Macro: p.ReportDateMacro, Start: p.StartDate, End: p.EndDate}
 		if err := ap.resolve(ctx); err != nil {
-			audit.Warnings = append(audit.Warnings,
-				fmt.Sprintf("page p%d %q token %s: %v", i, p.Title, p.ReportToken, err))
-			continue
+			return nil, fmt.Errorf("page p%d %q token %s: %w", i, p.Title, p.ReportToken, err)
 		}
 		ap.classify()
 		pages = append(pages, ap)
@@ -98,16 +102,14 @@ func AuditFolio(ctx context.Context, folioID, from, to string) (*FolioAudit, err
 	for _, ap := range pages {
 		if ap.Kind == "alltime" {
 			if err := ap.runDistributions(ctx, from, to, audit); err != nil {
-				audit.Warnings = append(audit.Warnings, fmt.Sprintf("distributions %q: %v", ap.Title, err))
+				return nil, fmt.Errorf("distributions %q: %w", ap.Title, err)
 			}
 			continue
 		}
 		for _, pr := range periods {
 			tot, terr := ap.runPeriod(ctx, pr)
 			if terr != nil {
-				audit.Warnings = append(audit.Warnings,
-					fmt.Sprintf("%s %s: %v", ap.Title, pr.Label, terr))
-				continue
+				return nil, fmt.Errorf("%s %s: %w", ap.Title, pr.Label, terr)
 			}
 			audit.record(pr.Label, ap, tot)
 		}
@@ -210,12 +212,12 @@ func (ap *folioAuditPage) resolve(ctx context.Context) error {
 	if opts == nil {
 		return fmt.Errorf("no resolvedOptions — saved definition unreadable")
 	}
-	for _, c := range strings.Split(opts["class"], ",") {
+	for c := range strings.SplitSeq(opts["class"], ",") {
 		if c = strings.TrimSpace(c); c != "" && !contains(ap.Classes, c) {
 			ap.Classes = append(ap.Classes, c)
 		}
 	}
-	for _, a := range strings.Split(opts["account"], ",") {
+	for a := range strings.SplitSeq(opts["account"], ",") {
 		if a = strings.TrimSpace(a); a != "" {
 			ap.Accounts = append(ap.Accounts, a)
 		}
@@ -311,12 +313,15 @@ func (ap *folioAuditPage) runDistributions(ctx context.Context, from, to string,
 			if werr != nil {
 				return werr
 			}
-			if wt, _ := v3ReportTotals(win.Rows); wt != nil {
-				d.InRange = wt.Total
+			wt, err := v3ReportTotals(win.Rows)
+			if err != nil {
+				return err
 			}
-			if at, _ := v3ReportTotals(all.Rows); at != nil {
-				d.AllTime = at.Total
+			at, err := v3ReportTotals(all.Rows)
+			if err != nil {
+				return err
 			}
+			d.InRange, d.AllTime = wt.Total, at.Total
 		}
 		d.AllTime = roundCents(d.AllTime)
 		d.InRange = roundCents(d.InRange)
@@ -360,6 +365,7 @@ func (a *FolioAudit) record(label string, ap *folioAuditPage, tot *auditTotals) 
 // Delta = combined − Σ class nets; folios without a combined page reconcile
 // purely on leaf agreement.
 func (a *FolioAudit) reconcile() {
+	coverageOK := len(a.Warnings) == 0
 	repTitle := map[string]string{}
 	repIsDetail := map[string]bool{}
 	titleClass := map[string]string{}
@@ -383,6 +389,20 @@ func (a *FolioAudit) reconcile() {
 	earned := map[string]float64{} // class → Σ representative net
 	for i := range a.Periods {
 		pr := &a.Periods[i]
+		pr.UnitSum, pr.CombinedSum, pr.Delta = 0, 0, 0
+		complete := len(repTitle) > 0
+		for _, p := range a.Pages {
+			var present bool
+			switch p.Kind {
+			case "unit":
+				_, present = pr.Units[p.Title]
+			case "combined":
+				_, present = pr.Combined[p.Title]
+			default:
+				continue
+			}
+			complete = complete && present
+		}
 		netsByClass := map[string][]struct {
 			t string
 			v float64
@@ -419,9 +439,9 @@ func (a *FolioAudit) reconcile() {
 		pr.CombinedSum = roundCents(pr.CombinedSum)
 		if hasCombined {
 			pr.Delta = roundCents(pr.CombinedSum - pr.UnitSum)
-			pr.OK = pr.Delta == 0
+			pr.OK = coverageOK && complete && pairsOK && pr.Delta == 0
 		} else {
-			pr.OK = pairsOK
+			pr.OK = coverageOK && complete && pairsOK
 		}
 	}
 	// Position: earned per class (via its representative leaf) minus
@@ -518,7 +538,7 @@ func v3ReportTotals(rows json.RawMessage) (*auditTotals, error) {
 		return nil, fmt.Errorf("report rows unreadable: %w", err)
 	}
 	t := &auditTotals{}
-	var sawNet bool
+	var sawNet, sawFinalNet, sawIncome, sawExpenses bool
 	var sectionSum float64
 	var walk func(n any)
 	walk = func(n any) {
@@ -533,8 +553,12 @@ func v3ReportTotals(rows json.RawMessage) (*auditTotals, error) {
 				switch {
 				case l == "total for income":
 					t.Income = amt
+					sawIncome = true
 				case l == "total for expenses":
 					t.Expenses = amt
+					sawExpenses = true
+				case l == "net income" || l == "net profit" || l == "net loss":
+					t.Net, sawNet, sawFinalNet = amt, true, true
 				case strings.HasPrefix(l, "net"):
 					if !sawNet {
 						t.Net = amt
@@ -556,9 +580,11 @@ func v3ReportTotals(rows json.RawMessage) (*auditTotals, error) {
 			if _, hasRows := m["Rows"]; !hasRows {
 				if label, amt, ok := colDataTotal(m["ColData"]); ok {
 					l := strings.ToLower(label)
-					if strings.HasPrefix(l, "net") && !sawNet {
+					final := l == "net income" || l == "net profit" || l == "net loss"
+					if final || strings.HasPrefix(l, "net") && !sawNet && !sawFinalNet {
 						t.Net = amt
 						sawNet = true
+						sawFinalNet = final
 					}
 				}
 			}
@@ -567,7 +593,7 @@ func v3ReportTotals(rows json.RawMessage) (*auditTotals, error) {
 	for _, r := range rmap.Row {
 		walk(r)
 	}
-	if !sawNet && t.Income != 0 {
+	if !sawNet && (sawIncome || sawExpenses) {
 		t.Net = roundCents(t.Income - t.Expenses)
 	}
 	t.Total = t.Net
@@ -585,18 +611,20 @@ func colDataTotal(cd any) (string, float64, bool) {
 	if len(list) < 2 {
 		return "", 0, false
 	}
-	label, _ := list[0].(map[string]any)["value"].(string)
+	first, _ := list[0].(map[string]any)
+	label, _ := first["value"].(string)
 	if strings.TrimSpace(label) == "" {
 		return "", 0, false
 	}
 	for i := len(list) - 1; i > 0; i-- {
-		s, _ := list[i].(map[string]any)["value"].(string)
+		cell, _ := list[i].(map[string]any)
+		s, _ := cell["value"].(string)
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue
 		}
 		f, err := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
-		if err != nil {
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 			continue // a non-numeric trailing cell (e.g. a name) — keep scanning
 		}
 		return strings.TrimSpace(label), f, true
@@ -656,7 +684,8 @@ func v3TxnRows(cols []string, rows json.RawMessage) ([]auditTxn, error) {
 			}
 			var cells []string
 			for _, c := range cd {
-				v, _ := c.(map[string]any)["value"].(string)
+				cell, _ := c.(map[string]any)
+				v, _ := cell["value"].(string)
 				cells = append(cells, strings.TrimSpace(v))
 			}
 			d := parseTxnDate(cells[0])
@@ -735,9 +764,7 @@ func v3TxnRows(cols []string, rows json.RawMessage) ([]auditTxn, error) {
 		}
 	}
 	if top, ok := rmap["Row"].([]any); ok {
-		for _, r := range top {
-			walk(r)
-		}
+		walk(map[string]any{"Rows": map[string]any{"Row": top}})
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("no transaction rows")
@@ -756,12 +783,7 @@ func parseTxnDate(s string) string {
 }
 
 func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 func strOfMap(m map[string]any, k string) string {

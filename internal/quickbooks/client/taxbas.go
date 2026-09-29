@@ -178,7 +178,7 @@ func ReplayTaxReturns(ctx context.Context, entity, filterExpr, query string, lim
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
 	return projectEdgeNodes(entity, "node__indirect_tax_ui_qbo taxReturns", raw,
-		[]string{"data", "node", "taxReturns", "edges"}, query, limit, resp.StatusCode), nil
+		[]string{"data", "node", "taxReturns", "edges"}, query, limit, resp.StatusCode)
 }
 
 // taxLiabilityDoc is the tax-home agency-node read: per-BAS-box liability
@@ -288,7 +288,7 @@ func ReplayTaxLiability(ctx context.Context, startDate, endDate, query string, l
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
 	return projectEdgeNodes("TaxLiability", "node__indirect_tax_ui_qbo taxLiability", raw,
-		[]string{"data", "node", "taxLiability", "edges"}, query, limit, resp.StatusCode), nil
+		[]string{"data", "node", "taxLiability", "edges"}, query, limit, resp.StatusCode)
 }
 
 // planningforecasting getAllBusinessForecasts — proven live on TC2 (typed
@@ -343,8 +343,11 @@ func ReplayBusinessForecasts(ctx context.Context, id, query string, limit int) (
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	res := projectEdgeNodes("BusinessForecast", "planningforecasting getAllBusinessForecasts", raw,
+	res, err := projectEdgeNodes("BusinessForecast", "planningforecasting getAllBusinessForecasts", raw,
 		[]string{"data", "getAllBusinessForecasts", "edges"}, query, limit, resp.StatusCode)
+	if err != nil {
+		return nil, err
+	}
 	if id = strings.TrimSpace(id); id != "" {
 		var keep []QueryItem
 		for _, it := range res.Items {

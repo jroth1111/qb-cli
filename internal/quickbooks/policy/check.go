@@ -444,7 +444,7 @@ func inferKind(company string, lines []CheckLine) string {
 // entries, unmatched amounts) — callers then keep the mixed-kind error.
 func decomposePairs(company string, lines []CheckLine) [][]CheckLine {
 	dr, cr := splitLines(lines)
-	if len(lines) < 4 || len(dr) == 0 || len(dr) != len(cr) {
+	if len(lines) < 4 || len(dr) == 0 || len(dr) != len(cr) || len(dr)+len(cr) != len(lines) {
 		return nil
 	}
 	key := func(l CheckLine) string {
@@ -511,6 +511,16 @@ func CheckJournal(in CheckInput, opts CheckOpts) CheckResult {
 	}
 
 	dr, cr := splitLines(in.Lines)
+	for i, line := range in.Lines {
+		switch strings.ToLower(line.PostingType) {
+		case "debit", "credit":
+		default:
+			add("error", "line_type", "line %d requires PostingType Debit or Credit", i+1)
+		}
+		if line.Amount < 0 || math.IsNaN(line.Amount) || math.IsInf(line.Amount, 0) {
+			add("error", "line_amount", "line %d requires a finite non-negative amount", i+1)
+		}
+	}
 	for _, l := range dr {
 		res.TotalDebit += l.Amount
 	}

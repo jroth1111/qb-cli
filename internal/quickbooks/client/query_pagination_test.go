@@ -67,7 +67,10 @@ func TestQueryPaginationTerminates(t *testing.T) {
 		}()
 		select {
 		case res := <-done:
-			if res == nil || len(res.Items) != tc.wantItems {
+			if res == nil {
+				t.Fatalf("%s: no result", tc.name)
+			}
+			if len(res.Items) != tc.wantItems {
 				t.Errorf("%s: got %d items, want %d", tc.name, len(res.Items), tc.wantItems)
 			}
 			if atomic.LoadInt64(calls) > tc.maxCalls {
@@ -81,38 +84,28 @@ func TestQueryPaginationTerminates(t *testing.T) {
 }
 
 // A server that ignores STARTPOSITION and always returns the same full page
-// must not hang the walk — the duplicate-page/id guards terminate it.
+// must fail closed, not present the first page as a complete population.
 func TestQueryPaginationNonAdvancingServer(t *testing.T) {
 	saveUsable(t)
 	var calls int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&calls, 1)
 		var rows []string
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			rows = append(rows, fmt.Sprintf(`{"Id":"%d"}`, i+1))
 		}
 		fmt.Fprintf(w, `{"QueryResponse":{"Customer":[%s]}}`, strings.Join(rows, ","))
 	}))
 	t.Cleanup(srv.Close)
 	interceptHTTP(t, srv.URL)
-	done := make(chan *QueryResult, 1)
-	go func() {
-		res, err := ReplayQuery(context.Background(), "Customer", "", "", 0)
-		if err != nil {
-			t.Errorf("non-advancing: %v", err)
-		}
-		done <- res
-	}()
-	select {
-	case res := <-done:
-		if res == nil || len(res.Items) != 100 {
-			t.Fatalf("got %d items, want 100 deduped", len(res.Items))
-		}
-		if atomic.LoadInt64(&calls) > 3 {
-			t.Fatalf("%d calls before stopping", calls)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("non-advancing server hung the walk")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	res, err := ReplayQuery(ctx, "Customer", "", "", 0)
+	if err == nil || res != nil || ctx.Err() != nil {
+		t.Fatalf("repeated page must fail before deadline: result=%+v, err=%v", res, err)
+	}
+	if atomic.LoadInt64(&calls) != 2 {
+		t.Fatalf("%d calls before stopping", calls)
 	}
 }
 

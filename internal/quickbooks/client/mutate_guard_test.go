@@ -22,7 +22,18 @@ func entityServer(t *testing.T, bodies map[string]map[string]any) *httptest.Serv
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		entity := strings.Title(strings.ToLower(segs[len(segs)-2]))
+		entity := ""
+		for name, path := range v3Path {
+			if path == segs[len(segs)-2] {
+				entity = name
+				break
+			}
+		}
+		if entity == "" {
+			t.Errorf("unknown v3 entity path %s", segs[len(segs)-2])
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"%s": %s}`, entity, mustJSON(t, row))
 	}))

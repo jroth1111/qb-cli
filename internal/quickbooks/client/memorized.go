@@ -200,28 +200,50 @@ type memorizedEdge struct {
 // reportDefinitions response uses the latter).
 func memorizedEdges(body []byte) ([]memorizedEdge, error) {
 	var outer []struct {
-		Data json.RawMessage `json:"data"`
+		Data   json.RawMessage   `json:"data"`
+		Type   string            `json:"$type"`
+		Errors []json.RawMessage `json:"errors"`
 	}
 	if err := json.Unmarshal(body, &outer); err != nil {
 		return nil, fmt.Errorf("memorized reports envelope: %w", err)
 	}
 	type companyWrap struct {
-		Company struct {
-			ReportDefinitions struct {
-				Edges []memorizedEdge `json:"edges"`
+		Company *struct {
+			ReportDefinitions *struct {
+				Edges *[]memorizedEdge `json:"edges"`
 			} `json:"reportDefinitions"`
 		} `json:"company"`
+		Errors []json.RawMessage `json:"errors"`
 	}
 	var edges []memorizedEdge
+	sawCollection := false
+	collect := func(d companyWrap) error {
+		if len(d.Errors) > 0 || d.Company == nil || d.Company.ReportDefinitions == nil || d.Company.ReportDefinitions.Edges == nil {
+			return fmt.Errorf("memorized reports: missing reportDefinitions.edges or query error")
+		}
+		sawCollection = true
+		for _, edge := range *d.Company.ReportDefinitions.Edges {
+			if edge.Node == nil || edge.Node.ID == "" {
+				return fmt.Errorf("memorized reports: report node lacks identity")
+			}
+			edges = append(edges, edge)
+		}
+		return nil
+	}
 	for _, row := range outer {
+		if len(row.Errors) > 0 || row.Type != "" && row.Type != "/Result" {
+			return nil, fmt.Errorf("memorized reports: query failed")
+		}
 		if len(row.Data) == 0 || string(row.Data) == "null" {
-			continue
+			return nil, fmt.Errorf("memorized reports: missing query data")
 		}
 		// data as array of {company:{...}}
 		var arr []companyWrap
 		if err := json.Unmarshal(row.Data, &arr); err == nil {
 			for _, d := range arr {
-				edges = append(edges, d.Company.ReportDefinitions.Edges...)
+				if err := collect(d); err != nil {
+					return nil, err
+				}
 			}
 			continue
 		}
@@ -229,9 +251,16 @@ func memorizedEdges(body []byte) ([]memorizedEdge, error) {
 		var obj map[string]companyWrap
 		if err := json.Unmarshal(row.Data, &obj); err == nil {
 			for _, d := range obj {
-				edges = append(edges, d.Company.ReportDefinitions.Edges...)
+				if err := collect(d); err != nil {
+					return nil, err
+				}
 			}
+		} else {
+			return nil, fmt.Errorf("memorized reports: invalid query data")
 		}
+	}
+	if !sawCollection {
+		return nil, fmt.Errorf("memorized reports: no reportDefinitions.edges collection")
 	}
 	return edges, nil
 }

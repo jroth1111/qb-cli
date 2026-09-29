@@ -327,7 +327,7 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	// of rows. Single-page requests keep the historic statement shape;
 	// multi-page requests order by Id so STARTPOSITION paging is stable.
 	// limit <= 0 means no client-side bound: walk until a short page.
-	paged := limit < 1 || limit > queryPageSize
+	paged := limit < 1 || limit > queryPageSize || query != ""
 	responseEntity := queryResponseEntity(entity)
 	var items []QueryItem
 	status := http.StatusOK
@@ -337,17 +337,22 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	// page is byte-identical to an earlier one or contributes no new ids.
 	seenPage := map[[32]byte]bool{}
 	seenID := map[string]bool{}
-	for pages := 0; limit < 1 || len(items) < limit; pages++ {
-		start := 1 + pages*queryPageSize
+	serverQuery := query
+	for start, pages := 1, 0; limit < 1 || len(items) < limit; pages++ {
 		pageSize := queryPageSize
-		if limit > 0 {
+		if limit > 0 && query == "" {
 			if rem := limit - len(items); rem < pageSize {
 				pageSize = rem
 			}
 		}
-		stmt := buildQueryAt(entity, id, query, pageSize, start, paged, act)
+		stmt := buildQueryAt(entity, id, serverQuery, pageSize, start, paged, act)
 		body, code, qerr := v3QueryGET(ctx, ac, entity, stmt)
-		if code == http.StatusBadRequest && query != "" && id == "" {
+		if qerr == nil && code == http.StatusBadRequest && serverQuery != "" && id == "" {
+			serverQuery = ""
+			start = 1
+			items = nil
+			clear(seenPage)
+			clear(seenID)
 			stmt = buildQueryAt(entity, "", "", pageSize, start, paged, act)
 			body, code, qerr = v3QueryGET(ctx, ac, entity, stmt)
 		}
@@ -360,12 +365,21 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		if err := validateQueryEnvelope(responseEntity, body); err != nil {
 			return nil, err
 		}
-		if sum := sha256.Sum256(body); seenPage[sum] {
+		page := projectQuery(responseEntity, body)
+		// Some companies accept the Estimate predicate but return no rows.
+		// The fallback must still search beyond the first unfiltered page.
+		if entity == "Estimate" && serverQuery != "" && id == "" && start == 1 && len(page) == 0 {
+			serverQuery = ""
+			continue
+		}
+		if len(page) == 0 {
 			break
+		}
+		if sum := sha256.Sum256(body); seenPage[sum] {
+			return nil, fmt.Errorf("v3 query %s: pagination repeated; result is incomplete", entity)
 		} else {
 			seenPage[sum] = true
 		}
-		page := projectQuery(responseEntity, body)
 		// First page lands verbatim — consumers use len(items) to detect a
 		// full (capped) page. Later pages drop ids already seen: a server
 		// sliding its window must not double-count rows downstream.
@@ -378,38 +392,18 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 				seenID[it.ID] = true
 			}
 			fresh++
-			items = append(items, it)
+			if query == "" || id != "" || len(filterItems([]QueryItem{it}, query)) > 0 {
+				items = append(items, it)
+			}
 		}
 		status = code
-		if len(page) < pageSize || (len(page) > 0 && fresh == 0) {
+		if fresh == 0 {
+			return nil, fmt.Errorf("v3 query %s: pagination made no progress; result is incomplete", entity)
+		}
+		if len(page) < pageSize {
 			break
 		}
-	}
-	// The live v3 query service accepts the Estimate DocNumber predicate but
-	// returns an empty 200 even when the matching estimate exists. A bounded
-	// unfiltered retry preserves the read/search contract, then the existing
-	// client-side filter applies the requested text. Keep this fallback scoped
-	// to Estimate so ordinary queries do not gain an extra network round trip.
-	if entity == "Estimate" && query != "" && id == "" && len(items) == 0 {
-		fbLimit := limit
-		if fbLimit < 1 || fbLimit > queryPageSize {
-			fbLimit = queryPageSize
-		}
-		stmt := buildQuery(entity, "", "", fbLimit, act)
-		fallbackBody, code, ferr := v3QueryGET(ctx, ac, entity, stmt)
-		if ferr != nil {
-			return nil, ferr
-		}
-		if code != http.StatusOK {
-			return nil, &ReplayError{Status: code, Message: errorMessage(fallbackBody)}
-		}
-		if ferr := validateQueryEnvelope(responseEntity, fallbackBody); ferr != nil {
-			return nil, ferr
-		}
-		items = projectQuery(responseEntity, fallbackBody)
-	}
-	if query != "" && id == "" {
-		items = filterItems(items, query)
+		start += len(page)
 	}
 
 	if limit > 0 && len(items) > limit {
@@ -460,30 +454,60 @@ func queryResponseEntity(entity string) string {
 // validateQueryEnvelope distinguishes a legitimate empty query from an error,
 // XML response, login page, or malformed entity collection.
 func validateQueryEnvelope(entity string, body []byte) error {
+	_, err := queryCollection(entity, body)
+	return err
+}
+
+func queryCollection(entity string, body []byte) ([]json.RawMessage, error) {
 	var envelope map[string]json.RawMessage
 	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
-		return fmt.Errorf("v3 query %s: expected a JSON QueryResponse", entity)
+		return nil, fmt.Errorf("v3 query %s: expected a JSON QueryResponse", entity)
 	}
 	for key, value := range envelope {
 		if (strings.EqualFold(key, "fault") || strings.EqualFold(key, "error") || strings.EqualFold(key, "errors")) && string(value) != "null" {
-			return fmt.Errorf("v3 query %s: API returned an error envelope", entity)
+			return nil, fmt.Errorf("v3 query %s: API returned an error envelope", entity)
 		}
 	}
 	var response map[string]json.RawMessage
 	if json.Unmarshal(envelope["QueryResponse"], &response) != nil || response == nil {
-		return fmt.Errorf("v3 query %s: missing or invalid QueryResponse", entity)
+		return nil, fmt.Errorf("v3 query %s: missing or invalid QueryResponse", entity)
 	}
-	if raw, ok := response[entity]; ok {
-		var rows []map[string]json.RawMessage
-		if json.Unmarshal(raw, &rows) == nil && rows != nil {
-			return nil
+	var collection json.RawMessage
+	var unexpected string
+	for key, raw := range response {
+		if key == "maxResults" || key == "startPosition" || key == "totalCount" {
+			continue
 		}
+		if !strings.EqualFold(key, queryResponseEntity(entity)) {
+			unexpected = key
+			continue
+		}
+		if collection != nil {
+			return nil, fmt.Errorf("v3 query %s: ambiguous entity collection", entity)
+		}
+		collection = raw
+	}
+	if collection == nil {
+		if unexpected != "" {
+			return nil, fmt.Errorf("v3 query %s: unexpected collection %q", entity, unexpected)
+		}
+		return []json.RawMessage{}, nil
+	}
+	var rows []json.RawMessage
+	if json.Unmarshal(collection, &rows) != nil || rows == nil {
 		var row map[string]json.RawMessage
-		if json.Unmarshal(raw, &row) != nil || len(row) == 0 {
-			return fmt.Errorf("v3 query %s: invalid entity collection", entity)
+		if json.Unmarshal(collection, &row) != nil || len(row) == 0 {
+			return nil, fmt.Errorf("v3 query %s: invalid entity collection", entity)
+		}
+		rows = []json.RawMessage{collection}
+	}
+	for _, raw := range rows {
+		var row map[string]json.RawMessage
+		if json.Unmarshal(raw, &row) != nil || row == nil {
+			return nil, fmt.Errorf("v3 query %s: invalid entity row", entity)
 		}
 	}
-	return nil
+	return rows, nil
 }
 
 // ReportOptions carries optional v3 report query parameters. SummarizeColumnBy
@@ -903,23 +927,15 @@ func reportNameOK(name string) bool {
 }
 
 func projectQuery(entity string, body []byte) []QueryItem {
-	var wrap struct {
-		QueryResponse map[string]json.RawMessage `json:"QueryResponse"`
-	}
-	if json.Unmarshal(body, &wrap) != nil || wrap.QueryResponse == nil {
+	rows, err := queryCollection(entity, body)
+	if err != nil {
 		return []QueryItem{}
 	}
-	raw, ok := wrap.QueryResponse[entity]
-	if !ok {
-		return []QueryItem{}
-	}
-	var objs []map[string]json.RawMessage
-	if json.Unmarshal(raw, &objs) != nil {
-		var one map[string]json.RawMessage
-		if json.Unmarshal(raw, &one) != nil {
-			return []QueryItem{}
-		}
-		objs = []map[string]json.RawMessage{one}
+	objs := make([]map[string]json.RawMessage, 0, len(rows))
+	for _, raw := range rows {
+		var obj map[string]json.RawMessage
+		_ = json.Unmarshal(raw, &obj)
+		objs = append(objs, obj)
 	}
 	return projectQueryObjects(entity, objs)
 }

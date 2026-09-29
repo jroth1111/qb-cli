@@ -153,7 +153,7 @@ func Categorise(company, text string) (*CategoriseResult, error) {
 	wordClasses := map[string][]QBClass{}
 	for _, c := range classes {
 		for _, w := range strings.FieldsFunc(strings.ToLower(c.Name), func(r rune) bool {
-			return !(r >= 'a' && r <= 'z')
+			return r < 'a' || r > 'z'
 		}) {
 			if len(w) < 4 || classWordStop[w] {
 				continue

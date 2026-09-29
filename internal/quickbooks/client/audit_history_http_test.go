@@ -83,7 +83,7 @@ func TestAuditSearchPaginatesBeyondFirstPage(t *testing.T) {
 		offsets = append(offsets, offset)
 		logs := make([]map[string]any, 0, 50)
 		if offset == 0 {
-			for i := 0; i < 50; i++ {
+			for i := range 50 {
 				logs = append(logs, map[string]any{"what": map[string]any{"qboAuditId": fmt.Sprintf("login-%d", i), "eventType": "LOGIN", "defaultEventDescription": "Login", "entityType": "audit_info"}})
 			}
 		} else {

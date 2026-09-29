@@ -59,10 +59,10 @@ func parseCOA(company string) ([]Account, []QBClass, error) {
 	var classes []QBClass
 	section := ""
 	inClasses := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "## ") {
-			section = strings.TrimPrefix(trim, "## ")
+		if after, ok := strings.CutPrefix(trim, "## "); ok {
+			section = after
 			// Strip the trailing "(N)" count.
 			if i := strings.LastIndex(section, "("); i > 0 {
 				section = strings.TrimSpace(section[:i])

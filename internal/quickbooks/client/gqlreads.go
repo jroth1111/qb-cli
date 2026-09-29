@@ -35,7 +35,7 @@ func replayIMSPref(ctx context.Context, _, query string, limit int) (*QueryResul
 // replayDimensionDefinitions runs GetCustomDimensionDefinitions on the v4
 // gateway — custom dimension definitions (empty set is a valid read).
 func replayDimensionDefinitions(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
-	vars := map[string]any{"firstCount": limit, "filterCriteria": map[string]any{}}
+	vars := map[string]any{"firstCount": clampFirst(limit), "filterCriteria": map[string]any{}}
 	return replayCatalogQuery(ctx, "GetCustomDimensionDefinitions", "", vars,
 		"DimensionDefinition", query, limit,
 		[]string{"data", "appFoundationsCustomDimensionDefinitions", "edges"})
@@ -45,7 +45,7 @@ func replayDimensionDefinitions(ctx context.Context, _, query string, limit int)
 // list behind the Tasks menu.
 func replayTasks(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
 	vars := map[string]any{
-		"first": limit,
+		"first": clampFirst(limit),
 		"after": 0,
 		"filter": map[string]any{"namespace": map[string]any{
 			"in": taskNamespaces(),
@@ -80,7 +80,7 @@ func taskNamespaces() []any {
 // jurisdiction rows; nexus is a US sales-tax concept).
 func replayTaxJurisdictions(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
 	return replayCatalogQuery(ctx, "TaxJurisdictions__indirect_tax_ui_qbo", "",
-		map[string]any{"DEFAULT_FIRST_COUNT": limit}, "TaxJurisdiction", query, limit,
+		map[string]any{"DEFAULT_FIRST_COUNT": clampFirst(limit)}, "TaxJurisdiction", query, limit,
 		[]string{"data", "company", "taxJurisdictions", "edges"})
 }
 
@@ -89,7 +89,7 @@ func replayTaxJurisdictions(ctx context.Context, _, query string, limit int) (*Q
 // (no inventory-location records on this company).
 func replayWarehouseLocations(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
 	return replayCatalogQuery(ctx, "CommerceInventoryLocations", "",
-		map[string]any{"filter": map[string]any{}, "first": limit},
+		map[string]any{"filter": map[string]any{}, "first": clampFirst(limit)},
 		"InventoryLocation", query, limit,
 		[]string{"data", "commerceInventoryLocations", "nodes"})
 }
@@ -133,39 +133,55 @@ func replayCatalogQuery(ctx context.Context, opName, endpoint string, vars map[s
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
 	}
-	return projectEdgeNodes(entity, opName+" @ "+hostOf(url), raw, edgePath, query, limit, resp.StatusCode), nil
+	return projectEdgeNodes(entity, opName+" @ "+hostOf(url), raw, edgePath, query, limit, resp.StatusCode)
 }
 
 // projectEdgeNodes walks edgePath (e.g. data→company→connections→edges),
 // projects each edge's node onto QueryItem, and applies the substring filter.
-func projectEdgeNodes(entity, note string, body []byte, edgePath []string, query string, limit, status int) *QueryResult {
-	var doc any
+func projectEdgeNodes(entity, note string, body []byte, edgePath []string, query string, limit, status int) (*QueryResult, error) {
+	var doc map[string]any
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return &QueryResult{Entity: entity, Status: status, Counts: map[string]int{"items": 0}, Items: []QueryItem{}, Note: note + " (unparsed)"}
+		return nil, fmt.Errorf("%s: invalid GraphQL response: %w", entity, err)
 	}
-	node := doc
+	if errs, present := doc["errors"]; present && errs != nil {
+		list, ok := errs.([]any)
+		if !ok || len(list) > 0 {
+			if msg := gqlError(body); msg != "" {
+				return nil, fmt.Errorf("%s: GraphQL errors: %s", entity, msg)
+			}
+			return nil, fmt.Errorf("%s: response contains GraphQL errors", entity)
+		}
+	}
+	var node any = doc
 	for _, key := range edgePath {
 		m, ok := node.(map[string]any)
-		if !ok {
-			node = nil
-			break
+		if !ok || m[key] == nil {
+			return nil, fmt.Errorf("%s: missing GraphQL result path %s", entity, strings.Join(edgePath, "."))
 		}
 		node = m[key]
 	}
-	edges, _ := node.([]any)
+	edges, isList := node.([]any)
 	if m, ok := node.(map[string]any); ok {
 		// Object payloads (e.g. imsPref prefs) project as a single row.
+		if len(edgePath) > 0 && (edgePath[len(edgePath)-1] == "edges" || edgePath[len(edgePath)-1] == "nodes") {
+			return nil, fmt.Errorf("%s: GraphQL collection is not an array", entity)
+		}
 		edges = []any{m}
+	} else if !isList {
+		return nil, fmt.Errorf("%s: invalid GraphQL result shape", entity)
 	}
 	q := strings.ToLower(strings.TrimSpace(query))
 	items := make([]QueryItem, 0, len(edges))
 	for _, e := range edges {
 		em, ok := e.(map[string]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("%s: invalid GraphQL row", entity)
 		}
 		nm, ok := em["node"].(map[string]any)
 		if !ok {
+			if len(edgePath) > 0 && edgePath[len(edgePath)-1] == "edges" {
+				return nil, fmt.Errorf("%s: GraphQL edge lacks a node", entity)
+			}
 			nm = em // non-edge payloads: project the object itself
 		}
 		raw, _ := json.Marshal(nm)
@@ -186,22 +202,13 @@ func projectEdgeNodes(entity, note string, body []byte, edgePath []string, query
 			break
 		}
 	}
-	var errNote string
-	var wrap struct {
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if json.Unmarshal(body, &wrap) == nil && len(wrap.Errors) > 0 && wrap.Errors[0].Message != "" {
-		errNote = "; gql: " + wrap.Errors[0].Message
-	}
 	return &QueryResult{
 		Entity: entity,
 		Status: status,
 		Counts: map[string]int{"items": len(items), "totalCount": len(edges)},
 		Items:  items,
-		Note:   fmt.Sprintf("%s edges=%d%s", note, len(edges), errNote),
-	}
+		Note:   fmt.Sprintf("%s edges=%d", note, len(edges)),
+	}, nil
 }
 
 // reconciliationNodeID builds the Relay node id the banking-reconcile UI
