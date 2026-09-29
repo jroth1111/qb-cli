@@ -75,6 +75,7 @@ func (t *TokenSet) RedactedStatus() Status {
 	s.HasAccessToken = t.AccessToken != ""
 	s.HasRefreshToken = t.RefreshToken != ""
 	s.HasATSAuthorization = t.HasATSAuthorization()
+	s.HasAuditAuthorization = t.HasAuditAuthorization()
 	s.HasRequestHeaders = len(t.RequestHeaders) > 0
 	s.RequestHeaderCount = len(t.RequestHeaders)
 

@@ -1,8 +1,9 @@
-// Existing-tab capture. Never claims spaces, opens tabs, or intercepts requests.
-// The selected banking tab is reloaded to observe fresh authenticated traffic.
+// Existing-tab capture. Never claims spaces or opens tabs. It observes fresh
+// credentials by navigating only the selected QBO tab.
 const fs = await import('node:fs/promises');
 const h = ego.helpers;
 const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
+const auditURL = 'https://qbo.intuit.com/app/auditlog';
 if (/^\d+$/.test(spaceKey)) await h.switchTaskSpace(Number(spaceKey));
 else await h.useOrCreateTaskSpace(spaceKey);
 function qboURL(value) {
@@ -38,15 +39,17 @@ if (new URL(info.url).pathname !== '/app/banking') {
   }
 }
 const header = (h, name) => String(Object.entries(h || {}).find(([k]) => k.toLowerCase() === name)?.[1] || '');
-let primary, secondary;
+let primary, secondary, auditAuthorization = '';
 const hosts = {};
 function observe(url, h) {
   let u;
   try { u = new URL(url); } catch { return; }
   if (u.protocol !== 'https:' || u.username || u.password) return;
   const first = u.hostname === 'qbo.intuit.com';
+  const authorization = header(h, 'authorization');
+  const key = authorization.startsWith('Intuit_APIKey');
   if (!first && !u.hostname.endsWith('.api.intuit.com')) return;
-  const key = header(h, 'authorization').startsWith('Intuit_APIKey');
+  if (u.hostname === 'audit.api.intuit.com' && key) auditAuthorization = authorization;
   if (first && key && !header(h, 'apikey')) primary = h;
   if (first && header(h, 'apikey')) secondary = h;
   if (key && (!first || (u.pathname.startsWith('/api/neo/') && header(h, 'apikey')))) hosts[u.hostname] = h;
@@ -58,7 +61,7 @@ const deadline = Date.now() + Math.min(Number(process.env.QB_TIMEOUT_MS || 90000
 const requests = new Map();
 const extras = new Map();
 let capturedAt = 0;
-while (Date.now() < deadline) {
+const observeEvents = async () => {
   for (const e of await h.drainEvents()) {
     const p = e.params || {};
     if (e.method === 'Network.requestWillBeSent') {
@@ -70,11 +73,29 @@ while (Date.now() < deadline) {
       if (requests.has(p.requestId)) observe(requests.get(p.requestId), p.headers);
     }
   }
+};
+while (Date.now() < deadline) {
+  await observeEvents();
   if (primary && !capturedAt) capturedAt = Date.now();
   if (primary && secondary && Date.now() - capturedAt >= 8000) break;
   await new Promise(resolve => setTimeout(resolve, 250));
 }
 if (!primary) throw new Error('No fresh primary authorization observed; saved credentials unchanged');
+// Audit Log uses a distinct Intuit_APIKey. Capture it on the same authenticated
+// tab so the CLI never replays the shorter-lived banking key to audit.api.
+if (process.env.QB_CAPTURE_AUDIT === 'true') {
+  try {
+    await h.gotoAndWait(auditURL, {timeout: 30});
+    const auditDeadline = Math.min(deadline, Date.now() + 12000);
+    while (!auditAuthorization && Date.now() < auditDeadline) {
+      await observeEvents();
+      if (!auditAuthorization) await h.wait(0.25);
+    }
+  } catch (_) {
+    // Audit credentials are optional; the hard requirement remains ATS.
+  }
+  try { await h.gotoAndWait('https://qbo.intuit.com/app/banking', {timeout: 30}); } catch (_) {}
+}
 const after = await h.js(identityExpression);
 const finalURL = (await h.pageInfo()).url;
 if (!qboURL(finalURL) || new URL(finalURL).pathname !== '/app/banking' ||
@@ -90,5 +111,6 @@ const cookies = (jar.cookies || []).filter(c => ['intuit.com', 'qbo.intuit.com']
 }));
 if (!cookies.length) throw new Error('Empty QBO cookie jar');
 await fs.writeFile(process.env.QB_CAPTURE_OUT, JSON.stringify({headers: primary,
-  api_headers: secondary, host_headers: hosts, cookies, identity: after}), {mode: 0o600});
-console.log(JSON.stringify({captured: true, cookie_count: cookies.length, secondary: !!secondary}));
+  api_headers: secondary, host_headers: hosts, audit_authorization: auditAuthorization,
+  cookies, identity: after}), {mode: 0o600});
+console.log(JSON.stringify({captured: true, cookie_count: cookies.length, secondary: !!secondary, audit_captured: !!auditAuthorization}));

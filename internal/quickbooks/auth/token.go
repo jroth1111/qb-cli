@@ -63,19 +63,20 @@ type Cookie struct {
 
 // Status is the secret-free view of a TokenSet for CLI output.
 type Status struct {
-	KeepAlive           string    `json:"keep_alive,omitempty"`
-	LastUsedAt          time.Time `json:"last_used_at,omitzero"`
-	OK                  bool      `json:"ok"`
-	Source              string    `json:"source"`
-	RealmID             string    `json:"realm_id,omitempty"`
-	CompanyName         string    `json:"company_name,omitempty"`
-	Email               string    `json:"email,omitempty"`
-	CookieCount         int       `json:"cookie_count"`
-	HasAccessToken      bool      `json:"has_access_token"`
-	HasRefreshToken     bool      `json:"has_refresh_token"`
-	HasATSAuthorization bool      `json:"has_ats_authorization"`
-	HasRequestHeaders   bool      `json:"has_request_headers"`
-	RequestHeaderCount  int       `json:"request_header_count,omitempty"`
+	KeepAlive             string    `json:"keep_alive,omitempty"`
+	LastUsedAt            time.Time `json:"last_used_at,omitzero"`
+	OK                    bool      `json:"ok"`
+	Source                string    `json:"source"`
+	RealmID               string    `json:"realm_id,omitempty"`
+	CompanyName           string    `json:"company_name,omitempty"`
+	Email                 string    `json:"email,omitempty"`
+	CookieCount           int       `json:"cookie_count"`
+	HasAccessToken        bool      `json:"has_access_token"`
+	HasRefreshToken       bool      `json:"has_refresh_token"`
+	HasATSAuthorization   bool      `json:"has_ats_authorization"`
+	HasAuditAuthorization bool      `json:"has_audit_authorization"`
+	HasRequestHeaders     bool      `json:"has_request_headers"`
+	RequestHeaderCount    int       `json:"request_header_count,omitempty"`
 
 	AccessExpiry  time.Time `json:"access_expiry,omitzero"`
 	RefreshExpiry time.Time `json:"refresh_expiry,omitzero"`

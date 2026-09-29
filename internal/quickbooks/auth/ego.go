@@ -84,6 +84,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 			timeoutMs = rem.Milliseconds()
 		}
 	}
+	auditCapture := timeoutMs > 30_000
 
 	// ego-browser nodejs does not reliably forward parent env into the
 	// script VM. Stamp paths into the source so capture cannot miss them.
@@ -102,6 +103,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		"process.env.QB_LOGIN_URL = " + strconv.Quote(loginURL) + ";\n" +
 		"process.env.QB_BANKING_URL = " + strconv.Quote(bankingURL) + ";\n" +
 		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
+		"process.env.QB_CAPTURE_AUDIT = " + strconv.Quote(strconv.FormatBool(auditCapture)) + ";\n" +
 		"process.env.QB_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
 	if existingOnly {
 		preamble += "const captureTarget = " + strconv.Quote(existing.target) + ";\n" +
@@ -115,6 +117,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		"QB_LOGIN_URL="+loginURL,
 		"QB_BANKING_URL="+bankingURL,
 		"QB_EGO_SPACE="+space,
+		"QB_CAPTURE_AUDIT="+strconv.FormatBool(auditCapture),
 		"QB_TIMEOUT_MS="+strconv.FormatInt(timeoutMs, 10),
 	)
 
@@ -133,16 +136,17 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		return nil, fmt.Errorf("reading ego capture: %w", err)
 	}
 	var file struct {
-		Headers     map[string]string            `json:"headers"`
-		APIHeaders  map[string]string            `json:"api_headers"`
-		HostHeaders map[string]map[string]string `json:"host_headers"`
-		Cookies     []Cookie                     `json:"cookies"`
-		Identity    Identity                     `json:"identity"`
+		Headers            map[string]string            `json:"headers"`
+		APIHeaders         map[string]string            `json:"api_headers"`
+		HostHeaders        map[string]map[string]string `json:"host_headers"`
+		AuditAuthorization string                       `json:"audit_authorization"`
+		Cookies            []Cookie                     `json:"cookies"`
+		Identity           Identity                     `json:"identity"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("parsing ego capture: %w", err)
 	}
-	cap := &ATSCapture{Headers: file.Headers, SecondaryHeaders: file.APIHeaders, HostHeaders: file.HostHeaders, Cookies: file.Cookies, Identity: file.Identity}
+	cap := &ATSCapture{Headers: file.Headers, SecondaryHeaders: file.APIHeaders, HostHeaders: file.HostHeaders, AuditAuthorization: file.AuditAuthorization, Cookies: file.Cookies, Identity: file.Identity}
 	if !isIntuitAPIKey(headerGet(cap.Headers, "authorization")) {
 		return nil, ErrNoATSAuthorization
 	}

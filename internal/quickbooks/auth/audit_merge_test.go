@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestHasAuditAuthorizationUsesAuditSpecificCredential(t *testing.T) {
+	const auditKey = "Intuit_APIKey intuit_apikey=audit-only,intuit_apikey_version=1.0"
+	if (&TokenSet{Authorization: auditKey}).HasAuditAuthorization() {
+		t.Fatal("banking ATS authorization must not count as audit authorization")
+	}
+	if !(&TokenSet{AuditAuthorization: auditKey}).HasAuditAuthorization() {
+		t.Fatal("dedicated audit authorization was not detected")
+	}
+	if !(&TokenSet{URIHostHeaders: map[string]map[string]string{"audit.api.intuit.com": {"Authorization": auditKey}}}).HasAuditAuthorization() {
+		t.Fatal("captured audit host header was not detected")
+	}
+}
+
 // TestApplyATSCaptureAuditMerge verifies the AuditAuthorization merge rule:
 // a non-empty audit key overwrites the previous one; an empty audit key
 // preserves any existing AuditAuthorization so a banking-only remint never

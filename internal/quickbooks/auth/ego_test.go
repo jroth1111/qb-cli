@@ -66,6 +66,7 @@ cap = {
     "csrftoken": "short",
     "x-csrf-token": "long-distinct",
   },
+  "audit_authorization": "Intuit_APIKey intuit_apikey=audit,intuit_apikey_version=1.0",
   "cookies": [{"name": "qbo.ticket", "value": "v", "domain": ".qbo.intuit.com", "path": "/", "secure": True, "http_only": True}],
 }
 open(out, "w").write(json.dumps(cap))
@@ -88,6 +89,9 @@ PY
 	}
 	if headerGet(cap.Headers, "x-csrf-token") == headerGet(cap.Headers, "csrftoken") {
 		t.Fatal("csrf pair must stay distinct")
+	}
+	if cap.AuditAuthorization != "Intuit_APIKey intuit_apikey=audit,intuit_apikey_version=1.0" {
+		t.Fatalf("audit authorization was not retained: length=%d", len(cap.AuditAuthorization))
 	}
 	if len(cap.Cookies) != 1 || cap.Cookies[0].Name != "qbo.ticket" {
 		t.Fatalf("cookies %+v", cap.Cookies)

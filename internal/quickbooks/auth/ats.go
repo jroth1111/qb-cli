@@ -55,6 +55,20 @@ func (t *TokenSet) HasATSAuthorization() bool {
 	return isIntuitAPIKey(headerGet(t.RequestHeaders, "authorization"))
 }
 
+// HasAuditAuthorization reports whether t holds the separate Audit Log UI
+// credential captured from audit.api.intuit.com. The banking ATS key is not
+// interchangeable with this service-host key.
+func (t *TokenSet) HasAuditAuthorization() bool {
+	if t == nil {
+		return false
+	}
+	authz := strings.TrimSpace(t.AuditAuthorization)
+	if authz == "" {
+		authz = strings.TrimSpace(headerGet(t.URIHostHeaders["audit.api.intuit.com"], "authorization"))
+	}
+	return isIntuitAPIKey(authz)
+}
+
 // ApplyATSHeaders copies a captured ATS request header map onto t.
 // Cookie is ignored (the jar lives in t.Cookies). Values are secret.
 func (t *TokenSet) ApplyATSHeaders(headers map[string]string) {

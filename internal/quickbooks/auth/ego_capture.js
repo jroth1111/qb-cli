@@ -7,6 +7,7 @@ const outPath = process.env.QB_CAPTURE_OUT;
 const loginURL = process.env.QB_LOGIN_URL ||
   "https://accounts.intuit.com/app/sign-in?app_group=QBO&asset_alias=Intuit.accounting.core.qbowebapp&app_environment=prod";
 const bankingURL = process.env.QB_BANKING_URL || "https://qbo.intuit.com/app/banking";
+const auditURL = "https://qbo.intuit.com/app/auditlog";
 const timeoutMs = Number(process.env.QB_TIMEOUT_MS || "600000");
 const spaceKey = process.env.QB_EGO_SPACE || "qb-login";
 // An operator-designated Space (QB_EGO_SPACE/QB_EGO_SPACE_ID set) is a shared
@@ -137,21 +138,17 @@ async function main() {
 
     let headers = null;
     let apiHeaders = null;
+    let auditAuthorization = "";
     const hostHeaders = {};
     // After the primary request lands, keep draining briefly for the
     // apikey-bearing sibling and service-host traffic so the credential
     // fills in one pass.
     const secondaryGraceMs = 8000;
     let primaryAt = 0;
-    while (Date.now() < deadline) {
-      if (headers && (apiHeaders || Date.now() - primaryAt > secondaryGraceMs)) break;
+    const observeEvents = async () => {
       let evs = null;
-      try {
-        evs = await h.drainEvents();
-      } catch (_) {
-        await h.wait(1);
-        continue;
-      }
+      try { evs = await h.drainEvents(); }
+      catch (_) { return; }
       const list = Array.isArray(evs) ? evs : [];
       for (const ev of list) {
         if (!ev || !ev.method) continue;
@@ -168,6 +165,10 @@ async function main() {
         if (!req) continue;
         const sh = serviceHost(req.url, req.headers);
         if (sh) hostHeaders[sh] = req.headers;
+        if (String(req.url || "").includes("audit.api.intuit.com") &&
+            isAPIKey(headerGet(req.headers, "authorization"))) {
+          auditAuthorization = headerGet(req.headers, "authorization");
+        }
         if (!apiHeaders && isAPIKeyRequest(req.url, req.headers)) {
           apiHeaders = req.headers;
         }
@@ -176,11 +177,26 @@ async function main() {
           primaryAt = Date.now();
         }
       }
+    };
+    while (Date.now() < deadline) {
+      if (headers && (apiHeaders || Date.now() - primaryAt > secondaryGraceMs)) break;
+      await observeEvents();
       if (!headers || !apiHeaders) await h.wait(0.25);
     }
     if (!headers) {
       await close(true);
       fail("no ATS Intuit_APIKey request observed in ego Space", 2);
+    }
+
+    if (process.env.QB_CAPTURE_AUDIT === "true") {
+      try { await h.gotoAndWait(auditURL, { timeout: 30 }); } catch (_) {}
+      const auditDeadline = Math.min(deadline, Date.now() + 12000);
+      while (!auditAuthorization && Date.now() < auditDeadline) {
+        await observeEvents();
+        if (!auditAuthorization) await h.wait(0.25);
+      }
+      // Keep the retained/login tab on the banking page used by other qb commands.
+      try { await h.gotoAndWait(bankingURL, { timeout: 30 }); } catch (_) {}
     }
 
     let cookies = [];
@@ -261,12 +277,13 @@ async function main() {
     }
 
     const fs = require("fs");
-    fs.writeFileSync(outPath, JSON.stringify({ headers: stored, api_headers: storedApi, host_headers: storedHosts, cookies, identity }, null, 2));
+    fs.writeFileSync(outPath, JSON.stringify({ headers: stored, api_headers: storedApi, host_headers: storedHosts, audit_authorization: auditAuthorization, cookies, identity }, null, 2));
     fs.chmodSync(outPath, 0o600);
     cliLog(JSON.stringify({
       ok: true,
       header_count: Object.keys(stored).length,
       cookie_count: cookies.length,
+      audit_captured: !!auditAuthorization,
     }));
     await close(keepSpaceOnSuccess);
   } catch (err) {
