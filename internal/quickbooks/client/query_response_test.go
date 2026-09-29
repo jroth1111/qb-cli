@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+func TestAccountQueryProjectsHierarchy(t *testing.T) {
+	items := projectQuery("Account", []byte(`{"QueryResponse":{"Account":[{"Id":"171","Name":"Miscellaneous Property Expense","FullyQualifiedName":"Client Property Expenses:Short-Term Business Operating Expenses:Miscellaneous Property Expense","ParentRef":{"value":"62","name":"Short-Term Business Operating Expenses"},"Active":true}]}}`))
+	if len(items) != 1 || items[0].ID != "171" || items[0].FullName != "Client Property Expenses:Short-Term Business Operating Expenses:Miscellaneous Property Expense" || items[0].ParentID != "62" || items[0].Parent != "Short-Term Business Operating Expenses" {
+		t.Fatalf("account hierarchy projection = %+v", items)
+	}
+}
+
 func TestQueryRejectsFalseEmptySuccess(t *testing.T) {
 	for _, body := range []string{`<IntuitResponse/>`, `<html>login</html>`, `{}`, `{"Fault":{"type":"ValidationFault"}}`, `{"QueryResponse":null}`, `{"QueryResponse":{"Customer":"error"}}`} {
 		t.Run(body, func(t *testing.T) {

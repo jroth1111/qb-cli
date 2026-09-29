@@ -36,140 +36,150 @@ var v3ByID = map[string]v3Spec{
 	"QBO.ACCOUNTING.RECURRING_SEARCH":    {Entity: "RecurringTransaction"},
 	"QBO.ACCOUNTING.TRANSFER_READ":       {Entity: "Transfer"},
 
-	"QBO.ACCOUNTING.PREPAID_READ":                 {Entity: "PrepaidSchedule"},
-	"QBO.ACCOUNTING.REVENUE_RECOGNITION_READ":     {Entity: "RevenueRecognition"},
-	"QBO.ACCOUNTING.RECONCILE_READ":               {Entity: "Reconciliation"},
-	"QBO.ACCOUNTING.TAXCONFIG_MIRROR_GET":         {Entity: "TaxConfigGroup"},
-	"QBO.ADVANCED.CUSTOM_ROLES_READ":              {Entity: "Role"},
-	"QBO.ADVANCED.WORKFLOWS_READ":                 {Entity: "Workflow"},
-	"QBO.INTEGRATIONS.WORKFLOW_AUTOMATION_GET":    {Entity: "Workflow"},
-	"QBO.COMPANY.ATTACHABLE_READ":                 {Entity: "Attachable"},
-	"QBO.COMPANY.ATTACHABLE_SEARCH":               {Entity: "Attachable"},
-	"QBO.COMPANY.ATTACHMENT_READ":                 {Entity: "Attachable"},
-	"QBO.COMPANY.BUSINESS_FEED_READ":              {Entity: "BusinessFeed"},
-	"QBO.COMPANY.CURRENCY_READ":                   {Entity: "CompanyCurrency"},
-	"QBO.COMPANY.EXCHANGE_RATE_READ":              {Entity: "ExchangeRate"},
-	"QBO.COMPANY.EXCHANGE_RATE_SEARCH":            {Entity: "ExchangeRate"},
-	"QBO.COMPANY.CUSTOM_FIELD_READ":               {Entity: "CustomField"},
-	"QBO.COMPANY.DIMENSIONS_GRAPHQL_GET":          {Entity: "DimensionDefinition"},
-	"QBO.ADVANCED.TASKS_READ":                     {Entity: "Task"},
-	"QBO.INTEGRATIONS.IDX_GET":                    {Entity: "IDX"},
-	"QBO.SALES.COMMERCE_CONTROL_GET":              {Entity: "IMSPref"},
-	"QBO.COMPANY.FORM_STYLE_READ":                 {Entity: "FormStyle"},
-	"QBO.COMPANY.LIST_READ":                       {Entity: "ListsPrefs"},
-	"QBO.COMPANY.COMPANY_INFO_READ":               {Entity: "CompanyInfo"},
-	"QBO.COMPANY.TERM_READ":                       {Entity: "Term"},
-	"QBO.COMPANY.PAYMENT_METHOD_READ":             {Entity: "PaymentMethod"},
-	"QBO.COMPANY.PREFERENCES_READ":                {Entity: "Preferences"},
-	"QBO.COMPANY.ROLE_READ":                       {Entity: "Role"},
-	"QBO.COMPANY.MARKETING_READ":                  {Entity: "MarketingOffer"},
-	"QBO.COMPANY.TAG_READ":                        {Entity: "Tag"},
-	"QBO.COMPANY.SETTINGS_READ":                   {Entity: "Preferences"},
-	"QBO.COMPANY.USER_READ":                       {Entity: "IdentityUser"},
-	"QBO.COMPANY.IDENTITY_GET":                    {Entity: "IdentityAccount"},
-	"QBO.COMPANY.SETTINGS_FACADE_GET":             {Entity: "SettingsFacade"},
-	"QBO.COMPANY.CUSTOM_EXTENSIONS_LIST":          {Entity: "CustomExtension"},
-	"QBO.COMPANY.EXPERIMENT_ASSIGNMENT_GET":       {Entity: "ExperimentAssignment"},
-	"QBO.TAX.EXPERIMENT_ASSIGNMENT_GET":           {Entity: "ExperimentAssignment"},
-	"QBO.EXPENSES.PAYMENT_ACCOUNT_GET":            {Entity: "PaymentAccount"},
-	"QBO.CUSTOMERS.CUSTOMER_READ":                 {Entity: "Customer"},
-	"QBO.CUSTOMERS.CUSTOMER_SEARCH":               {Entity: "Customer"},
-	"QBO.CUSTOMERS.CUSTOMER_TYPE_READ":            {Entity: "CustomerType"},
-	"QBO.CUSTOMERS.CUSTOMER_TYPE_SEARCH":          {Entity: "CustomerType"},
-	"QBO.CUSTOMERS.OVERVIEW_READ":                 {Entity: "CustomersOverview"},
-	"QBO.CUSTOMERS.CONTRACT_READ":                 {Entity: "Contract"},
-	"QBO.CUSTOMERS.CONTRACT_SEARCH":               {Entity: "Contract"},
-	"QBO.CUSTOMERS.PROPOSAL_READ":                 {Entity: "Proposal"},
-	"QBO.CUSTOMERS.PROPOSAL_SEARCH":               {Entity: "Proposal"},
-	"QBO.CUSTOMERS.REVIEW_READ":                   {Entity: "Review"},
-	"QBO.CUSTOMERS.REVIEW_SEARCH":                 {Entity: "Review"},
-	"QBO.EXPENSES.BILL_READ":                      {Entity: "Bill"},
-	"QBO.EXPENSES.BILL_PAYMENT_READ":              {Entity: "BillPayment"},
-	"QBO.EXPENSES.BILL_SEARCH":                    {Entity: "Bill"},
-	"QBO.EXPENSES.CHEQUE_READ":                    {Entity: "Cheque"},
-	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_READ":       {Entity: "CreditCardPayment"},
-	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_SEARCH":     {Entity: "CreditCardPayment"},
-	"QBO.EXPENSES.EXPENSE_READ":                   {Entity: "Purchase"},
-	"QBO.EXPENSES.EXPENSE_SEARCH":                 {Entity: "Purchase"},
-	"QBO.EXPENSES.SUPPLIER_READ":                  {Entity: "Vendor"},
-	"QBO.EXPENSES.SUPPLIER_SEARCH":                {Entity: "Vendor"},
-	"QBO.EXPENSES.TIME_ACTIVITY_READ":             {Entity: "TimeActivity"},
-	"QBO.EXPENSES.TIME_ACTIVITY_SEARCH":           {Entity: "TimeActivity"},
-	"QBO.EXPENSES.VENDOR_CREDIT_READ":             {Entity: "VendorCredit"},
-	"QBO.EXPENSES.PURCHASE_SEARCH":                {Entity: "Purchase"},
-	"QBO.EXPENSES.OVERVIEW_READ":                  {Entity: "ExpensesOverview"},
-	"QBO.EXPENSES.BILL_PAY_ONBOARDING_GET":        {Entity: "BillPayOnboarding"},
-	"QBO.EXPENSES.STAGETXN_GET":                   {Entity: "StageTransaction"},
-	"QBO.EXPENSES.B2B_BILLPAY_GET":                {Entity: "B2BBillpay"},
-	"QBO.EXPENSES.B2B_NETWORK_GET":                {Entity: "B2BNetwork"},
-	"QBO.INVENTORY.ADJUST_READ":                   {Entity: "InventoryAdjustment"},
-	"QBO.INVENTORY.ADJUST_SEARCH":                 {Entity: "InventoryAdjustment"},
-	"QBO.INVENTORY.ITEM_READ":                     {Entity: "Item"},
-	"QBO.INVENTORY.ITEM_SEARCH":                   {Entity: "Item"},
-	"QBO.INVENTORY.ITEM_RECEIPT_READ":             {Entity: "ItemReceipt"},
-	"QBO.INVENTORY.ITEM_RECEIPT_SEARCH":           {Entity: "ItemReceipt"},
-	"QBO.INVENTORY.OVERVIEW_READ":                 {Entity: "InventoryOverview"},
-	"QBO.INVENTORY.OVERVIEW_SEARCH":               {Entity: "InventoryOverviewSearch"},
-	"QBO.INVENTORY.PURCHASE_ORDER_READ":           {Entity: "PurchaseOrder"},
-	"QBO.INVENTORY.PURCHASE_ORDER_SEARCH":         {Entity: "PurchaseOrder"},
-	"QBO.INVENTORY.WAREHOUSE_SERVICE_GET":         {Entity: "InventoryLocation"},
-	"QBO.PAYROLL.EMPLOYEE_READ":                   {Entity: "Employee"},
-	"QBO.PAYROLL.EMPLOYEE_SEARCH":                 {Entity: "Employee"},
-	"QBO.PAYROLL.TIMESHEET_READ":                  {Entity: "TimeActivity"},
-	"QBO.SALES.CREDIT_MEMO_READ":                  {Entity: "CreditMemo"},
-	"QBO.SALES.ESTIMATE_READ":                     {Entity: "Estimate"},
-	"QBO.SALES.ESTIMATE_SEARCH":                   {Entity: "Estimate"},
-	"QBO.SALES.INVOICE_READ":                      {Entity: "Invoice"},
-	"QBO.SALES.INVOICE_SEARCH":                    {Entity: "Invoice"},
-	"QBO.SALES.PAYMENT_READ":                      {Entity: "Payment"},
-	"QBO.SALES.RECEIPT_READ":                      {Entity: "SalesReceipt"},
-	"QBO.SALES.REFUND_RECEIPT_READ":               {Entity: "RefundReceipt"},
-	"QBO.SALES.SALES_ORDER_READ":                  {Entity: "SalesOrder"},
-	"QBO.SALES.SALES_ORDER_SEARCH":                {Entity: "SalesOrder"},
-	"QBO.SALES.HUB_READ":                          {Entity: "SalesHub"},
-	"QBO.SALES.HUB_SEARCH":                        {Entity: "SalesHub"},
-	"QBO.SALES.OVERVIEW_READ":                     {Entity: "SalesOverview"},
-	"QBO.SALES.SALESTXN_RISK_GET":                 {Entity: "SalesTxnRisk"},
-	"QBO.SALES.QBONLINE_GRAPHQL_GET":              {Entity: "QBOnlineGraphql"},
-	"QBO.TAX.CODE_READ":                           {Entity: "TaxCode"},
-	"QBO.TAX.CODE_SEARCH":                         {Entity: "TaxCode"},
-	"QBO.TAX.TAX_AGENCY_READ":                     {Entity: "TaxAgency"},
-	"QBO.TAX.TAX_RATE_READ":                       {Entity: "TaxRate"},
-	"QBO.TAX.BAS_READ":                            {Entity: "TaxReturn"},
-	"QBO.TAX.IAS_READ":                            {Entity: "TaxReturn"},
-	"QBO.TAX.INDIRECT_REPORTS_GET":                {Entity: "TaxLiability"},
-	"QBO.TAX.NEXUS_GET":                           {Entity: "TaxJurisdiction"},
-	"QBO.TAX.TPAR_READ":                           {Report: "TAXABLE_PAYMENTS"},
-	"QBO.REPORTS.REPORT_READ":                     {Report: "ProfitAndLoss"},
-	"QBO.REPORTS.CASH_FLOW_READ":                  {Report: "CashFlow"},
-	"QBO.REPORTS.AGED_PAYABLES_READ":              {Report: "AgedPayables"},
-	"QBO.REPORTS.AGED_RECEIVABLES_READ":           {Report: "AgedReceivables"},
-	"QBO.REPORTS.GENERAL_LEDGER_READ":             {Report: "GeneralLedger"},
-	"QBO.REPORTS.TRIAL_BALANCE_READ":              {Report: "TrialBalance"},
-	"QBO.REPORTS.PROFIT_LOSS_READ":                {Report: "ProfitAndLoss"},
-	"QBO.REPORTS.BALANCE_SHEET_READ":              {Report: "BalanceSheet"},
-	"QBO.REPORTS.VENDOR_BALANCE_READ":             {Report: "VendorBalance"},
-	"QBO.REPORTS.CUSTOMER_BALANCE_READ":           {Report: "CustomerBalance"},
-	"QBO.REPORTS.CUSTOMER_SALES_READ":             {Report: "CustomerSales"},
-	"QBO.REPORTS.VENDOR_EXPENSES_READ":            {Report: "VendorExpenses"},
-	"QBO.REPORTS.PROFIT_LOSS_DETAIL_READ":         {Report: "ProfitAndLossDetail"},
-	"QBO.REPORTS.INVENTORY_VALUATION_READ":        {Report: "InventoryValuationSummary"},
-	"QBO.REPORTS.TRANSACTION_LIST_READ":           {Report: "TransactionList"},
-	"QBO.REPORTS.JOURNAL_REPORT_READ":             {Report: "JournalReport"},
-	"QBO.REPORTS.AGED_RECEIVABLE_DETAIL_READ":     {Report: "AgedReceivableDetail"},
-	"QBO.REPORTS.AGED_PAYABLE_DETAIL_READ":        {Report: "AgedPayableDetail"},
-	"QBO.REPORTS.CUSTOMER_INCOME_READ":            {Report: "CustomerIncome"},
-	"QBO.REPORTS.CUSTOMER_BALANCE_DETAIL_READ":    {Report: "CustomerBalanceDetail"},
-	"QBO.REPORTS.VENDOR_BALANCE_DETAIL_READ":      {Report: "VendorBalanceDetail"},
-	"QBO.REPORTS.ITEM_SALES_READ":                 {Report: "ItemSales"},
-	"QBO.REPORTS.DEPARTMENT_SALES_READ":           {Report: "DepartmentSales"},
-	"QBO.REPORTS.CLASS_SALES_READ":                {Report: "ClassSales"},
-	"QBO.REPORTS.INVENTORY_VALUATION_DETAIL_READ": {Report: "InventoryValuationDetail"},
-	"QBO.REPORTS.ACCOUNT_LIST_READ":               {Report: "AccountList"},
-	"QBO.REPORTS.CUSTOM_READ":                     {Entity: "Folio"},
-	"QBO.REPORTS.MANAGEMENT_READ":                 {Entity: "ManagementFolio"},
-	"QBO.REPORTS.FORECAST_READ":                   {Entity: "BusinessForecast"},
-	"QBO.REPORTS.PERFORMANCE_READ":                {Entity: "PerformanceMetric"},
+	"QBO.ACCOUNTING.PREPAID_READ":                   {Entity: "PrepaidSchedule"},
+	"QBO.ACCOUNTING.REVENUE_RECOGNITION_READ":       {Entity: "RevenueRecognition"},
+	"QBO.ACCOUNTING.RECONCILE_READ":                 {Entity: "Reconciliation"},
+	"QBO.ACCOUNTING.TAXCONFIG_MIRROR_GET":           {Entity: "TaxConfigGroup"},
+	"QBO.ADVANCED.CUSTOM_ROLES_READ":                {Entity: "Role"},
+	"QBO.ADVANCED.WORKFLOWS_READ":                   {Entity: "Workflow"},
+	"QBO.INTEGRATIONS.WORKFLOW_AUTOMATION_GET":      {Entity: "Workflow"},
+	"QBO.COMPANY.ATTACHABLE_READ":                   {Entity: "Attachable"},
+	"QBO.COMPANY.ATTACHABLE_SEARCH":                 {Entity: "Attachable"},
+	"QBO.COMPANY.ATTACHMENT_READ":                   {Entity: "Attachable"},
+	"QBO.COMPANY.BUSINESS_FEED_READ":                {Entity: "BusinessFeed"},
+	"QBO.COMPANY.CURRENCY_READ":                     {Entity: "CompanyCurrency"},
+	"QBO.COMPANY.EXCHANGE_RATE_READ":                {Entity: "ExchangeRate"},
+	"QBO.COMPANY.EXCHANGE_RATE_SEARCH":              {Entity: "ExchangeRate"},
+	"QBO.COMPANY.CUSTOM_FIELD_READ":                 {Entity: "CustomField"},
+	"QBO.COMPANY.DIMENSIONS_GRAPHQL_GET":            {Entity: "DimensionDefinition"},
+	"QBO.ADVANCED.TASKS_READ":                       {Entity: "Task"},
+	"QBO.INTEGRATIONS.IDX_GET":                      {Entity: "IDX"},
+	"QBO.SALES.COMMERCE_CONTROL_GET":                {Entity: "IMSPref"},
+	"QBO.COMPANY.FORM_STYLE_READ":                   {Entity: "FormStyle"},
+	"QBO.COMPANY.LIST_READ":                         {Entity: "ListsPrefs"},
+	"QBO.COMPANY.COMPANY_INFO_READ":                 {Entity: "CompanyInfo"},
+	"QBO.COMPANY.TERM_READ":                         {Entity: "Term"},
+	"QBO.COMPANY.PAYMENT_METHOD_READ":               {Entity: "PaymentMethod"},
+	"QBO.COMPANY.PREFERENCES_READ":                  {Entity: "Preferences"},
+	"QBO.COMPANY.ROLE_READ":                         {Entity: "Role"},
+	"QBO.COMPANY.MARKETING_READ":                    {Entity: "MarketingOffer"},
+	"QBO.COMPANY.TAG_READ":                          {Entity: "Tag"},
+	"QBO.COMPANY.SETTINGS_READ":                     {Entity: "Preferences"},
+	"QBO.COMPANY.USER_READ":                         {Entity: "IdentityUser"},
+	"QBO.COMPANY.IDENTITY_GET":                      {Entity: "IdentityAccount"},
+	"QBO.COMPANY.SETTINGS_FACADE_GET":               {Entity: "SettingsFacade"},
+	"QBO.COMPANY.CUSTOM_EXTENSIONS_LIST":            {Entity: "CustomExtension"},
+	"QBO.COMPANY.EXPERIMENT_ASSIGNMENT_GET":         {Entity: "ExperimentAssignment"},
+	"QBO.TAX.EXPERIMENT_ASSIGNMENT_GET":             {Entity: "ExperimentAssignment"},
+	"QBO.EXPENSES.PAYMENT_ACCOUNT_GET":              {Entity: "PaymentAccount"},
+	"QBO.CUSTOMERS.CUSTOMER_READ":                   {Entity: "Customer"},
+	"QBO.CUSTOMERS.CUSTOMER_SEARCH":                 {Entity: "Customer"},
+	"QBO.CUSTOMERS.CUSTOMER_TYPE_READ":              {Entity: "CustomerType"},
+	"QBO.CUSTOMERS.CUSTOMER_TYPE_SEARCH":            {Entity: "CustomerType"},
+	"QBO.CUSTOMERS.OVERVIEW_READ":                   {Entity: "CustomersOverview"},
+	"QBO.CUSTOMERS.CONTRACT_READ":                   {Entity: "Contract"},
+	"QBO.CUSTOMERS.CONTRACT_SEARCH":                 {Entity: "Contract"},
+	"QBO.CUSTOMERS.PROPOSAL_READ":                   {Entity: "Proposal"},
+	"QBO.CUSTOMERS.PROPOSAL_SEARCH":                 {Entity: "Proposal"},
+	"QBO.CUSTOMERS.REVIEW_READ":                     {Entity: "Review"},
+	"QBO.CUSTOMERS.REVIEW_SEARCH":                   {Entity: "Review"},
+	"QBO.EXPENSES.BILL_READ":                        {Entity: "Bill"},
+	"QBO.EXPENSES.BILL_PAYMENT_READ":                {Entity: "BillPayment"},
+	"QBO.EXPENSES.BILL_SEARCH":                      {Entity: "Bill"},
+	"QBO.EXPENSES.CHEQUE_READ":                      {Entity: "Cheque"},
+	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_READ":         {Entity: "CreditCardPayment"},
+	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_SEARCH":       {Entity: "CreditCardPayment"},
+	"QBO.EXPENSES.EXPENSE_READ":                     {Entity: "Purchase"},
+	"QBO.EXPENSES.EXPENSE_SEARCH":                   {Entity: "Purchase"},
+	"QBO.EXPENSES.SUPPLIER_READ":                    {Entity: "Vendor"},
+	"QBO.EXPENSES.SUPPLIER_SEARCH":                  {Entity: "Vendor"},
+	"QBO.EXPENSES.TIME_ACTIVITY_READ":               {Entity: "TimeActivity"},
+	"QBO.EXPENSES.TIME_ACTIVITY_SEARCH":             {Entity: "TimeActivity"},
+	"QBO.EXPENSES.VENDOR_CREDIT_READ":               {Entity: "VendorCredit"},
+	"QBO.EXPENSES.PURCHASE_SEARCH":                  {Entity: "Purchase"},
+	"QBO.EXPENSES.OVERVIEW_READ":                    {Entity: "ExpensesOverview"},
+	"QBO.EXPENSES.BILL_PAY_ONBOARDING_GET":          {Entity: "BillPayOnboarding"},
+	"QBO.EXPENSES.STAGETXN_GET":                     {Entity: "StageTransaction"},
+	"QBO.EXPENSES.B2B_BILLPAY_GET":                  {Entity: "B2BBillpay"},
+	"QBO.EXPENSES.B2B_NETWORK_GET":                  {Entity: "B2BNetwork"},
+	"QBO.INVENTORY.ADJUST_READ":                     {Entity: "InventoryAdjustment"},
+	"QBO.INVENTORY.ADJUST_SEARCH":                   {Entity: "InventoryAdjustment"},
+	"QBO.INVENTORY.ITEM_READ":                       {Entity: "Item"},
+	"QBO.INVENTORY.ITEM_SEARCH":                     {Entity: "Item"},
+	"QBO.INVENTORY.ITEM_RECEIPT_READ":               {Entity: "ItemReceipt"},
+	"QBO.INVENTORY.ITEM_RECEIPT_SEARCH":             {Entity: "ItemReceipt"},
+	"QBO.INVENTORY.OVERVIEW_READ":                   {Entity: "InventoryOverview"},
+	"QBO.INVENTORY.OVERVIEW_SEARCH":                 {Entity: "InventoryOverviewSearch"},
+	"QBO.INVENTORY.PURCHASE_ORDER_READ":             {Entity: "PurchaseOrder"},
+	"QBO.INVENTORY.PURCHASE_ORDER_SEARCH":           {Entity: "PurchaseOrder"},
+	"QBO.INVENTORY.WAREHOUSE_SERVICE_GET":           {Entity: "InventoryLocation"},
+	"QBO.PAYROLL.EMPLOYEE_READ":                     {Entity: "Employee"},
+	"QBO.PAYROLL.EMPLOYEE_SEARCH":                   {Entity: "Employee"},
+	"QBO.PAYROLL.TIMESHEET_READ":                    {Entity: "TimeActivity"},
+	"QBO.SALES.CREDIT_MEMO_READ":                    {Entity: "CreditMemo"},
+	"QBO.SALES.ESTIMATE_READ":                       {Entity: "Estimate"},
+	"QBO.SALES.ESTIMATE_SEARCH":                     {Entity: "Estimate"},
+	"QBO.SALES.INVOICE_READ":                        {Entity: "Invoice"},
+	"QBO.SALES.INVOICE_SEARCH":                      {Entity: "Invoice"},
+	"QBO.SALES.PAYMENT_READ":                        {Entity: "Payment"},
+	"QBO.SALES.RECEIPT_READ":                        {Entity: "SalesReceipt"},
+	"QBO.SALES.REFUND_RECEIPT_READ":                 {Entity: "RefundReceipt"},
+	"QBO.SALES.SALES_ORDER_READ":                    {Entity: "SalesOrder"},
+	"QBO.SALES.SALES_ORDER_SEARCH":                  {Entity: "SalesOrder"},
+	"QBO.SALES.HUB_READ":                            {Entity: "SalesHub"},
+	"QBO.SALES.HUB_SEARCH":                          {Entity: "SalesHub"},
+	"QBO.SALES.OVERVIEW_READ":                       {Entity: "SalesOverview"},
+	"QBO.SALES.SALESTXN_RISK_GET":                   {Entity: "SalesTxnRisk"},
+	"QBO.SALES.QBONLINE_GRAPHQL_GET":                {Entity: "QBOnlineGraphql"},
+	"QBO.TAX.CODE_READ":                             {Entity: "TaxCode"},
+	"QBO.TAX.CODE_SEARCH":                           {Entity: "TaxCode"},
+	"QBO.TAX.TAX_AGENCY_READ":                       {Entity: "TaxAgency"},
+	"QBO.TAX.TAX_RATE_READ":                         {Entity: "TaxRate"},
+	"QBO.TAX.BAS_READ":                              {Entity: "TaxReturn"},
+	"QBO.TAX.IAS_READ":                              {Entity: "TaxReturn"},
+	"QBO.TAX.INDIRECT_REPORTS_GET":                  {Entity: "TaxLiability"},
+	"QBO.TAX.NEXUS_GET":                             {Entity: "TaxJurisdiction"},
+	"QBO.TAX.TPAR_READ":                             {Report: "TAXABLE_PAYMENTS"},
+	"QBO.REPORTS.REPORT_READ":                       {Report: "ProfitAndLoss"},
+	"QBO.REPORTS.CASH_FLOW_READ":                    {Report: "CashFlow"},
+	"QBO.REPORTS.AGED_PAYABLES_READ":                {Report: "AgedPayables"},
+	"QBO.REPORTS.AGED_RECEIVABLES_READ":             {Report: "AgedReceivables"},
+	"QBO.REPORTS.GENERAL_LEDGER_READ":               {Report: "GeneralLedger"},
+	"QBO.REPORTS.TRIAL_BALANCE_READ":                {Report: "TrialBalance"},
+	"QBO.REPORTS.PROFIT_LOSS_READ":                  {Report: "ProfitAndLoss"},
+	"QBO.REPORTS.BALANCE_SHEET_READ":                {Report: "BalanceSheet"},
+	"QBO.REPORTS.VENDOR_BALANCE_READ":               {Report: "VendorBalance"},
+	"QBO.REPORTS.CUSTOMER_BALANCE_READ":             {Report: "CustomerBalance"},
+	"QBO.REPORTS.CUSTOMER_SALES_READ":               {Report: "CustomerSales"},
+	"QBO.REPORTS.VENDOR_EXPENSES_READ":              {Report: "VendorExpenses"},
+	"QBO.REPORTS.PROFIT_LOSS_DETAIL_READ":           {Report: "ProfitAndLossDetail"},
+	"QBO.REPORTS.INVENTORY_VALUATION_READ":          {Report: "InventoryValuationSummary"},
+	"QBO.REPORTS.TRANSACTION_LIST_READ":             {Report: "TransactionList"},
+	"QBO.REPORTS.TRANSACTION_LIST_BY_CUSTOMER_READ": {Report: "TransactionListByCustomer"},
+	"QBO.REPORTS.TRANSACTION_LIST_BY_VENDOR_READ":   {Report: "TransactionListByVendor"},
+	"QBO.REPORTS.TRANSACTION_LIST_WITH_SPLITS_READ": {Report: "TransactionListWithSplits"},
+	"QBO.REPORTS.TAX_SUMMARY_READ":                  {Report: "TaxSummary"},
+	"QBO.REPORTS.ACCOUNT_LIST_DETAIL_READ":          {Report: "AccountListDetail"},
+	"QBO.REPORTS.TRIAL_BALANCE_FR_READ":             {Report: "TrialBalanceFR"},
+	"QBO.REPORTS.SAVED_LIST":                        {Entity: "SavedReport"},
+	"QBO.REPORTS.SAVED_READ":                        {Entity: "SavedReport"},
+	"QBO.REPORTS.MEMORIZED_LIST":                    {Entity: "MemorizedReport"},
+	"QBO.REPORTS.MEMORIZED_READ":                    {Entity: "MemorizedReport"},
+	"QBO.REPORTS.JOURNAL_REPORT_READ":               {Report: "JournalReport"},
+	"QBO.REPORTS.AGED_RECEIVABLE_DETAIL_READ":       {Report: "AgedReceivableDetail"},
+	"QBO.REPORTS.AGED_PAYABLE_DETAIL_READ":          {Report: "AgedPayableDetail"},
+	"QBO.REPORTS.CUSTOMER_INCOME_READ":              {Report: "CustomerIncome"},
+	"QBO.REPORTS.CUSTOMER_BALANCE_DETAIL_READ":      {Report: "CustomerBalanceDetail"},
+	"QBO.REPORTS.VENDOR_BALANCE_DETAIL_READ":        {Report: "VendorBalanceDetail"},
+	"QBO.REPORTS.ITEM_SALES_READ":                   {Report: "ItemSales"},
+	"QBO.REPORTS.DEPARTMENT_SALES_READ":             {Report: "DepartmentSales"},
+	"QBO.REPORTS.CLASS_SALES_READ":                  {Report: "ClassSales"},
+	"QBO.REPORTS.INVENTORY_VALUATION_DETAIL_READ":   {Report: "InventoryValuationDetail"},
+	"QBO.REPORTS.ACCOUNT_LIST_READ":                 {Report: "AccountList"},
+	"QBO.REPORTS.CUSTOM_READ":                       {Entity: "Folio"},
+	"QBO.REPORTS.MANAGEMENT_READ":                   {Entity: "ManagementFolio"},
+	"QBO.REPORTS.FORECAST_READ":                     {Entity: "BusinessForecast"},
+	"QBO.REPORTS.PERFORMANCE_READ":                  {Entity: "PerformanceMetric"},
 }
 
 func maybeV3Cmd(flags *rootFlags, e primitiveEntry, command string) *cobra.Command {
@@ -426,6 +436,10 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 			if err != nil {
 				return feedErr(flags, err)
 			}
+			if entity == "ManagementFolio" && res.Detail != nil {
+				printFolioDetail(cmd.OutOrStdout(), flags, res)
+				return nil
+			}
 			printQuery(cmd.OutOrStdout(), flags, res)
 			return nil
 		},
@@ -438,10 +452,59 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 	return cmd
 }
 
+// reportFilterFlags maps typed CLI flags to Intuit ReportService parameter
+// names. --param accepts the same keys plus the long tail (see
+// client/reportFilterKeyOK) as key=value pairs.
+var reportFilterFlags = []struct{ flag, param, help string }{
+	{"klass", "klass", "restrict to one class id (comma list ok) — e.g. the klass= param a saved custom report's URL carries"},
+	{"customer", "customer", "restrict to one customer id (comma list ok); forwarded as the v3 customer report param"},
+	{"vendor", "vendor", "restrict to one supplier/vendor id (comma list ok); forwarded as the v3 vendor report param"},
+	{"department", "department", "restrict to one department/location id (comma list ok); forwarded as the v3 department param"},
+	{"account", "account", "restrict to GL account ids (comma list ok) — the account= param a saved report's URL carries"},
+	{"account-type", "account_type", "restrict to an account type (Income, Expense, Bank, ...); forwarded as account_type"},
+	{"item", "item", "restrict to a product/service item id (comma list ok); forwarded as the v3 item param"},
+	{"term", "term", "restrict to a payment term id; forwarded as the v3 term param"},
+	{"transaction-type", "transaction_type", "restrict to a transaction type (Deposit, Journal Entry, Expense, ...); forwarded as transaction_type"},
+	{"doc-num", "doc_num", "restrict to a document number; forwarded as the v3 doc_num param"},
+	{"name", "name", "restrict to an entity name; forwarded as the v3 name param"},
+	{"memo", "memo", "restrict to a memo substring; forwarded as the v3 memo param"},
+	{"group-by", "group_by", "row grouping (Account, Name, TransactionType, ...); forwarded as group_by"},
+	{"sort-by", "sort_by", "sort field key forwarded as the v3 sort_by param"},
+	{"sort-order", "sort_order", "ascend or descend; forwarded as the v3 sort_order param"},
+	{"date-macro", "date_macro", "period macro in place of --date-range (thismonth, lastmonth, thisyeartodate, ...); forwarded as date_macro"},
+	{"cleared", "cleared", "restrict to a cleared status; forwarded as the v3 cleared param"},
+	{"printed", "printed", "restrict to a printed status; forwarded as the v3 printed param"},
+	{"qzoom", "qzoom", "drill depth for zoomed detail reports; forwarded as the v3 qzoom param"},
+	{"subcolumns", "subcolumns", "subcolumn grouping value; forwarded as the v3 subcolumns param"},
+	{"aging-method", "aging_method", "aging method for receivable/payable aging reports: current or report_date"},
+	{"aging-period", "aging_period", "aging bucket length in days for receivable/payable aging reports"},
+	{"num-periods", "num_periods", "number of aging buckets for receivable/payable aging reports"},
+	{"past-due", "past_due", "days-past-due threshold forwarded as the v3 past_due param"},
+	{"apaccount", "apaccount", "A/P account id for payables reports; forwarded as the v3 apaccount param"},
+	{"araccount", "araccount", "A/R account id for receivables reports; forwarded as the v3 araccount param"},
+	{"appaid", "appaid", "A/P paid status for payables reports; forwarded as the v3 appaid param"},
+	{"payment-method", "payment_method", "restrict to a payment method id; forwarded as the v3 payment_method param"},
+	{"source-account-type", "source_account_type", "restrict to a source account type; forwarded as the v3 source_account_type param"},
+	{"start-created", "start_created", "only transactions created on/after this date (YYYY-MM-DD); forwarded as start_created"},
+	{"end-created", "end_created", "only transactions created on/before this date (YYYY-MM-DD); forwarded as end_created"},
+	{"start-moddate", "start_moddate", "only transactions modified on/after this date (YYYY-MM-DD); forwarded as start_moddate"},
+	{"end-moddate", "end_moddate", "only transactions modified on/before this date (YYYY-MM-DD); forwarded as end_moddate"},
+	{"start-duedate", "start_duedate", "only transactions due on/after this date (YYYY-MM-DD); forwarded as start_duedate"},
+	{"end-duedate", "end_duedate", "only transactions due on/before this date (YYYY-MM-DD); forwarded as end_duedate"},
+	{"duedate-macro", "duedate_macro", "due-date period macro; forwarded as the v3 duedate_macro param"},
+	{"moddate-macro", "moddate_macro", "modified-date period macro; forwarded as the v3 moddate_macro param"},
+	{"custom1", "custom1", "custom field 1 value; forwarded as the v3 custom1 param"},
+	{"custom2", "custom2", "custom field 2 value; forwarded as the v3 custom2 param"},
+	{"custom3", "custom3", "custom field 3 value; forwarded as the v3 custom3 param"},
+	{"percent-change", "percent_change", "add a percentage-change column (true/false); forwarded as percent_change"},
+	{"detail-columns", "columns", "comma-separated detail column keys (tx_date,txn_type,doc_num,name,memo,account_name,subt_nat_amount,...); forwarded as columns"},
+}
+
 func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *cobra.Command {
 	// Keep legacy flags parseable, but reject explicit options with no report
 	// API contract instead of silently returning an unfiltered report.
 	var report, dateRange, accountingMethod, columns, id, accountID string
+	var rawParams []string
 	var limit int
 	use := verbOf(command)
 	short := command + " (v3 report)"
@@ -464,6 +527,21 @@ func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *co
 				name = def
 			}
 			opts := client.ReportOptions{AccountingMethod: accountingMethod, SummarizeColumnBy: columns}
+			filters := map[string]string{}
+			for _, rf := range reportFilterFlags {
+				if cmd.Flags().Changed(rf.flag) {
+					v, _ := cmd.Flags().GetString(rf.flag)
+					filters[rf.param] = v
+				}
+			}
+			for _, kv := range rawParams {
+				k, v, ok := strings.Cut(kv, "=")
+				if !ok || strings.TrimSpace(k) == "" {
+					return fmt.Errorf("--param expects key=value (got %q)", kv)
+				}
+				filters[strings.TrimSpace(k)] = v
+			}
+			opts.Filters = filters
 			params, err := opts.QueryParams(name)
 			if err != nil {
 				return err
@@ -495,6 +573,10 @@ func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *co
 	cmd.Flags().StringVar(&columns, "columns", "", "")
 	cmd.Flags().StringVar(&id, "id", "", "")
 	cmd.Flags().IntVar(&limit, "limit", 0, "(0 = all)")
+	cmd.Flags().StringArrayVar(&rawParams, "param", nil, "additional report param key=value (repeatable; e.g. --param custom1=x)")
+	for _, rf := range reportFilterFlags {
+		cmd.Flags().String(rf.flag, "", rf.help)
+	}
 	if command == "feed rec get" {
 		cmd.Flags().StringVar(&accountID, "account-id", client.DefaultAccountID, "")
 	}
@@ -545,6 +627,44 @@ func printQuery(stdout io.Writer, flags *rootFlags, res *client.QueryResult) {
 	for _, it := range res.Items {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%v\n", it.ID, it.Name, it.DocNumber, it.Amount)
 	}
+}
+
+// printFolioDetail renders a single management report as an ordered page
+// table: seq, page type, page title, reportToken, resolved registry name,
+// date macro and stored date range. Stored dates are the last-saved config —
+// renders may override them without persisting (verified: a June statement
+// was produced while the folio still stored May dates).
+func printFolioDetail(stdout io.Writer, flags *rootFlags, res *client.QueryResult) {
+	if flags.asJSON {
+		printQuery(stdout, flags, res)
+		return
+	}
+	if obj := res.Detail; obj != nil {
+		fmt.Fprintf(stdout, "%s\t%s\n", strOf(obj["id"]), strOf(obj["name"]))
+		fmt.Fprintf(stdout, "kind=%s\tactive=%v\tlastModified=%s\n",
+			strOf(obj["reportKindEnum"]), obj["active"], strOf(obj["lastModifiedDate"]))
+		if fdr, ok := obj["folioDataRequest"].(map[string]any); ok {
+			fmt.Fprintf(stdout, "storedPeriod=%s→%s\tdateMacro=%s\ttoc=%v\n",
+				strOf(fdr["startDate"]), strOf(fdr["endDate"]),
+				strOf(fdr["dateMacro"]), fdr["includeTOC"])
+		}
+	}
+	fmt.Fprintf(stdout, "pages=%d\n", len(res.Items))
+	for i, it := range res.Items {
+		extra := ""
+		if it.FullName != "" && it.FullName != it.Name {
+			extra = " → " + it.FullName
+		}
+		fmt.Fprintf(stdout, "  p%d\t%s\t%s\ttoken=%s%s\t%s\t%s\n",
+			i, it.Type, it.Name, it.DocNumber, extra, it.SubType, it.Date)
+	}
+}
+
+func strOf(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func printReport(stdout io.Writer, flags *rootFlags, res *client.ReportResult) {

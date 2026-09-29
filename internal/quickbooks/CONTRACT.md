@@ -51,6 +51,37 @@ Module: `github.com/mvanhorn/cli-printing-press/v4`.
   the leftover-host lane). The `docNumber` field carries the classic
   reportv2 `mem_rpt_id` (the trailing `:N` of the composite id), so
   `--id 42` resolves "Melo Detailed Statement".
+- Management reports (statement folios): `qb reports management list` /
+  `qb reports management get --id sbg:…` read universalreportinsights
+  `/v1/folio` (`reportKindEnum=FOLIO`). `get` projects `folioDataRequest`
+  into the ordered page table — REPORT pages carry `reportToken` (the
+  classic `mem_rpt_id`), a per-page `reportDateMacro`/`startDate`/`endDate`
+  that overrides the saved report's own period at render, and `fullName`
+  resolved from the MEMORIZED or builder registry. Stored page dates are
+  the last-saved configuration, not evidence of the last-generated period
+  (renders can override dates without persisting).
+- `qb reports memorized run --id <N>` executes the saved report through
+  `createReports_Report` on v4/entities — the same call the classic grid
+  makes — and returns the section/transaction/total row tree. Bare `--id`
+  runs the saved period (and echoes the resolved option set under
+  `header.resolvedOptions`); `--date-range`/`--basis` replay those saved
+  filters (token, account whitelist, class list) through the equivalent
+  v3 report (`TX_DET_BY_ACCT` → ProfitAndLossDetail, `PANDL` →
+  ProfitAndLoss, …) for the requested window.
+- `qb reports management audit --id sbg:… --from YYYY-MM --to YYYY-MM`
+  atomically audits one folio across a statement window: every REPORT page
+  resolves its saved filters via `resolvedOptions`, classifies by scope
+  (`reportDateMacro=all` → alltime ledger page; >1 class → combined;
+  1 class → unit; 0 → company/unscoped), then replays each dated page per
+  month through the equivalent v3 report. Per period it checks
+  Σ unit nets == combined net, class-set coverage (unit ∪ == combined),
+  and account-whitelist drift both directions. Alltime pages run once per
+  class with `date_macro=All` and are sliced per month by row date; the
+  cumulative position per unit is Σ period nets − in-window distributions.
+  Limits: requests are sequential (one snapshot, not a transaction); saved
+  report defs have no history so this proves what the folio computes
+  *today* for each period — the delivered PDF remains the only proof of
+  what was actually sent.
 - Classic exports: `qb company data-export get --token <T> --out f.xlsx`
   POSTs the exportReport renderer; `--attr key=value` merges arbitrary
   reportCustomizationAttributes, so a saved report exports the way the

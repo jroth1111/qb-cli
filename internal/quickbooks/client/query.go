@@ -138,6 +138,12 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "Folio" {
 		return replayFolio(ctx, id, query, limit)
 	}
+	if entity == "SavedReport" {
+		return replaySavedReports(ctx, id, query, limit)
+	}
+	if entity == "MemorizedReport" {
+		return replayMemorizedReports(ctx, id, query, limit)
+	}
 	if entity == "RevenueRecognition" {
 		return replayAccountingDeferredTransactionLineDetails(ctx, id, query, limit)
 	}
@@ -482,10 +488,37 @@ func validateQueryEnvelope(entity string, body []byte) error {
 
 // ReportOptions carries optional v3 report query parameters. SummarizeColumnBy
 // groups period columns; it is distinct from the API's detail-field "columns".
+// Filters carries additional ReportService params (klass, account, customer,
+// vendor, department, group_by, sort_by, date_macro, ...) keyed by their API
+// parameter name.
 // Parameter names: Intuit's ReportService / CoreConstants SDK documentation.
 type ReportOptions struct {
 	AccountingMethod  string
 	SummarizeColumnBy string
+	Filters           map[string]string
+}
+
+// reportFilterKeyOK accepts the documented Intuit ReportService parameter
+// names that may be passed through --param/<filter flag>. Keys owned by the
+// dedicated flags (dates, method, column grouping) or by the URL builder are
+// rejected so a passthrough cannot silently override them.
+var reportFilterKeyOK = map[string]bool{
+	"account": true, "account_type": true, "account_status": true,
+	"apaccount": true, "araccount": true, "appaid": true,
+	"cleared": true, "columns": true,
+	"custom1": true, "custom2": true, "custom3": true,
+	"customer": true, "date_macro": true, "department": true,
+	"doc_num": true, "duedate_macro": true,
+	"end_created": true, "end_duedate": true, "end_moddate": true,
+	"group_by": true, "item": true, "klass": true, "memo": true,
+	"moddate_macro": true, "name": true,
+	"aging_method": true, "aging_period": true, "num_periods": true, "past_due": true,
+	"payment_method": true, "printed": true, "qzoom": true,
+	"sort_by": true, "sort_order": true,
+	"start_created": true, "start_duedate": true, "start_moddate": true,
+	"source_account_type": true, "subcolumns": true,
+	"term": true, "transaction_type": true,
+	"vendor": true, "percent_change": true,
 }
 
 // ReportDateParams follows the live balance-report snapshot contract.
@@ -513,8 +546,18 @@ func ReportDateParams(name, start, end string) url.Values {
 // QueryParams validates and encodes options for both requests and dry-run plans.
 func (o ReportOptions) QueryParams(name string) (url.Values, error) {
 	q := url.Values{}
-	if name == "TAXABLE_PAYMENTS" && (o.AccountingMethod != "" || o.SummarizeColumnBy != "") {
-		return nil, fmt.Errorf("TAXABLE_PAYMENTS does not support --accounting-method or --columns; omit these options")
+	if name == "TAXABLE_PAYMENTS" && (o.AccountingMethod != "" || o.SummarizeColumnBy != "" || len(o.Filters) > 0) {
+		return nil, fmt.Errorf("TAXABLE_PAYMENTS does not support --accounting-method, --columns, or report filters; omit these options")
+	}
+	for k, v := range o.Filters {
+		key := strings.ToLower(strings.TrimSpace(k))
+		if key == "" {
+			continue
+		}
+		if !reportFilterKeyOK[key] {
+			return nil, fmt.Errorf("report parameter %q is not supported by the v3 report service", k)
+		}
+		q.Set(key, strings.TrimSpace(v))
 	}
 	switch strings.ToLower(strings.TrimSpace(o.AccountingMethod)) {
 	case "":
@@ -678,7 +721,19 @@ func PlannedQueryURL(entity string, ids ...string) string {
 		return PlannedTagURL()
 	}
 	if entity == "ManagementFolio" {
+		if len(ids) > 0 && strings.TrimSpace(ids[0]) != "" {
+			return "https://universalreportinsights.api.intuit.com/v1/folio/" + url.PathEscape(strings.TrimSpace(ids[0])) + "?locale=en-au"
+		}
 		return PlannedManagementFolioURL()
+	}
+	if entity == "SavedReport" {
+		if len(ids) > 0 && strings.TrimSpace(ids[0]) != "" {
+			return PlannedSavedReportURL() + url.PathEscape(ids[0])
+		}
+		return PlannedSavedReportURL()
+	}
+	if entity == "MemorizedReport" {
+		return PlannedMemorizedURL()
 	}
 	if entity == "TaxReturn" {
 		return "https://qbo.intuit.com/api/v4/graphql (node__indirect_tax_ui_qbo taxReturns)"

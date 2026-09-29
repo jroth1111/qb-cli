@@ -79,6 +79,61 @@ func TestReportContractPlanForwardsOptions(t *testing.T) {
 	}
 }
 
+// TestReportContractForwardsFilters pins the custom-report extraction path:
+// a saved report's klass/account URL params must reach the v3 report query
+// verbatim, alongside the date range, and --param must accept documented keys
+// while rejecting unknown ones.
+func TestReportContractForwardsFilters(t *testing.T) {
+	e, _ := catalogByID("QBO.REPORTS.TRANSACTION_LIST_READ")
+	cmd := newV3ReportCmd(&rootFlags{dryRun: true, asJSON: true}, e, e.Command, "TransactionList")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"--date-range", "2026-04-01,2026-04-30",
+		"--accounting-method", "cash",
+		"--klass", "3700000000000906240",
+		"--account", "46,47,69",
+		"--param", "custom1=x",
+	})
+	if err := cmd.ExecuteContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var plan planEnvelope
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(plan.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := url.Values{
+		"minorversion": {"73"}, "start_date": {"2026-04-01"}, "end_date": {"2026-04-30"},
+		"accounting_method": {"Cash"}, "klass": {"3700000000000906240"},
+		"account": {"46,47,69"}, "custom1": {"x"},
+	}
+	if !reflect.DeepEqual(u.Query(), want) || !strings.HasSuffix(u.Path, "/reports/TransactionList") {
+		t.Fatalf("wrong report plan: %s", plan.URL)
+	}
+}
+
+func TestReportContractRejectsUnknownParam(t *testing.T) {
+	t.Setenv("QB_HOME", t.TempDir())
+	e, _ := catalogByID("QBO.REPORTS.REPORT_READ")
+	for _, dry := range []bool{false, true} {
+		cmd := newV3ReportCmd(&rootFlags{dryRun: dry, asJSON: true}, e, e.Command, "ProfitAndLoss")
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"--param", "bogus_key=1"})
+		err := cmd.ExecuteContext(t.Context())
+		if err == nil || !strings.Contains(err.Error(), "bogus_key") {
+			t.Fatalf("dry=%v unknown --param: %v", dry, err)
+		}
+	}
+}
+
 func TestReportContractRejectsIgnoredFlags(t *testing.T) {
 	t.Setenv("QB_HOME", t.TempDir())
 	for _, dry := range []bool{false, true} {

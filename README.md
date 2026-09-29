@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/mvanhorn/cli-printing-press)](go.mod)
 [![License](https://img.shields.io/github/license/mvanhorn/cli-printing-press)](LICENSE)
 
-`qb` drives the whole of QuickBooks Online (AU) from the terminal: books, banking feeds, sales, expenses, payroll, tax, inventory, reports — 548 catalogued operations across 16 domains, with live reads, live writes, dry-runs, and an authenticated session that heals itself. Built agent-first (`--json` everywhere, `qb actions` as a machine-readable contract), equally usable by humans.
+`qb` drives the whole of QuickBooks Online (AU) from the terminal: books, banking feeds, sales, expenses, payroll, tax, inventory, reports — 560 catalogued operations across 16 domains, with live reads, live writes, dry-runs, and an authenticated session that heals itself. Built agent-first (`--json` everywhere, `qb actions` as a machine-readable contract), equally usable by humans.
 
 Printed by the [Printing Press](https://printingpress.dev) (`cli-printing-press`, same repo) from the official v3 API, the QBO webapp's own captured GraphQL, and the banking-feed surfaces Intuit never published.
 
@@ -28,7 +28,7 @@ go build -o qb ./cmd/qb
 
 See [session lifecycle and controls](docs/SESSION_LIFECYCLE.md) for recovery, backoff and provider limits.
 
-## Coverage (548 primitives)
+## Coverage (560 primitives)
 
 | Domain | Wired | Read | Command root |
 |---|---|---|---|
@@ -41,16 +41,16 @@ See [session lifecycle and controls](docs/SESSION_LIFECYCLE.md) for recovery, ba
 | Tax (GST, BAS, TPAR, agencies, codes) | 2 | 10 | `qb tax` |
 | Inventory (items, purchase orders) | 10 | 9 | `qb inventory` |
 | Customers | 9 | 11 | `qb customers` |
-| Reports + forecasts | 12 | 30 | `qb reports` |
+| Reports + forecasts | 12 | 42 | `qb reports` |
 | GraphQL (captured webapp ops) | 8 | 3 | `qb gql` |
 | Cost groups, custom objects, accountant | 3 | 1 | `qb costgroups`, `qb customobjects`, `qb accountant` |
 | Integrations, advanced (service maps, batch) | 8 | 5 | `qb integrations`, `qb advanced` |
 
 `qb crm` and `qb salestx` are additional command trees outside the actions catalog. `salestx` includes live v3 sales transactions and tax-service operations; its plan IDs are command identifiers, not catalog entries.
 
-Totals: **207 wired, 184 read-only, 155 blocked, 2 excluded of 548 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
 `qb policy` is also outside the catalog: a read-only, offline surface for embedded company accounting policy (Mega Style Apartments profile). It serves the reference docs (`docs`/`doc`), the machine-readable rules (`rules`/`rule`), journal-pair templates, account/class lookups (`accounts`/`classes`), the 20.9% fee calculator (`management-fee`), the owner-statement equation (`owner-net` — revenue from a class-filtered P&L via `--pnl`, deductions from posted journals via `--journals`), a posted-pattern suggester (`categorise`), and a pre-flight journal validator (`check-journal`) that accepts either a v3 JournalEntry or the `--items-json` create shape, decomposes balanced multi-pair entries, and exits nonzero on `fail`/`unverified` verdicts.
 
+Totals: **207 wired, 196 read-only, 155 blocked, 2 excluded of 560 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
 
 OCR receipt read/search/delete aliases are blocked: they previously targeted v3 attachments, a different resource from financialdocument/stagetransactions receipts. Receipt upload and receipt-to-expense remain available. Invoice reminders preview by default; `--send` explicitly sends, is refused under verification harnesses, and reports delivery as unverified when QBO returns only an empty acknowledgement.
 
@@ -62,6 +62,8 @@ qb accounting class create --name "Marketing"   # then get / update / delete
 qb sales invoice get --id 198
 qb company company-info get
 qb reports profit-loss get --report ProfitAndLoss --date-range 2026-07-01,2026-09-01
+qb reports profit-loss-detail get --klass 3700000000000906240 --accounting-method cash   # one class's detail
+qb reports saved list --query "Melo"                    # saved custom-report definitions (klass/account filters inside dataRequest)
 qb actions --mode wired --json | jq '.[].id'
 ```
 

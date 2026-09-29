@@ -162,6 +162,136 @@ func validateSavedReportReceipt(raw []byte, id string, deleted bool) error {
 	return nil
 }
 
+// replaySavedReports backs `reports saved list|get` (QBO.REPORTS.SAVED_LIST /
+// SAVED_READ): read-only GETs on the same /v1/reports/qbo collection the
+// builder uses for CRB_REPORT objects.
+//
+//	GET /v1/reports/qbo/        → array of saved report headers (id/name/dates)
+//	GET /v1/reports/qbo/{id}    → {"report":{…,"dataRequest":{…}}} — the
+//	                              embedded filters/groups/projections that make
+//	                              a custom report reproducible.
+//
+// With --id the response Detail carries the dataRequest verbatim so agents can
+// read the report's class/account/date filters (e.g. an owner statement's
+// klass=…) without opening the frontend.
+func replaySavedReports(ctx context.Context, id, query string, limit int) (*QueryResult, error) {
+	ac, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	u := savedReportBase
+	single := strings.TrimSpace(id) != ""
+	if single {
+		u += url.PathEscape(strings.TrimSpace(id))
+	}
+	resp, err := ac.doURIHost(ctx, http.MethodGet, u, "universalreportinsights.api.intuit.com", nil)
+	if err != nil {
+		return nil, fmt.Errorf("saved reports GET: %w", err)
+	}
+	raw, code, err := readAndClose(resp)
+	if err != nil {
+		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, &ReplayError{Status: code, Message: errorMessage(raw)}
+	}
+	if single {
+		return projectSavedReport(raw, strings.TrimSpace(id))
+	}
+	return projectSavedReportList(raw, query, limit), nil
+}
+
+var savedReportItemKeys = itemKeys{
+	id:     []string{"id", "Id", "reportId"},
+	name:   []string{"name", "Name", "title"},
+	date:   []string{"updatedDate", "createdDate", "date"},
+	typeOf: []string{"reportKindEnum", "subType", "type", "status"},
+}
+
+// projectSavedReportList handles the collection response — a bare array or an
+// envelope carrying reports/items — and applies the client-side --query/--limit
+// window used by the other replay list reads. Live shape (verified 2026-09-28):
+// each element is {"report": {id, name, reportKindEnum, createdDate, ...}} so
+// entries are unwrapped before projection.
+func projectSavedReportList(raw []byte, query string, limit int) *QueryResult {
+	note := "universalreportinsights GET /v1/reports/qbo"
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		var env struct {
+			Reports []json.RawMessage `json:"reports"`
+			Items   []json.RawMessage `json:"items"`
+			Data    []json.RawMessage `json:"data"`
+		}
+		if json.Unmarshal(raw, &env) == nil {
+			arr = env.Reports
+			if len(arr) == 0 {
+				arr = env.Items
+			}
+			if len(arr) == 0 {
+				arr = env.Data
+			}
+		}
+	}
+	unwrapped := make([]json.RawMessage, 0, len(arr))
+	for _, r := range arr {
+		var wrap struct {
+			Report json.RawMessage `json:"report"`
+		}
+		if json.Unmarshal(r, &wrap) == nil && len(wrap.Report) > 0 {
+			unwrapped = append(unwrapped, wrap.Report)
+		} else {
+			unwrapped = append(unwrapped, r)
+		}
+	}
+	items := projectJSONItems("SavedReport", unwrapped, savedReportItemKeys)
+	if q := strings.ToLower(strings.TrimSpace(query)); q != "" {
+		kept := items[:0]
+		for _, it := range items {
+			if strings.Contains(strings.ToLower(it.Name), q) {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return &QueryResult{
+		Entity: "SavedReport",
+		Counts: map[string]int{"items": len(items), "totalCount": len(arr)},
+		Items:  items,
+		Note:   fmt.Sprintf("%s n=%d", note, len(arr)),
+	}
+}
+
+// projectSavedReport shapes one saved-report read: the report object (incl.
+// its dataRequest definition) is surfaced under Detail so the class/account/
+// date filters are visible without mutating or re-running anything.
+func projectSavedReport(raw []byte, id string) (*QueryResult, error) {
+	var env struct {
+		Report map[string]any `json:"report"`
+	}
+	var report map[string]any
+	if json.Unmarshal(raw, &env) == nil && len(env.Report) > 0 {
+		report = env.Report
+	} else if json.Unmarshal(raw, &report) != nil || len(report) == 0 {
+		return nil, fmt.Errorf("saved report %s: unparseable response; inspect before retrying", id)
+	}
+	name, _ := report["name"].(string)
+	detail := map[string]any{"report": report}
+	item := QueryItem{Type: "SavedReport", ID: id, Name: name}
+	if got, _ := report["id"].(string); got != "" {
+		item.ID = got
+	}
+	return &QueryResult{
+		Entity: "SavedReport",
+		Counts: map[string]int{"items": 1},
+		Items:  []QueryItem{item},
+		Detail: detail,
+		Note:   "universalreportinsights GET /v1/reports/qbo/{id} (definition incl. dataRequest filters)",
+	}, nil
+}
+
 // fetchReportDataRequest GETs a saved report and returns its dataRequest
 // for clone/update resend.
 func fetchReportDataRequest(ctx context.Context, ac *apiClient, id string) (json.RawMessage, error) {

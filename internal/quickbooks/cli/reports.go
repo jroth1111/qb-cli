@@ -2,6 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
 	"github.com/spf13/cobra"
@@ -16,6 +21,9 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	account_listEnt := &cobra.Command{Use: "account-list", Short: "account-list"}
 	account_listEnt.AddCommand(newStubCmd(flags, "reports account-list", "get", "account-list read"))
 	cmd.AddCommand(account_listEnt)
+	account_list_detailEnt := &cobra.Command{Use: "account-list-detail", Short: "account-list-detail"}
+	account_list_detailEnt.AddCommand(newStubCmd(flags, "reports account-list-detail", "get", "account-list-detail read"))
+	cmd.AddCommand(account_list_detailEnt)
 	aged_payablesEnt := &cobra.Command{Use: "aged-payables", Short: "aged-payables"}
 	aged_payablesEnt.AddCommand(newStubCmd(flags, "reports aged-payables", "get", "aged-payables read"))
 	cmd.AddCommand(aged_payablesEnt)
@@ -54,6 +62,7 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	managementEnt.AddCommand(newManagementCreateCmd(flags))
 	managementEnt.AddCommand(newManagementUpdateCmd(flags))
 	managementEnt.AddCommand(newStubCmd(flags, "reports management", "get", "management read (universalreportinsights /v1/folio)"))
+	managementEnt.AddCommand(newManagementAuditCmd(flags))
 	cmd.AddCommand(managementEnt)
 	performanceEnt := &cobra.Command{Use: "performance", Short: "performance"}
 	performanceEnt.AddCommand(newPerformanceCreateCmd(flags))
@@ -65,8 +74,18 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	reportEnt.AddCommand(newSavedReportCmd(flags, "create"))
 	reportEnt.AddCommand(newSavedReportCmd(flags, "update"))
 	reportEnt.AddCommand(newSavedReportCmd(flags, "delete"))
-	reportEnt.AddCommand(newStubCmd(flags, "reports report", "get", "report read (not wired)"))
+	reportEnt.AddCommand(newStubCmd(flags, "reports report", "get", "report read (v3 report)"))
 	cmd.AddCommand(reportEnt)
+	savedEnt := &cobra.Command{Use: "saved", Short: "saved custom reports (CRB_REPORT definitions)"}
+	savedEnt.AddCommand(newStubCmd(flags, "reports saved", "list", "saved report list (universalreportinsights /v1/reports/qbo)"))
+	savedEnt.AddCommand(newStubCmd(flags, "reports saved", "get", "saved report read — definition incl. dataRequest filters"))
+	cmd.AddCommand(savedEnt)
+
+	memorizedEnt := &cobra.Command{Use: "memorized", Short: "memorized custom reports (v4/entities reportDefinitions)"}
+	memorizedEnt.AddCommand(newStubCmd(flags, "reports memorized", "list", "memorized report list (v4/entities reportDefinitions MEMORIZED)"))
+	memorizedEnt.AddCommand(newStubCmd(flags, "reports memorized", "get", "memorized report read — full definition; --id accepts composite id or mem_rpt_id"))
+	memorizedEnt.AddCommand(newMemorizedRunCmd(flags))
+	cmd.AddCommand(memorizedEnt)
 	balance_sheetEnt := &cobra.Command{Use: "balance-sheet", Short: "balance-sheet"}
 	balance_sheetEnt.AddCommand(newStubCmd(flags, "reports balance-sheet", "get", "balance-sheet read"))
 	cmd.AddCommand(balance_sheetEnt)
@@ -109,13 +128,206 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	profit_loss_detailEnt := &cobra.Command{Use: "profit-loss-detail", Short: "profit-loss-detail"}
 	profit_loss_detailEnt.AddCommand(newStubCmd(flags, "reports profit-loss-detail", "get", "profit-loss-detail read"))
 	cmd.AddCommand(profit_loss_detailEnt)
+	tax_summaryEnt := &cobra.Command{Use: "tax-summary", Short: "tax-summary"}
+	tax_summaryEnt.AddCommand(newStubCmd(flags, "reports tax-summary", "get", "tax-summary read"))
+	cmd.AddCommand(tax_summaryEnt)
 	transaction_listEnt := &cobra.Command{Use: "transaction-list", Short: "transaction-list"}
 	transaction_listEnt.AddCommand(newStubCmd(flags, "reports transaction-list", "get", "transaction-list read"))
 	cmd.AddCommand(transaction_listEnt)
+	transaction_list_by_customerEnt := &cobra.Command{Use: "transaction-list-by-customer", Short: "transaction-list-by-customer"}
+	transaction_list_by_customerEnt.AddCommand(newStubCmd(flags, "reports transaction-list-by-customer", "get", "transaction-list-by-customer read"))
+	cmd.AddCommand(transaction_list_by_customerEnt)
+	transaction_list_by_vendorEnt := &cobra.Command{Use: "transaction-list-by-vendor", Short: "transaction-list-by-vendor"}
+	transaction_list_by_vendorEnt.AddCommand(newStubCmd(flags, "reports transaction-list-by-vendor", "get", "transaction-list-by-vendor read"))
+	cmd.AddCommand(transaction_list_by_vendorEnt)
+	transaction_list_with_splitsEnt := &cobra.Command{Use: "transaction-list-with-splits", Short: "transaction-list-with-splits"}
+	transaction_list_with_splitsEnt.AddCommand(newStubCmd(flags, "reports transaction-list-with-splits", "get", "transaction-list-with-splits read"))
+	cmd.AddCommand(transaction_list_with_splitsEnt)
 	trial_balanceEnt := &cobra.Command{Use: "trial-balance", Short: "trial-balance"}
 	trial_balanceEnt.AddCommand(newStubCmd(flags, "reports trial-balance", "get", "trial-balance read"))
 	cmd.AddCommand(trial_balanceEnt)
+	trial_balance_frEnt := &cobra.Command{Use: "trial-balance-fr", Short: "trial-balance-fr"}
+	trial_balance_frEnt.AddCommand(newStubCmd(flags, "reports trial-balance-fr", "get", "trial-balance-fr read"))
+	cmd.AddCommand(trial_balance_frEnt)
 	return cmd
+}
+
+// newMemorizedRunCmd implements `reports memorized run`: execute a saved
+// custom report server-side through v4/entities createReports_Report — the
+// same call the classic reportv2 grid makes — and print the grid (sections,
+// transaction lines, account/section totals, report total).
+func newMemorizedRunCmd(flags *rootFlags) *cobra.Command {
+	var id, dateRange, basis string
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Execute a memorized custom report (v4/entities createReports_Report)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(id) == "" {
+				return fmt.Errorf("--id is required (composite id or mem_rpt_id, e.g. 42)")
+			}
+			start, end := splitDateRange(dateRange)
+			if (start == "") != (end == "") {
+				return fmt.Errorf("--date-range needs start,end as YYYY-MM-DD,YYYY-MM-DD")
+			}
+			if b := strings.ToLower(strings.TrimSpace(basis)); b != "" && b != "cash" && b != "accrual" {
+				return fmt.Errorf("--basis must be cash or accrual")
+			}
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports memorized run", ID: "QBO.REPORTS.MEMORIZED_RUN",
+					Mode: modeRead, Method: "POST",
+					URL:   client.PlannedMemorizedRunURL(),
+					Flags: localFlagMap(cmd), Note: "v4/entities createReports_Report POST; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			res, err := client.ReplayMemorizedRun(ctx, id, client.MemorizedRunOptions{LowDate: start, HighDate: end, Basis: basis})
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			// Overrides replay the saved filter set through the v3 report
+			// engine (v3-shaped rows); the default saved period returns the
+			// classic grid.
+			if start != "" || basis != "" {
+				printV3ReportRows(cmd.OutOrStdout(), flags, res)
+			} else {
+				printMemorizedRun(cmd.OutOrStdout(), flags, res)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "memorized report id — composite id or mem_rpt_id (e.g. 42)")
+	cmd.Flags().StringVar(&dateRange, "date-range", "", "start,end as YYYY-MM-DD,YYYY-MM-DD (defaults to the saved report's period)")
+	cmd.Flags().StringVar(&basis, "basis", "", "cash or accrual (defaults to the saved report's basis)")
+	_ = cmd.MarkFlagRequired("id")
+	applyCatalogHelp(cmd, "QBO.REPORTS.MEMORIZED_RUN")
+	return cmd
+}
+
+// printMemorizedRun renders the executed grid: one line per row, cells joined,
+// indented by the row's indent attribute; summary rows are printed as-is
+// (the API marks them type=summary + isBold). --json emits the raw envelope.
+func printMemorizedRun(stdout io.Writer, flags *rootFlags, res *client.ReportResult) {
+	if flags.asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(res)
+		return
+	}
+	if res == nil {
+		fmt.Fprintln(stdout, "no report")
+		return
+	}
+	name := res.Report
+	if name == "" {
+		name = fmt.Sprint(res.Header["memRptId"])
+	}
+	fmt.Fprintf(stdout, "%s\n", name)
+	var rows []struct {
+		ID       string `json:"id"`
+		ParentID string `json:"parentId"`
+		Cells    []struct {
+			Value        string `json:"value"`
+			DisplayValue string `json:"displayValue"`
+			Attributes   []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"attributes"`
+		} `json:"cells"`
+	}
+	if json.Unmarshal(res.Rows, &rows) != nil {
+		return
+	}
+	for _, row := range rows {
+		var indent int
+		var cells []string
+		for _, c := range row.Cells {
+			v := c.Value
+			if c.DisplayValue != "" {
+				v = c.DisplayValue
+			}
+			for _, a := range c.Attributes {
+				if a.Name == "indent" {
+					fmt.Sscanf(a.Value, "%d", &indent)
+				}
+			}
+			if v != "" {
+				cells = append(cells, v)
+			}
+		}
+		fmt.Fprintf(stdout, "%s%s\n", strings.Repeat("  ", indent), strings.Join(cells, "\t"))
+	}
+}
+
+// printV3ReportRows walks a v3 report's nested Row tree (Header/Section/Data/
+// Summary) and prints each row's ColData tab-joined, indented by depth — a
+// readable facsimile of the classic grouped grid.
+func printV3ReportRows(stdout io.Writer, flags *rootFlags, res *client.ReportResult) {
+	if flags.asJSON {
+		printReport(stdout, flags, res)
+		return
+	}
+	if res == nil {
+		fmt.Fprintln(stdout, "no report")
+		return
+	}
+	if res.Report != "" {
+		fmt.Fprintln(stdout, res.Report)
+	}
+	var tree struct {
+		Row []v3Row `json:"Row"`
+	}
+	if json.Unmarshal(res.Rows, &tree) != nil {
+		return
+	}
+	for _, r := range tree.Row {
+		printV3Row(stdout, r, 0)
+	}
+}
+
+type v3Row struct {
+	Type   string `json:"type"`
+	Header *struct {
+		ColData []v3Col `json:"ColData"`
+	} `json:"Header"`
+	ColData []v3Col `json:"ColData"`
+	Rows    *struct {
+		Row []v3Row `json:"Row"`
+	} `json:"Rows"`
+	Summary *struct {
+		ColData []v3Col `json:"ColData"`
+	} `json:"Summary"`
+}
+
+type v3Col struct {
+	Value string `json:"value"`
+}
+
+func v3ColLine(cols []v3Col) string {
+	var cells []string
+	for _, c := range cols {
+		cells = append(cells, c.Value)
+	}
+	return strings.Join(cells, "\t")
+}
+
+func printV3Row(w io.Writer, r v3Row, depth int) {
+	pad := strings.Repeat("  ", depth)
+	if r.Header != nil {
+		fmt.Fprintln(w, pad+v3ColLine(r.Header.ColData))
+	}
+	if len(r.ColData) > 0 {
+		fmt.Fprintln(w, pad+v3ColLine(r.ColData))
+	}
+	if r.Rows != nil {
+		for _, sub := range r.Rows.Row {
+			printV3Row(w, sub, depth+1)
+		}
+	}
+	if r.Summary != nil {
+		fmt.Fprintln(w, pad+v3ColLine(r.Summary.ColData))
+	}
 }
 
 // newPerformanceCreateCmd implements `reports performance create`: POST one
@@ -497,4 +709,126 @@ func newSavedReportCmd(flags *rootFlags, op string) *cobra.Command {
 	}
 	applyCatalogHelp(cmd, catID)
 	return cmd
+}
+
+// newManagementAuditCmd implements `reports management audit`: execute every
+// REPORT page of a management folio for each month in --from..--to and
+// reconcile the constituents — per-unit detail nets vs the combined summary,
+// plus the all-time distributions ledger sliced per period.
+func newManagementAuditCmd(flags *rootFlags) *cobra.Command {
+	var id, from, to string
+	cmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Audit a management report's constituents per period (unit detail vs combined summary vs distributions)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(id) == "" {
+				return fmt.Errorf("--id is required (folio id, e.g. sbg:…)")
+			}
+			if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
+				return fmt.Errorf("--from and --to are required (YYYY-MM)")
+			}
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports management audit", ID: "QBO.REPORTS.MANAGEMENT_AUDIT",
+					Mode: modeRead, Method: "GET+POST(read)",
+					URL:   "https://universalreportinsights.api.intuit.com/v1/folio/" + id + " + per-page report executions",
+					Flags: localFlagMap(cmd), Note: "folio GET + resolved-filter v3 report reads + v4/entities saved-report resolution; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			audit, err := client.AuditFolio(ctx, id, from, to)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printFolioAudit(cmd.OutOrStdout(), flags, audit)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "folio id (required, e.g. sbg:…)")
+	cmd.Flags().StringVar(&from, "from", "", "first statement month YYYY-MM (required)")
+	cmd.Flags().StringVar(&to, "to", "", "last statement month YYYY-MM (required)")
+	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("to")
+	applyCatalogHelp(cmd, "QBO.REPORTS.MANAGEMENT_AUDIT")
+	return cmd
+}
+
+// printFolioAudit renders the reconciliation matrix: one row per period, one
+// column per unit page, the combined total, and the tie-out delta — then the
+// distributions ledger and cumulative position, then structural warnings.
+func printFolioAudit(stdout io.Writer, flags *rootFlags, audit *client.FolioAudit) {
+	if flags.asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(audit)
+		return
+	}
+	fmt.Fprintf(stdout, "%s\t%s\n", audit.FolioID, audit.FolioName)
+	fmt.Fprintf(stdout, "window=%s→%s\n", audit.From, audit.To)
+	for _, p := range audit.Pages {
+		fmt.Fprintf(stdout, "  page p%d\t%s\tkind=%s\ttoken=%s\tclasses=%s\n",
+			p.Seq, p.Title, p.Kind, p.Token, strings.Join(p.Classes, ","))
+	}
+	// stable column order: unit titles sorted
+	var unitTitles []string
+	for _, p := range audit.Pages {
+		if p.Kind == "unit" {
+			unitTitles = append(unitTitles, p.Title)
+		}
+	}
+	sort.Strings(unitTitles)
+	fmt.Fprintf(stdout, "\nperiod\t%s\tcombined\tdelta\tstatus\n", strings.Join(unitTitles, "\t"))
+	for _, pr := range audit.Periods {
+		cells := []string{pr.Label}
+		for _, t := range unitTitles {
+			cells = append(cells, money(pr.Units[t]))
+		}
+		status := "ok"
+		if !pr.OK {
+			status = "MISMATCH"
+		}
+		cells = append(cells, money(pr.CombinedSum), money(pr.Delta), status)
+		fmt.Fprintln(stdout, strings.Join(cells, "\t"))
+	}
+	if len(audit.Distributions) > 0 {
+		fmt.Fprintln(stdout, "\ndistributions:")
+		for _, d := range audit.Distributions {
+			cls := d.Class
+			if cls == "" {
+				cls = "(unscoped)"
+			}
+			var months []string
+			for m, v := range d.ByMonth {
+				if v != 0 {
+					months = append(months, m+"="+money(v))
+				}
+			}
+			sort.Strings(months)
+			fmt.Fprintf(stdout, "  %s\tclass=%s\tin-window=%s\tall-time=%s\t%s\n",
+				d.Page, cls, money(d.InRange), money(d.AllTime), strings.Join(months, " "))
+		}
+	}
+	if len(audit.Position) > 0 {
+		fmt.Fprintln(stdout, "\nposition (earned − distributed, window):")
+		var keys []string
+		for k := range audit.Position {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(stdout, "  %s\t%s\n", k, money(audit.Position[k]))
+		}
+	}
+	if len(audit.Warnings) > 0 {
+		fmt.Fprintln(stdout, "\nwarnings:")
+		for _, w := range audit.Warnings {
+			fmt.Fprintf(stdout, "  ! %s\n", w)
+		}
+	}
+}
+
+func money(f float64) string {
+	return fmt.Sprintf("%.2f", f)
 }
