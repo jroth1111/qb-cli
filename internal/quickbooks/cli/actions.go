@@ -481,6 +481,7 @@ var catalogPrimitives = []primitiveEntry{
 	{ID: "QBO.REPORTS.MANAGEMENT_EDIT", Domain: "reports", Risk: "R2", Mode: modeWired, Command: "reports management update"},
 	{ID: "QBO.REPORTS.MANAGEMENT_READ", Domain: "reports", Risk: "R0", Mode: modeRead, Command: "reports management get"},
 	{ID: "QBO.REPORTS.MANAGEMENT_AUDIT", Domain: "reports", Risk: "R0", Mode: modeRead, Command: "reports management audit"},
+	{ID: "QBO.REPORTS.MANAGEMENT_ATTRIBUTION", Domain: "reports", Risk: "R0", Mode: modeRead, Command: "reports management attribution"},
 	{ID: "QBO.REPORTS.MEMORIZED_LIST", Domain: "reports", Risk: "R0", Mode: modeRead, Command: "reports memorized list"},
 	{ID: "QBO.REPORTS.MEMORIZED_READ", Domain: "reports", Risk: "R0", Mode: modeRead, Command: "reports memorized get"},
 	{ID: "QBO.REPORTS.MEMORIZED_RUN", Domain: "reports", Risk: "R0", Mode: modeRead, Command: "reports memorized run"},

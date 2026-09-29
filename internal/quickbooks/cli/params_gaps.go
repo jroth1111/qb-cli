@@ -425,6 +425,11 @@ var auParamGaps = map[string][]paramDoc{
 		p("from", "string", "first statement month, YYYY-MM (inclusive)", true, ""),
 		p("to", "string", "last statement month, YYYY-MM (inclusive)", true, ""),
 	},
+	"QBO.REPORTS.MANAGEMENT_ATTRIBUTION": {
+		p("from", "string", "first statement month, YYYY-MM (inclusive)", true, ""),
+		p("to", "string", "last statement month, YYYY-MM (inclusive)", true, ""),
+		p("account", "string", "owner revenue account id (default 47, Client Property Revenue)", false, ""),
+	},
 	"QBO.SALES.ESTIMATE_COPY": {
 		p("id", "string", "quote/estimate to duplicate. Customer can be changed on the copy", true, ""),
 		p("customer", "string", "override customer on the copy", false, ""),
@@ -995,6 +1000,7 @@ var auNoteGaps = map[string]string{
 	"QBO.REPORTS.MANAGEMENT_EDIT":                "Reorder management-report pages. L5sNxCAWt.",
 	"QBO.REPORTS.MANAGEMENT_READ":                "View a management report — --id returns the ordered page table (cover → per-property detail reports → summary → distributions); reportToken is the mem_rpt_id each page executes. Stored page dates are last-saved config, not the generated period. L90RAh2XZ.",
 	"QBO.REPORTS.MANAGEMENT_AUDIT":               "Execute every REPORT page of a management report per month and reconcile: per-unit detail nets must equal the combined summary; all-time distribution pages are sliced per period. Flags whitelist/class coverage drift between constituents. L90RAh2XZ.",
+	"QBO.REPORTS.MANAGEMENT_ATTRIBUTION":         "Scan deposit and invoice lines in a statement window for cancellation/break-lease/claim/guest-fee semantics posting to the owner revenue account — money that belongs to Management Income. Detection-only; refunds land at review severity.",
 	"QBO.SALES.ESTIMATE_COPY":                    "Copy creates a new quote with the same lines; customer can change. Recurring is better for repeats. L1xisZLFD.",
 	"QBO.SALES.INVOICE_COPY":                     "Duplicates the invoice. Change customer if charging someone else. L93xhzbxn L1xisZLFD.",
 	"QBO.SALES.INVOICE_DISCOUNT":                 "Turn discounts on in settings. Percent of subtotal or a negative-rate item. Turning off mid-invoice disables the setting company-wide. L3VyP6cwJ.",
