@@ -613,9 +613,12 @@ type auditTxn struct {
 
 // v3TxnRows extracts transaction leaf rows from a v3 detail report. Leaf rows
 // are ColData arrays; the date is the first cell. The amount comes from the
-// column titled "Amount" when the report advertises columns; otherwise the
-// tail heuristic — a trailing numeric cell is the running BALANCE, so when the
-// last two numerics differ the amount is the second-from-right.
+// column titled "Amount" when the report advertises columns. Without column
+// metadata the tail heuristic applies — but only after PROVING a running
+// balance exists: a rightmost numeric that equals the previous row's rightmost
+// plus its second-rightmost is a balance column, so the amount is the
+// second-from-right. When no row confirms the hypothesis the rightmost
+// numeric is the amount (a "... Rate, Amount" layout must not read the rate).
 func v3TxnRows(cols []string, rows json.RawMessage) ([]auditTxn, error) {
 	amtIdx := -1
 	for i, c := range cols {
@@ -629,7 +632,83 @@ func v3TxnRows(cols []string, rows json.RawMessage) ([]auditTxn, error) {
 	if err := json.Unmarshal(rows, &rmap); err != nil {
 		return nil, err
 	}
+	numAt := func(cells []string, i int) (float64, bool) {
+		f, err := strconv.ParseFloat(strings.ReplaceAll(cells[i], ",", ""), 64)
+		return f, err == nil
+	}
+	type cand struct {
+		cells []string
+		date  string
+		tails []int // trailing numeric column indices, rightmost first
+		amt   float64
+		ok    bool
+	}
 	var out []auditTxn
+	// emitSection resolves amounts for one block of sibling leaf rows; the
+	// running-balance hypothesis is verified within the block before any
+	// fallback trusts it.
+	emitSection := func(leafs []map[string]any) {
+		cands := make([]cand, 0, len(leafs))
+		for _, m := range leafs {
+			cd, _ := m["ColData"].([]any)
+			if len(cd) < 2 {
+				continue
+			}
+			var cells []string
+			for _, c := range cd {
+				v, _ := c.(map[string]any)["value"].(string)
+				cells = append(cells, strings.TrimSpace(v))
+			}
+			d := parseTxnDate(cells[0])
+			if d == "" {
+				continue
+			}
+			cv := cand{cells: cells, date: d}
+			if amtIdx >= 0 && amtIdx < len(cells) {
+				if f, ok := numAt(cells, amtIdx); ok {
+					cv.amt, cv.ok = f, true
+				}
+			}
+			if !cv.ok {
+				for i := len(cells) - 1; i >= 0 && len(cv.tails) < 3; i-- {
+					if _, ok := numAt(cells, i); ok {
+						cv.tails = append(cv.tails, i)
+					}
+				}
+				if len(cv.tails) == 0 {
+					continue
+				}
+			}
+			cands = append(cands, cv)
+		}
+		// balance proof: some later row's rightmost cell equals the previous
+		// row's rightmost plus its own second-rightmost.
+		balanceIdx := -1
+		for i := 1; i < len(cands); i++ {
+			p, c := &cands[i-1], &cands[i]
+			if len(p.tails) == 0 || len(c.tails) < 2 {
+				continue
+			}
+			pv, _ := numAt(p.cells, p.tails[0])
+			cv, _ := numAt(c.cells, c.tails[0])
+			sv, _ := numAt(c.cells, c.tails[1])
+			if math.Abs(cv-(pv+sv)) < 0.005 {
+				balanceIdx = c.tails[0]
+				break
+			}
+		}
+		for i := range cands {
+			c := &cands[i]
+			if !c.ok {
+				idx := c.tails[0]
+				if balanceIdx >= 0 && len(c.tails) >= 2 && c.tails[0] == balanceIdx {
+					idx = c.tails[1]
+				}
+				c.amt, _ = numAt(c.cells, idx)
+			}
+			out = append(out, auditTxn{date: c.date, amount: c.amt, cells: c.cells})
+		}
+	}
 	var walk func(n any)
 	walk = func(n any) {
 		m, _ := n.(map[string]any)
@@ -638,58 +717,22 @@ func v3TxnRows(cols []string, rows json.RawMessage) ([]auditTxn, error) {
 		}
 		if sub, ok := m["Rows"].(map[string]any); ok {
 			if list, _ := sub["Row"].([]any); len(list) > 0 {
+				var leafs []map[string]any
 				for _, r := range list {
-					walk(r)
+					rm, _ := r.(map[string]any)
+					if rm == nil {
+						continue
+					}
+					if _, nested := rm["Rows"]; nested {
+						walk(r)
+					} else {
+						leafs = append(leafs, rm)
+					}
 				}
+				emitSection(leafs)
 				return
 			}
 		}
-		cd, _ := m["ColData"].([]any)
-		if len(cd) < 2 {
-			return
-		}
-		var cells []string
-		for _, c := range cd {
-			v, _ := c.(map[string]any)["value"].(string)
-			cells = append(cells, strings.TrimSpace(v))
-		}
-		d := parseTxnDate(cells[0])
-		if d == "" {
-			return
-		}
-		numAt := func(i int) (float64, bool) {
-			f, err := strconv.ParseFloat(strings.ReplaceAll(cells[i], ",", ""), 64)
-			return f, err == nil
-		}
-		var amt float64
-		var found bool
-		if amtIdx >= 0 && amtIdx < len(cells) {
-			amt, found = numAt(amtIdx)
-		}
-		if !found {
-			var tail []int
-			for i := len(cells) - 1; i >= 0 && len(tail) < 2; i-- {
-				if _, ok := numAt(i); ok {
-					tail = append(tail, i)
-				}
-			}
-			switch {
-			case len(tail) == 0:
-				return
-			case len(tail) == 1:
-				amt, _ = numAt(tail[0])
-			default:
-				a, _ := numAt(tail[1])
-				b, _ := numAt(tail[0])
-				if a != b {
-					amt = a // two distinct trailing numerics: amount, then balance
-				} else {
-					amt = b
-				}
-			}
-			found = true
-		}
-		out = append(out, auditTxn{date: d, amount: amt, cells: cells})
 	}
 	if top, ok := rmap["Row"].([]any); ok {
 		for _, r := range top {

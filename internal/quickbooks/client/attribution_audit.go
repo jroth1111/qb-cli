@@ -30,6 +30,15 @@ var msaRevenueSemantics = regexp.MustCompile(`(?i)\bcancel(?:l?ed|l?ing|lation)?
 // owner's; a refund of a cancellation payout is MSA's.
 var reviewSemantics = regexp.MustCompile(`(?i)\brefund|\badjustment\b|write ?off|writeoff|partially refund|booking adjustment`)
 
+// strongMSA excludes the fee-phrase subset (cleaning fee, late check-in) that
+// can appear inside predominantly-accommodation lines, e.g. "Accommodation
+// 5th Dec - 20th Dec (including cleaning fee)". A line matching only the
+// fee-ish phrases AND mentioning accommodation is demoted to review — it
+// contains MSA money, but flagging the whole line as misbooked overstates it.
+var strongMSA = regexp.MustCompile(`(?i)\bcancel(?:l?ed|l?ing|lation)?\b|break[ -]lease|early[ -]term|resolution|claim|charged to guest|guest fee|penalt|damage claim|extra guest`)
+
+var accommodationMention = regexp.MustCompile(`(?i)accommodation`)
+
 // AttributionFinding is one revenue line whose description carries
 // cancellation/fee/claim (or reviewable refund/adjustment) semantics inside an
 // owner-revenue account.
@@ -87,8 +96,13 @@ func ScanAttributionFindings(kind string, entities []map[string]any, revenueAcco
 			desc := strOfMap(L, "Description")
 			var sev string
 			switch {
+			case strongMSA.MatchString(desc):
+				sev = "msa"
 			case msaRevenueSemantics.MatchString(desc):
 				sev = "msa"
+				if accommodationMention.MatchString(desc) {
+					sev = "review" // mixed accommodation+fee line: partial MSA money
+				}
 			case reviewSemantics.MatchString(desc):
 				sev = "review"
 			default:
@@ -175,8 +189,11 @@ func AuditRevenueAttribution(ctx context.Context, from, to, revenueAccount strin
 }
 
 // v3QueryAll pages a v3 select through STARTPOSITION until a short page.
+// Rows are deduped on Id — a server that overlaps windows must not let a
+// finding count twice.
 func v3QueryAll(ctx context.Context, ac *apiClient, entity, stmt string) ([]json.RawMessage, error) {
 	var all []json.RawMessage
+	seen := map[string]bool{}
 	for start := 1; ; start += queryPageSize {
 		page := fmt.Sprintf("%s STARTPOSITION %d MAXRESULTS %d", stmt, start, queryPageSize)
 		body, status, err := v3QueryGET(ctx, ac, entity, page)
@@ -210,8 +227,23 @@ func v3QueryAll(ctx context.Context, ac *apiClient, entity, stmt string) ([]json
 		if ok {
 			_ = json.Unmarshal(raw, &rows)
 		}
-		all = append(all, rows...)
-		if len(rows) < queryPageSize {
+		fresh := 0
+		for _, row := range rows {
+			var probe struct {
+				ID string `json:"Id"`
+			}
+			if json.Unmarshal(row, &probe) == nil && probe.ID != "" {
+				if seen[probe.ID] {
+					continue
+				}
+				seen[probe.ID] = true
+			}
+			all = append(all, row)
+			fresh++
+		}
+		// A full page contributes no new ids — the server is echoing the same
+		// window regardless of STARTPOSITION; stop rather than walk forever.
+		if len(rows) < queryPageSize || fresh == 0 {
 			return all, nil
 		}
 	}

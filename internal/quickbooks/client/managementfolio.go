@@ -153,12 +153,18 @@ func resolveFolioPageNames(ctx context.Context, items []QueryItem) {
 			for _, key := range []string{it.DocNumber, it.ID} {
 				for _, idx := range need[key] {
 					items[idx].FullName = it.Name
+					delete(need, key)
 				}
 			}
 		}
 	}
 	if mem, err := replayMemorizedReports(ctx, "", "", 0); err == nil {
 		resolve(mem)
+	}
+	// The saved-report registry is only worth a second fetch when the first
+	// left tokens unresolved — most folios are fully memorized-backed.
+	if len(need) == 0 {
+		return
 	}
 	if saved, err := replaySavedReports(ctx, "", "", 0); err == nil {
 		resolve(saved)
