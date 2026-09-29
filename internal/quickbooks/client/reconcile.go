@@ -320,12 +320,17 @@ func PlanReconcileFinish(accountID, adjDate, adjAccount, exchangeRate, stmtDate 
 		DryRun: true,
 		Dial:   false,
 		Method: http.MethodPost,
-		URL:    qbonlineGraphqlURL,
+		URL:    PlannedReconcileMutateURL(),
 		Body:   json.RawMessage(payload),
 		Note:   "qbonline-aws FinishReconcile; open session required; not sent",
 		op:     "FinishReconcile",
 	}, nil
 }
 
+// plannedQbonlineGraphqlURL is qbonlineGraphqlURL with the embedded service
+// apikey redacted — request plans are a secret-free description of the HTTP
+// call even when the credential is a public web-client key.
+const plannedQbonlineGraphqlURL = "https://qbonline-aws.api.intuit.com/v4/graphql?intuit_apikey={embedded}"
+
 // PlannedReconcileMutateURL reports the mutation host for dry-run plans.
-func PlannedReconcileMutateURL() string { return qbonlineGraphqlURL }
+func PlannedReconcileMutateURL() string { return plannedQbonlineGraphqlURL }
