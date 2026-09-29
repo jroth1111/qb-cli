@@ -39,16 +39,19 @@ type AccountsResult struct {
 
 // Transaction is the secret-free projection of a pending review txn.
 type Transaction struct {
-	DisplayDescription string             `json:"displayDescription,omitempty"`
-	ReviewState        string             `json:"reviewState,omitempty"`
-	AccountingLinks    []AccountingLink   `json:"accountingLinks,omitempty"`
-	PendingSuggestion  *PendingSuggestion `json:"pendingSuggestion,omitempty"`
-	ID                 string             `json:"id"`
-	OLBTxnID           string             `json:"olbTxnId,omitempty"`
-	Date               string             `json:"date"`
-	Amount             float64            `json:"amount"`
-	Description        string             `json:"description"`
-	AcceptType         string             `json:"acceptType"`
+	DisplayDescription  string             `json:"displayDescription,omitempty"`
+	ReviewState         string             `json:"reviewState,omitempty"`
+	AccountingLinks     []AccountingLink   `json:"accountingLinks,omitempty"`
+	PendingSuggestion   *PendingSuggestion `json:"pendingSuggestion,omitempty"`
+	AddMatchType        string             `json:"addMatchType,omitempty"`
+	LinkedTxnCount      int                `json:"linkedTxnCount,omitempty"`
+	PotentialMatchCount int                `json:"potentialMatchCount,omitempty"`
+	ID                  string             `json:"id"`
+	OLBTxnID            string             `json:"olbTxnId,omitempty"`
+	Date                string             `json:"date"`
+	Amount              float64            `json:"amount"`
+	Description         string             `json:"description"`
+	AcceptType          string             `json:"acceptType"`
 }
 
 // PendingSuggestion is QBO's current bank-feed draft, not a booked entity.
@@ -464,14 +467,17 @@ func projectTxn(t rawTxn) Transaction {
 			PayeeID: rawID(t.AddAsQboTxn.NameID), Details: lines}
 	}
 	return Transaction{
-		AccountingLinks:   links,
-		PendingSuggestion: suggested,
-		ID:                t.ID,
-		OLBTxnID:          t.OlbTxnID,
-		Date:              t.OlbTxnDate,
-		Amount:            orZero(t.Amount),
-		Description:       desc,
-		AcceptType:        t.AcceptType,
+		AccountingLinks:     links,
+		PendingSuggestion:   suggested,
+		AddMatchType:        t.AddMatchType,
+		LinkedTxnCount:      len(t.LinkedTxns),
+		PotentialMatchCount: len(t.MatchTransactionsMap),
+		ID:                  t.ID,
+		OLBTxnID:            t.OlbTxnID,
+		Date:                t.OlbTxnDate,
+		Amount:              orZero(t.Amount),
+		Description:         desc,
+		AcceptType:          t.AcceptType,
 	}
 }
 
@@ -603,16 +609,19 @@ type pendingData struct {
 }
 
 type rawTxn struct {
-	QBOAccountID    json.RawMessage  `json:"qboAccountId"`
-	ID              string           `json:"id"`
-	OlbTxnID        string           `json:"olbTxnId"`
-	OlbTxnDate      string           `json:"olbTxnDate"`
-	Amount          *float64         `json:"amount"`
-	Description     string           `json:"description"`
-	OrigDescription string           `json:"origDescription"`
-	AcceptType      string           `json:"acceptType"`
-	MatchedQboTxns  []rawMatchedTxn  `json:"matchedQboTxns"`
-	AddAsQboTxn     *rawSuggestedTxn `json:"addAsQboTxn"`
+	QBOAccountID         json.RawMessage            `json:"qboAccountId"`
+	ID                   string                     `json:"id"`
+	OlbTxnID             string                     `json:"olbTxnId"`
+	OlbTxnDate           string                     `json:"olbTxnDate"`
+	Amount               *float64                   `json:"amount"`
+	Description          string                     `json:"description"`
+	OrigDescription      string                     `json:"origDescription"`
+	AcceptType           string                     `json:"acceptType"`
+	MatchedQboTxns       []rawMatchedTxn            `json:"matchedQboTxns"`
+	AddAsQboTxn          *rawSuggestedTxn           `json:"addAsQboTxn"`
+	AddMatchType         string                     `json:"addMatchType"`
+	LinkedTxns           []json.RawMessage          `json:"linkedTxns"`
+	MatchTransactionsMap map[string]json.RawMessage `json:"matchTransactionsMap"`
 }
 
 type rawSuggestedTxn struct {

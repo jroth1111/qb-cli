@@ -465,7 +465,7 @@ func TestProjectTxnCarriesPostedAccountingLinks(t *testing.T) {
 
 func TestProjectTxnCarriesPendingSuggestion(t *testing.T) {
 	var raw rawTxn
-	if err := json.Unmarshal([]byte(`{"id":"32724:ofx","amount":-136.45,"addAsQboTxn":{"nameId":"269","txnFdmName":"Purchase","details":[{"categoryId":"115","klassId":"503999","amount":136.45}]}}`), &raw); err != nil {
+	if err := json.Unmarshal([]byte(`{"id":"32724:ofx","amount":-136.45,"addMatchType":"NO_INFO_ADD","linkedTxns":[],"matchTransactionsMap":{},"addAsQboTxn":{"nameId":"269","txnFdmName":"Purchase","details":[{"categoryId":"115","klassId":"503999","amount":136.45}]}}`), &raw); err != nil {
 		t.Fatal(err)
 	}
 	got := projectTxn(raw)
@@ -475,6 +475,9 @@ func TestProjectTxnCarriesPendingSuggestion(t *testing.T) {
 	line := got.PendingSuggestion.Details[0]
 	if line.AccountID != "115" || line.ClassID != "503999" || line.Amount != 136.45 {
 		t.Fatalf("pending suggested line = %+v", line)
+	}
+	if got.AddMatchType != "NO_INFO_ADD" || got.LinkedTxnCount != 0 || got.PotentialMatchCount != 0 {
+		t.Fatalf("pending match signals = %+v", got)
 	}
 }
 

@@ -86,3 +86,35 @@ func TestLookupDoesNotAcceptTheSameIDInDifferentStates(t *testing.T) {
 		t.Fatalf("cross-state drift must fail: %v", err)
 	}
 }
+
+func TestLookupRetriesOnceAfterTransientStateDrift(t *testing.T) {
+	saveUsable(t)
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		q := r.URL.Query()
+		state, offset := q.Get("reviewState"), q.Get("startIndex")
+		body := `{"items":[],"totalTransactionsCount":0}`
+		if requests <= 3 && offset == "0" && (state == "PENDING" || state == "ACCEPTED") {
+			body = `{"items":[{"id":"moving-row","qboAccountId":204,"origDescription":"moving"}],"totalTransactionsCount":1}`
+		} else if requests <= 3 && state == "PENDING" {
+			body = `{"items":[],"totalTransactionsCount":1}`
+		} else if requests > 3 && state == "PENDING" && offset == "0" {
+			body = `{"items":[{"id":"moving-row","qboAccountId":204,"origDescription":"moving"}],"totalTransactionsCount":1}`
+		} else if requests > 3 && state == "PENDING" {
+			body = `{"items":[],"totalTransactionsCount":1}`
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+
+	result, err := ReplayLookup(context.Background(), "204", "moving", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Lookup == nil || !result.Lookup.Complete || result.Lookup.TotalMatches != 1 ||
+		len(result.Transactions) != 1 || result.Transactions[0].ReviewState != "PENDING" || requests != 7 {
+		t.Fatalf("retry did not return one complete stable result: %+v; requests=%d", result, requests)
+	}
+}
