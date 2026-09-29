@@ -69,14 +69,19 @@ func PlannedDataExportURL() string {
 // ReplayDataExport POSTs one exportReport request for --token and writes the
 // xlsx attachment to outPath. Read-semantics: the service renders a file and
 // changes no company state.
-func ReplayDataExport(ctx context.Context, token, outPath string) (*DataExportResult, error) {
+//
+// extraAttrs (--attr key=value) merge over the widget's default customization
+// block. Beyond the eight dialog tokens this is also how arbitrary reportv2-
+// style exports ride the same endpoint — the renderer accepts the classic
+// customization attributes, so saved/custom reports can be exported as
+// token=TX_DET_BY_ACCT + mem_rpt_id=<n> + low_date/high_date + klass=<classID>
+// + account=<ids> + cash_basis=yes + customized=yes. The service is the source
+// of truth for whether an attribute applies; unknown attributes are ignored
+// server-side rather than failing.
+func ReplayDataExport(ctx context.Context, token, outPath string, extraAttrs map[string]string) (*DataExportResult, error) {
 	token = strings.ToUpper(strings.TrimSpace(token))
-	if _, ok := exportTokens[token]; !ok {
-		names := make([]string, 0, len(exportTokens))
-		for k := range exportTokens {
-			names = append(names, k)
-		}
-		return nil, fmt.Errorf("data export requires --token one of %s (got %q)", strings.Join(names, ", "), token)
+	if token == "" {
+		return nil, fmt.Errorf("data export requires --token (e.g. PANDL, TX_DET_BY_ACCT)")
 	}
 	if strings.TrimSpace(outPath) == "" {
 		return nil, fmt.Errorf("data export requires --output path")
@@ -89,7 +94,6 @@ func ReplayDataExport(ctx context.Context, token, outPath string) (*DataExportRe
 		"token":                      token,
 		"show_logo":                  "false",
 		"date_macro":                 "all",
-		"columns":                    exportColumns[token],
 		"divideby1000":               "false",
 		"hidecents":                  "false",
 		"negativenums":               "1",
@@ -103,6 +107,16 @@ func ReplayDataExport(ctx context.Context, token, outPath string) (*DataExportRe
 		"footer_alignment":           "Center",
 		"show_header_company":        "true",
 		"footer_custom_message":      "",
+	}
+	if cols, ok := exportColumns[token]; ok {
+		attrs["columns"] = cols
+	}
+	for k, v := range extraAttrs {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		attrs[key] = v
 	}
 	body, err := json.Marshal(map[string]any{
 		"reportCustomizationAttributes": attrs,
@@ -130,11 +144,17 @@ func ReplayDataExport(ctx context.Context, token, outPath string) (*DataExportRe
 	if err != nil {
 		return nil, fmt.Errorf("data export: %w", err)
 	}
+	note := "neo POST reports/exportReport"
+	if label, ok := exportTokens[token]; ok {
+		note += " (" + label + ")"
+	} else {
+		note += " (custom token " + token + ")"
+	}
 	return &DataExportResult{
 		Status: resp.StatusCode,
 		Path:   outPath,
 		Bytes:  n,
 		Token:  token,
-		Note:   "neo POST reports/exportReport (" + exportTokens[token] + ")",
+		Note:   note,
 	}, nil
 }

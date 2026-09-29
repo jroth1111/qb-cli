@@ -571,8 +571,9 @@ var auParamGaps = map[string][]paramDoc{
 		p("surface", "string", "UI surface (form, list, or report) the customization applies to", false, ""),
 	},
 	"QBO.COMPANY.DATA_EXPORT_GET": {
-		p("token", "string", "report/list token (BAL_SHEET, GEN_LEDGER, JOURNAL, PANDL, TRIAL_BAL, CUST_CONTACT, EMP_CONTACT, VEND_CONTACT)", true, ""),
+		p("token", "string", "report/list token (BAL_SHEET, GEN_LEDGER, JOURNAL, PANDL, TRIAL_BAL, CUST_CONTACT, EMP_CONTACT, VEND_CONTACT, or a classic token like TX_DET_BY_ACCT)", true, ""),
 		p("out", "string", "output .xlsx path to write the downloaded bytes", true, ""),
+		p("attr", "strings", "reportCustomizationAttributes key=value, repeatable (mem_rpt_id, klass, account, low_date, high_date, cash_basis, customized, date_macro, columns)", false, "[]"),
 	},
 	"QBO.COMPANY.DATA_MIRROR_GET": {
 		p("dataset", "string", "non-production mirrored dataset name (data-dev)", true, ""),

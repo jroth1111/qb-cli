@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/client"
 	"github.com/spf13/cobra"
@@ -109,8 +110,14 @@ func newSalesInvoicePDFCmd(flags *rootFlags) *cobra.Command {
 // newCompanyDataExportCmd implements `company data-export get`: download one
 // report/list as xlsx from the Export Data surface (c7.qbo.intuit.com neo
 // gateway, captured from /app/exportdata). Read-semantics POST.
+//
+// --attr key=value merges extra reportCustomizationAttributes into the POST —
+// this covers saved/custom reports the way the classic reportv2 renderer sees
+// them: token=TX_DET_BY_ACCT + mem_rpt_id=<n> + low_date/high_date (DD/MM/YYYY)
+// + klass=<classID> + account=<ids> + cash_basis=yes + customized=yes.
 func newCompanyDataExportCmd(flags *rootFlags) *cobra.Command {
 	var token, out string
+	var attrs []string
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Export a report or list as xlsx (neo POST reports/exportReport)",
@@ -123,9 +130,17 @@ func newCompanyDataExportCmd(flags *rootFlags) *cobra.Command {
 					Flags: localFlagMap(cmd), Note: "binary xlsx download; not sent",
 				})
 			}
+			extra := map[string]string{}
+			for _, kv := range attrs {
+				k, v, ok := strings.Cut(kv, "=")
+				if !ok || strings.TrimSpace(k) == "" {
+					return fmt.Errorf("--attr expects key=value (got %q)", kv)
+				}
+				extra[strings.TrimSpace(k)] = v
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayDataExport(ctx, token, out)
+			res, err := client.ReplayDataExport(ctx, token, out, extra)
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -139,8 +154,9 @@ func newCompanyDataExportCmd(flags *rootFlags) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&token, "token", "", "report/list token (BAL_SHEET, GEN_LEDGER, JOURNAL, PANDL, TRIAL_BAL, CUST_CONTACT, EMP_CONTACT, VEND_CONTACT; required)")
+	cmd.Flags().StringVar(&token, "token", "", "report/list token (BAL_SHEET, GEN_LEDGER, JOURNAL, PANDL, TRIAL_BAL, CUST_CONTACT, EMP_CONTACT, VEND_CONTACT, or a classic report token such as TX_DET_BY_ACCT; required)")
 	cmd.Flags().StringVar(&out, "out", "", "output .xlsx path (required)")
+	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "reportCustomizationAttributes key=value, repeatable (mem_rpt_id, klass, account, low_date, high_date, cash_basis, customized, date_macro, columns, ...)")
 	_ = cmd.MarkFlagRequired("token")
 	_ = cmd.MarkFlagRequired("out")
 	return cmd
