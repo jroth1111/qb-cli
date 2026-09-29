@@ -6,14 +6,18 @@ import (
 )
 
 func TestAuditEntitiesMatchesCapturedUI(t *testing.T) {
-	if len(auditEntities) != 60 {
-		t.Fatalf("len=%d want 60 (audit-ui 1.292.2 /app/auditlog 2026-08-18)", len(auditEntities))
+	if len(auditEntities) != 64 {
+		t.Fatalf("len=%d want 64 (current /app/auditlog request)", len(auditEntities))
 	}
 	want := []string{
 		"audit_info",
 		"com.intuit.finance.accounting.financialtransactions.FinancialTransaction",
 		"com.intuit.commerce.inventorymanagement.InventoryAdjustment",
 		"com.intuit.commerce.productinformationmanagement.ItemV2",
+		"com.intuit.commerce.indirecttax.withholdingtax.TaxReturn",
+		"com.intuit.ies.doneness.referenceapp.Transaction",
+		"com.intuit.ies.doneness.referenceapp.Customer",
+		"com.intuit.foundation.ecosystemintegration.taskmanagement.tasklifecyclemanagement.TaskV2",
 	}
 	have := map[string]bool{}
 	for _, e := range auditEntities {

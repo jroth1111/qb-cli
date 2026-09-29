@@ -13,7 +13,7 @@ func TestAuditSnapshotOptInPreservesEvidenceAfterFiltering(t *testing.T) {
 	const snapshot = `{"id":"42","memo":"original fee","amount":1.9700,"sequence":9007199254740993,"lines":[{"ofxMatchInformation":{"ofxTransactionId":"17"}}]}`
 	for _, include := range []bool{false, true} {
 		t.Run(map[bool]string{false: "summary", true: "snapshot"}[include], func(t *testing.T) {
-			saveUsable(t)
+			saveUsableAudit(t)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

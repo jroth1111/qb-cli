@@ -79,8 +79,7 @@ type rawAuditEvent struct {
 
 const auditLogsURL = "https://audit.api.intuit.com/v1/audit/logs"
 
-// auditEntities is the entity filter the Audit Log UI POSTs
-// (recaptured 2026-08-18 from /app/auditlog, Test Company, audit-ui 1.292.2).
+// auditEntities mirrors the current entity filter posted by the Audit Log UI.
 var auditEntities = []string{
 	"audit_info",
 	"com.intuit.finance.financialplanning.businessbudgetmanagement.BusinessBudget",
@@ -142,6 +141,10 @@ var auditEntities = []string{
 	"com.intuit.commerce.inventorymanagement.InventoryCostAllocation",
 	"com.intuit.foundation.attachment.AttachmentMetadata",
 	"com.intuit.commerce.productinformationmanagement.ItemV2",
+	"com.intuit.commerce.indirecttax.withholdingtax.TaxReturn",
+	"com.intuit.ies.doneness.referenceapp.Transaction",
+	"com.intuit.ies.doneness.referenceapp.Customer",
+	"com.intuit.foundation.ecosystemintegration.taskmanagement.tasklifecyclemanagement.TaskV2",
 }
 
 // auditThisMonthWindow is the Audit Log UI "This Month" range in the
@@ -183,14 +186,8 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 		return nil, err
 	}
 	limit := f.Limit
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 50 {
-		limit = 50
-	}
 	page := limit
-	if f.EventType != "" || f.User != "" || f.Query != "" {
+	if limit < 1 || f.EventType != "" || f.User != "" || f.Query != "" {
 		page = 50
 	}
 
@@ -198,14 +195,20 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 	if err != nil {
 		return nil, err
 	}
+	auditAuthorization := strings.TrimSpace(ac.tok.AuditAuthorization)
+	if auditAuthorization == "" {
+		auditAuthorization = strings.TrimSpace(headerGetFold(ac.tok.URIHostHeaders["audit.api.intuit.com"], "authorization"))
+	}
+	if !strings.HasPrefix(auditAuthorization, "Intuit_APIKey") {
+		return nil, fmt.Errorf("audit logs: missing Audit Log UI authorization; run `qb auth remint` from an authenticated QBO session")
+	}
 
 	eventTypes := []any{}
 	if f.EventType != "" {
 		eventTypes = []any{f.EventType}
 	}
-	body, err := json.Marshal(map[string]any{
+	baseBody := map[string]any{
 		"realmId":                  ac.realm,
-		"offset":                   f.Offset,
 		"pageSize":                 page,
 		"sortOrder":                "desc",
 		"entities":                 auditEntities,
@@ -225,10 +228,6 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 		"excludeTransactionLines":  false,
 		"fromDate":                 fromDate,
 		"toDate":                   toDate,
-	})
-
-	if err != nil {
-		return nil, err
 	}
 	extra := map[string]string{
 		"intuit-plugin-id":  "audit-ui",
@@ -236,52 +235,90 @@ func ReplayAuditLogFiltered(ctx context.Context, f AuditFilter) (*AuditResult, e
 		"Referer":           "https://qbo.intuit.com/app/auditlog",
 		"Content-Type":      "application/json;charset=UTF-8",
 	}
-	if ac.tok != nil && ac.tok.AuditAuthorization != "" {
-		extra["Authorization"] = ac.tok.AuditAuthorization
-	}
-	resp, err := ac.postJSONExtra(ctx, auditLogsURL, body, extra)
-
-	if err != nil {
-		return nil, fmt.Errorf("audit logs: %w", err)
-	}
-	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
-	raw, err := readAuditBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("reading audit logs: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
-	}
-	evs, ok := extractAuditEvents(raw)
-	if !ok {
-		return nil, fmt.Errorf("audit logs: unrecognized response shape (%d bytes)", len(raw))
-	}
-	out := projectAudit(evs)
-	for i, e := range evs {
-		if f.EntityID != "" && out.Events[i].EntityID != f.EntityID {
-			return nil, fmt.Errorf("audit logs: server returned an event outside requested entity %s", f.EntityID)
+	extra["Authorization"] = auditAuthorization
+	localSearch := f.EventType != "" || f.User != "" || f.Query != ""
+	out := &AuditResult{Status: http.StatusOK, Counts: map[string]int{"events": 0}, Events: []AuditEvent{}}
+	pageOffset := f.Offset
+	scanned := 0
+	// Pages until the caller's limit is met, the server reports a short
+	// page, or the offset passes the server's TotalLogs census — all real
+	// terminal conditions, so no page ceiling.
+	for {
+		bodyMap := make(map[string]any, len(baseBody)+1)
+		for k, v := range baseBody {
+			bodyMap[k] = v
 		}
-		if f.IncludeSnapshots && len(e.TransactionSnapshot) > 0 && string(e.TransactionSnapshot) != "null" {
-			if e.TransactionSnapshot[0] != '{' {
-				return nil, fmt.Errorf("audit logs: transaction snapshot is not an object")
+		bodyMap["offset"] = pageOffset
+		body, err := json.Marshal(bodyMap)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := ac.postJSONExtra(ctx, auditLogsURL, body, extra)
+		if err != nil {
+			return nil, fmt.Errorf("audit logs at offset %d: %w", pageOffset, err)
+		}
+		raw, readErr := readAuditBody(resp)
+		_ = drainAndClose(resp)
+		if readErr != nil {
+			return nil, fmt.Errorf("reading audit logs at offset %d: %w", pageOffset, readErr)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(raw)}
+		}
+		evs, ok := extractAuditEvents(raw)
+		if !ok {
+			return nil, fmt.Errorf("audit logs: unrecognized response shape (%d bytes)", len(raw))
+		}
+		projected := projectAudit(evs)
+		for i, e := range evs {
+			if f.EntityID != "" && projected.Events[i].EntityID != f.EntityID {
+				return nil, fmt.Errorf("audit logs: server returned an event outside requested entity %s", f.EntityID)
 			}
-			out.Events[i].TransactionSnapshot = e.TransactionSnapshot
+			if f.IncludeSnapshots && len(e.TransactionSnapshot) > 0 && string(e.TransactionSnapshot) != "null" {
+				if e.TransactionSnapshot[0] != '{' {
+					return nil, fmt.Errorf("audit logs: transaction snapshot is not an object")
+				}
+				projected.Events[i].TransactionSnapshot = e.TransactionSnapshot
+			}
 		}
-	}
-	var envelope struct {
-		PageInfo *AuditPageInfo `json:"pageInfo"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err == nil {
-		out.PageInfo = envelope.PageInfo
-	}
-	out.Events = filterAuditEvents(out.Events, f)
-	if len(out.Events) > limit {
-		out.Truncated = true
-		out.Events = out.Events[:limit]
+		out.Events = append(out.Events, filterAuditEvents(projected.Events, f)...)
+		scanned += len(evs)
+		var envelope struct {
+			PageInfo *AuditPageInfo `json:"pageInfo"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err == nil && envelope.PageInfo != nil {
+			if out.PageInfo == nil {
+				out.PageInfo = &AuditPageInfo{TotalLogs: envelope.PageInfo.TotalLogs, StartIndex: f.Offset}
+			}
+			out.PageInfo.Size = scanned
+		}
+		if !localSearch && limit > 0 {
+			break
+		}
+		if limit > 0 && len(out.Events) >= limit {
+			out.Truncated = pageOffset+len(evs) < pageTotal(envelope.PageInfo)
+			out.Events = out.Events[:limit]
+			break
+		}
+		if len(evs) < page || envelope.PageInfo == nil || envelope.PageInfo.Size == 0 {
+			break
+		}
+		nextOffset := pageOffset + len(evs)
+		if nextOffset >= envelope.PageInfo.TotalLogs {
+			out.Truncated = envelope.PageInfo.TotalLogs >= 10000
+			break
+		}
+		pageOffset = nextOffset
 	}
 	out.Counts = map[string]int{"events": len(out.Events)}
 	return out, nil
+}
 
+func pageTotal(page *AuditPageInfo) int {
+	if page == nil {
+		return 0
+	}
+	return page.TotalLogs
 }
 
 func extractAuditEvents(body []byte) ([]rawAuditEvent, bool) {
@@ -389,7 +426,7 @@ func filterAuditEvents(in []AuditEvent, f AuditFilter) []AuditEvent {
 		if user != "" && !strings.Contains(strings.ToLower(e.User), user) {
 			continue
 		}
-		if q != "" && !strings.Contains(strings.ToLower(e.EventType+" "+e.Name+" "+e.User+" "+e.ID), q) {
+		if q != "" && !strings.Contains(strings.ToLower(e.EventType+" "+e.Name+" "+e.User+" "+e.ID+" "+e.EntityID+" "+e.TransactionDate+" "+e.Amount), q) {
 			continue
 		}
 		out = append(out, e)
