@@ -151,12 +151,6 @@ func listsPrefsGraphQuery(realm string) string {
 // replayListsPrefs POSTs the captured ListsPrefs v4/entities query.
 // id/query are accepted for cobra flag parity but not forwarded.
 func replayListsPrefs(ctx context.Context, _, _ string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err

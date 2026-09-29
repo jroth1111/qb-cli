@@ -222,9 +222,11 @@ func newPerformanceDeleteCmd(flags *rootFlags) *cobra.Command {
 
 // newCustomCreateCmd implements `reports custom create`: POST a CRB_GROUP
 // folio — the object the Custom reports page lists — with one report page
-// referencing a report token (PANDL, BAL_SHEET, or an sbg: saved-report id).
+// referencing a report token (PANDL, BAL_SHEET, an sbg: saved-report id, or
+// a numeric mem_rpt_id like 42).
 func newCustomCreateCmd(flags *rootFlags) *cobra.Command {
-	var name, report, title, dateMacro string
+	var name, title, dateMacro, start, end string
+	var reports []string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a custom report group (universalreportinsights POST folio)",
@@ -239,7 +241,7 @@ func newCustomCreateCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayFolioMutate(ctx, "custom", "create", "", name, report, title, dateMacro, "")
+			res, err := client.ReplayFolioMutate(ctx, "custom", "create", "", name, reports, title, dateMacro, start, end, "")
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -248,9 +250,11 @@ func newCustomCreateCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "report group name (required)")
-	cmd.Flags().StringVar(&report, "report", "PANDL", "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)")
+	cmd.Flags().StringSliceVar(&reports, "report", []string{"PANDL"}, "report token for a page — repeat to add pages in order (PANDL, BAL_SHEET, an sbg: saved-report id, or a mem_rpt_id); TOKEN:macro overrides that page's period (e.g. 70:all)")
 	cmd.Flags().StringVar(&title, "title", "", "page title (defaults to the report's display name)")
 	cmd.Flags().StringVar(&dateMacro, "date-macro", "thisyeartodate", "report date macro (e.g. thisyeartodate, thismonth, lastmonth)")
+	cmd.Flags().StringVar(&start, "start-date", "", "pin a custom period start (YYYY-MM-DD); implies date-macro=custom")
+	cmd.Flags().StringVar(&end, "end-date", "", "pin a custom period end (YYYY-MM-DD); implies date-macro=custom")
 	_ = cmd.MarkFlagRequired("name")
 	applyCatalogHelp(cmd, "QBO.REPORTS.CUSTOM_CREATE")
 	return cmd
@@ -259,7 +263,8 @@ func newCustomCreateCmd(flags *rootFlags) *cobra.Command {
 // newManagementCreateCmd implements `reports management create`: POST a FOLIO
 // folio — cover page plus report pages — the object Management reports lists.
 func newManagementCreateCmd(flags *rootFlags) *cobra.Command {
-	var name, report, dateMacro, preparedBy string
+	var name, dateMacro, start, end, preparedBy string
+	var reports []string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a management report (universalreportinsights POST folio)",
@@ -274,7 +279,7 @@ func newManagementCreateCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayFolioMutate(ctx, "management", "create", "", name, report, "", dateMacro, preparedBy)
+			res, err := client.ReplayFolioMutate(ctx, "management", "create", "", name, reports, "", dateMacro, start, end, preparedBy)
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -283,8 +288,10 @@ func newManagementCreateCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "management report name (required)")
-	cmd.Flags().StringVar(&report, "report", "PANDL", "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)")
+	cmd.Flags().StringSliceVar(&reports, "report", []string{"PANDL"}, "report token for a page — repeat to add pages in order (mem_rpt_ids like 42,41,59,70; sbg: ids; standard tokens); TOKEN:macro overrides that page's period (e.g. 70:all)")
 	cmd.Flags().StringVar(&dateMacro, "date-macro", "thisyear", "report date macro (e.g. thisyear, thisyeartodate)")
+	cmd.Flags().StringVar(&start, "start-date", "", "pin a custom period start (YYYY-MM-DD); implies date-macro=custom")
+	cmd.Flags().StringVar(&end, "end-date", "", "pin a custom period end (YYYY-MM-DD); implies date-macro=custom")
 	cmd.Flags().StringVar(&preparedBy, "prepared-by", "", "cover-page 'prepared by' (defaults to the account email)")
 	_ = cmd.MarkFlagRequired("name")
 	applyCatalogHelp(cmd, "QBO.REPORTS.MANAGEMENT_CREATE")
@@ -292,12 +299,13 @@ func newManagementCreateCmd(flags *rootFlags) *cobra.Command {
 }
 
 // newManagementUpdateCmd implements `reports management update`: PUT the full
-// folio object with a new name (the service 500s on partial bodies).
+// folio object (the service 500s on partial bodies) to rename it and/or pin a
+// new reporting period — the monthly statement workflow.
 func newManagementUpdateCmd(flags *rootFlags) *cobra.Command {
-	var id, name string
+	var id, name, start, end string
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Rename a management report (universalreportinsights PUT folio)",
+		Short: "Update a management report — rename and/or repin the period (universalreportinsights PUT folio)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if flags.dryRun {
 				return writePlan(cmd, flags, planEnvelope{
@@ -309,7 +317,7 @@ func newManagementUpdateCmd(flags *rootFlags) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
-			res, err := client.ReplayFolioMutate(ctx, "management", "update", id, name, "", "", "", "")
+			res, err := client.ReplayFolioMutate(ctx, "management", "update", id, name, nil, "", "", start, end, "")
 			if err != nil {
 				return feedErr(flags, err)
 			}
@@ -318,9 +326,10 @@ func newManagementUpdateCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "id", "", "folio id (required, e.g. sbg:...)")
-	cmd.Flags().StringVar(&name, "name", "", "new report name (required)")
+	cmd.Flags().StringVar(&name, "name", "", "new report name")
+	cmd.Flags().StringVar(&start, "start-date", "", "repin period start (YYYY-MM-DD); sets date-macro=custom on period-bound report pages")
+	cmd.Flags().StringVar(&end, "end-date", "", "repin period end (YYYY-MM-DD); pages with reportDateMacro=all are untouched")
 	_ = cmd.MarkFlagRequired("id")
-	_ = cmd.MarkFlagRequired("name")
 	applyCatalogHelp(cmd, "QBO.REPORTS.MANAGEMENT_EDIT")
 	return cmd
 }

@@ -122,7 +122,7 @@ func newSalesTxV3Cmd(flags *rootFlags, entity, use, op string) *cobra.Command {
 		}
 		cmd.Flags().StringVar(&id, "id", "", "v3 entity id (omit to list)")
 		cmd.Flags().StringVar(&query, "query", "", "substring match on doc number")
-		cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
+		cmd.Flags().IntVar(&limit, "limit", 0, "max rows (0 = all)")
 	} else {
 		if op != "send" {
 			cmd.Annotations = map[string]string{readbackAnnotation: "true"}
@@ -213,7 +213,7 @@ func newTaxCodeListCmd(flags *rootFlags) *cobra.Command {
 			return printQueryResult(cmd.OutOrStdout(), flags, res)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rows (1-100)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rows (0 = all; the service applies its own page cap)")
 	return cmd
 }
 
@@ -400,7 +400,7 @@ func newTPARCmd(flags *rootFlags, generate bool) *cobra.Command {
 			return printQueryResult(cmd.OutOrStdout(), flags, res)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 20, "page size")
+	cmd.Flags().IntVar(&limit, "limit", 0, "page size (0 = all)")
 	return cmd
 }
 

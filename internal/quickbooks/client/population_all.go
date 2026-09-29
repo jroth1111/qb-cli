@@ -24,10 +24,9 @@ type PopulationAllResult struct {
 // account. Zero-count accounts are skipped without a walk (recorded as
 // complete/empty). A walk failure or mismatch marks that account
 // incomplete but never aborts the remaining accounts.
+// maxPagesPerAccount > 0 is a caller opt-in bound per account; <= 0 walks
+// each population to its end (expected count or short page).
 func ReplayPopulationAll(ctx context.Context, maxPagesPerAccount int) (*PopulationAllResult, error) {
-	if maxPagesPerAccount < 1 {
-		maxPagesPerAccount = 40
-	}
 	accts, err := ReplayAccounts(ctx)
 	if err != nil {
 		return nil, err
@@ -51,7 +50,7 @@ func ReplayPopulationAll(ctx context.Context, maxPagesPerAccount int) (*Populati
 		const pageSize = 300
 		seen := make(map[string]struct{})
 		txs := make([]Transaction, 0)
-		for page := 0; page < maxPagesPerAccount; page++ {
+		for page := 0; maxPagesPerAccount < 1 || page < maxPagesPerAccount; page++ {
 			start := page * pageSize
 			p, err := fetchFeedPage(ctx, ac, a.ID, "PENDING", start, pageSize)
 			if err != nil {

@@ -92,7 +92,7 @@ func ReplayGlobalSearch(ctx context.Context, query string, limit int) (*QueryRes
 		return nil, fmt.Errorf("--query is required")
 	}
 	if limit < 1 {
-		limit = 20
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {

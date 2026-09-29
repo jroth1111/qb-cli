@@ -714,14 +714,19 @@ func TestReplayFeedCompleteMaxPagesBounds(t *testing.T) {
 	}
 }
 
-// TestReplayFeedCompleteMaxPagesDefault asserts maxPages<1 defaults to 40:
-// with always-full pages, the walk makes exactly 40 getTransactions calls
-// (12_000 unique rows). It rejects a default of 0 (no pages), 1, or an
-// unbounded walk.
-func TestReplayFeedCompleteMaxPagesDefault(t *testing.T) {
+// TestReplayFeedCompleteUnboundedDefault asserts maxPages<=0 walks to the
+// end of the population: the server serves 45 full pages then a short one,
+// so the walk must pass the former 40-page ceiling (12_000 rows) and stop
+// only on the short page. Unknown oracle still surfaces ErrIncomplete.
+func TestReplayFeedCompleteUnboundedDefault(t *testing.T) {
 	saveUsable(t)
 	fs := newFeedServer(t, "204", nil, func(start, size int) []rawTxn {
-		return pageOf(300, func(i int) string {
+		if start < 45*300 {
+			return pageOf(300, func(i int) string {
+				return "txn-" + strconv.Itoa(start) + "-" + strconv.Itoa(i)
+			})
+		}
+		return pageOf(50, func(i int) string {
 			return "txn-" + strconv.Itoa(start) + "-" + strconv.Itoa(i)
 		})
 	})
@@ -731,11 +736,11 @@ func TestReplayFeedCompleteMaxPagesDefault(t *testing.T) {
 	if err == nil || !errors.Is(err, ErrIncomplete) {
 		t.Fatalf("expected ErrIncomplete (unknown oracle), got err=%v", err)
 	}
-	if _, tx := fs.stats(); tx != 40 {
-		t.Fatalf("getTransactions calls = %d, want 40 (maxPages<1 default)", tx)
+	if _, tx := fs.stats(); tx != 46 {
+		t.Fatalf("getTransactions calls = %d, want 46 (45 full + short)", tx)
 	}
-	if len(res.Transactions) != 12000 {
-		t.Fatalf("len(transactions) = %d, want 12000", len(res.Transactions))
+	if len(res.Transactions) != 13550 {
+		t.Fatalf("len(transactions) = %d, want 13550", len(res.Transactions))
 	}
 	if res.Complete {
 		t.Fatal("Complete = true with unknown oracle — must be false")

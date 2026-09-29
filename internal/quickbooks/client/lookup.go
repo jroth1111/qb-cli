@@ -2,9 +2,15 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 )
+
+// ErrLookupDrift identifies an otherwise well-formed feed walk whose counts or
+// IDs changed between sequential review-state pages. One fresh retry may
+// recover a transient move; a second drift remains fail-closed.
+var ErrLookupDrift = errors.New("feed changed during lookup")
 
 // LookupCoverage separates search coverage from the output limit. A successful
 // walk is still a sequential observation, not an atomic database snapshot.
@@ -20,9 +26,6 @@ func replayLookupComplete(ctx context.Context, accountID, query string, limit in
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
-	if limit < 1 {
-		limit = 1
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -30,11 +33,11 @@ func replayLookupComplete(ctx context.Context, accountID, query string, limit in
 	coverage := &LookupCoverage{RowsByState: map[string]int{}, PagesByState: map[string]int{}}
 	matches := make([]Transaction, 0)
 	seen := make(map[string]struct{})
-	const pageSize, maxPages = 300, 200
+	const pageSize = 300
 	for _, state := range []string{"PENDING", "ACCEPTED", "EXCLUDED"} {
 		coverage.RowsByState[state] = 0
 		terminal := false
-		for page := range maxPages {
+		for page := 0; ; page++ {
 			batch, err := fetchFeedPage(ctx, ac, accountID, state, page*pageSize, pageSize)
 			if err != nil {
 				return nil, err
@@ -45,7 +48,7 @@ func replayLookupComplete(ctx context.Context, accountID, query string, limit in
 			}
 			if len(batch.Items) == 0 {
 				if batch.TotalTransactionsCount == nil || *batch.TotalTransactionsCount != coverage.RowsByState[state] {
-					return nil, fmt.Errorf("%w: terminal total does not verify %d collected %s rows", ErrIncomplete, coverage.RowsByState[state], state)
+					return nil, fmt.Errorf("%w: %w: terminal total does not verify %d collected %s rows", ErrIncomplete, ErrLookupDrift, coverage.RowsByState[state], state)
 				}
 				terminal = true
 				break
@@ -55,7 +58,7 @@ func replayLookupComplete(ctx context.Context, accountID, query string, limit in
 					return nil, fmt.Errorf("%w: invalid identity or account in %s", ErrIncomplete, state)
 				}
 				if _, exists := seen[raw.ID]; exists {
-					return nil, fmt.Errorf("%w: repeated feed ID %s across lookup pages or states", ErrIncomplete, raw.ID)
+					return nil, fmt.Errorf("%w: %w: repeated feed ID %s across lookup pages or states", ErrIncomplete, ErrLookupDrift, raw.ID)
 				}
 				seen[raw.ID] = struct{}{}
 				coverage.RowsByState[state]++
@@ -66,7 +69,7 @@ func replayLookupComplete(ctx context.Context, accountID, query string, limit in
 				}
 				if txnMatches(txn, query) {
 					coverage.TotalMatches++
-					if len(matches) < limit {
+					if limit < 1 || len(matches) < limit {
 						matches = append(matches, txn)
 					}
 				}

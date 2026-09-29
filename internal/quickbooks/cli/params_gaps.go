@@ -7,34 +7,39 @@ var auParamGaps = map[string][]paramDoc{
 		p("file", "string", "BatchItemRequest JSON array @path or inline, max 25 mixed ops", true, ""),
 	},
 	"QBO.REPORTS.ACCOUNT_LIST_READ": {
-		p("limit", "int", "max account rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max account rows the report service returns before paging", false, "0"),
+	},
+	"QBO.REPORTS.MEMORIZED_RUN": {
+		p("id", "string", "memorized report id — composite id or mem_rpt_id (e.g. 42); resolve ids via reports memorized list", true, ""),
+		p("date-range", "string", "start,end as YYYY-MM-DD,YYYY-MM-DD; replays the saved filters through the equivalent v3 report for that window", false, ""),
+		p("basis", "string", "cash or accrual; defaults to the saved report's basis", false, ""),
 	},
 	"QBO.REPORTS.AGED_PAYABLE_DETAIL_READ": {
-		p("limit", "int", "max payable rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max payable rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.AGED_RECEIVABLE_DETAIL_READ": {
-		p("limit", "int", "max receivable rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max receivable rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.CLASS_SALES_READ": {
-		p("limit", "int", "max class rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max class rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.CUSTOMER_BALANCE_DETAIL_READ": {
-		p("limit", "int", "max customer rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max customer rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.CUSTOMER_INCOME_READ": {
-		p("limit", "int", "max customer rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max customer rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.DEPARTMENT_SALES_READ": {
-		p("limit", "int", "max department rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max department rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.INVENTORY_VALUATION_DETAIL_READ": {
-		p("limit", "int", "max valuation rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max valuation rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.ITEM_SALES_READ": {
-		p("limit", "int", "max item rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max item rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.VENDOR_BALANCE_DETAIL_READ": {
-		p("limit", "int", "max vendor rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max vendor rows the report service returns before paging", false, "0"),
 	},
 	"QBO.COMPANY.ATTACHABLE_DOWNLOAD": {
 		p("id", "string", "attachable id whose file bytes to download", true, ""),
@@ -42,11 +47,11 @@ var auParamGaps = map[string][]paramDoc{
 	},
 	"QBO.ACCOUNTING.BUDGET_SEARCH": {
 		p("query", "string", "substring match on budget name for the search filter", true, ""),
-		p("limit", "int", "max budget rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max budget rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.ACCOUNTING.CLASS_SEARCH": {
 		p("query", "string", "substring match on class name for the search filter", true, ""),
-		p("limit", "int", "max class rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max class rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.EXPENSES.BILL_PAYMENT_CREATE": {
 		p("supplier", "string", "payee vendor id for the bill payment (required)", true, ""),
@@ -75,11 +80,11 @@ var auParamGaps = map[string][]paramDoc{
 	},
 	"QBO.COMPANY.EXCHANGE_RATE_READ": {
 		p("id", "string", "exchange-rate record id to fetch a single rate (omit to list)", false, ""),
-		p("limit", "int", "max currency-pair rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max currency-pair rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.COMPANY.EXCHANGE_RATE_SEARCH": {
 		p("query", "string", "substring match on source/target currency code (case-insensitive)", true, ""),
-		p("limit", "int", "max currency-pair rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max currency-pair rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.COMPANY.WEBHOOK_VERIFY": {
 		p("payload", "string", "raw webhook body file to verify the signature against", true, ""),
@@ -88,31 +93,31 @@ var auParamGaps = map[string][]paramDoc{
 	},
 	"QBO.CUSTOMERS.CUSTOMER_TYPE_READ": {
 		p("id", "string", "customer-type id to fetch a single record (omit to list)", false, ""),
-		p("limit", "int", "max customer-type rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max customer-type rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.CUSTOMERS.CUSTOMER_TYPE_SEARCH": {
 		p("query", "string", "substring match on customer-type name (case-insensitive)", true, ""),
-		p("limit", "int", "max customer-type rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max customer-type rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_READ": {
 		p("id", "string", "credit-card-payment id to fetch a single record (omit to list)", false, ""),
-		p("limit", "int", "max credit-card-payment rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max credit-card-payment rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.EXPENSES.CREDIT_CARD_PAYMENT_SEARCH": {
 		p("query", "string", "substring match on credit-card-payment fields (case-insensitive)", true, ""),
-		p("limit", "int", "max credit-card-payment rows to return from the query endpoint", false, "20"),
+		p("limit", "int", "max credit-card-payment rows to return from the query endpoint", false, "0"),
 	},
 	"QBO.REPORTS.PROFIT_LOSS_DETAIL_READ": {
-		p("limit", "int", "max detail rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max detail rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.INVENTORY_VALUATION_READ": {
-		p("limit", "int", "max valuation rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max valuation rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.TRANSACTION_LIST_READ": {
-		p("limit", "int", "max transaction rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max transaction rows the report service returns before paging", false, "0"),
 	},
 	"QBO.REPORTS.JOURNAL_REPORT_READ": {
-		p("limit", "int", "max journal rows the report service returns before paging", false, "20"),
+		p("limit", "int", "max journal rows the report service returns before paging", false, "0"),
 	},
 	"QBO.SALES.INVOICE_SEND": {
 		p("id", "string", "invoice id to email to the customer address", true, ""),
@@ -305,7 +310,7 @@ var auParamGaps = map[string][]paramDoc{
 	},
 	"QBO.EXPENSES.PURCHASE_SEARCH": {
 		p("query", "string", "substring match on name or doc number (case-insensitive)", false, ""),
-		p("limit", "int", "max rows to return from the v3 query endpoint", false, "20"),
+		p("limit", "int", "max rows to return from the v3 query endpoint", false, "0"),
 	},
 	"QBO.INVENTORY.CONSIGNMENT_CREATE": {
 		p("item", "string", "consigned item", true, ""),
@@ -788,17 +793,17 @@ var auParamGaps = map[string][]paramDoc{
 	"QBO.GQL.BILLS_WALK": {
 		p("from", "string", "window start dd/MM/yyyy or yyyy-MM-dd for the paged bills walk (optional)", false, ""),
 		p("to", "string", "window end dd/MM/yyyy or yyyy-MM-dd for the paged bills walk (optional)", false, ""),
-		p("max-pages", "int", "hard ceiling on pages fetched, 0 walks to exhaustion (optional)", false, "10"),
+		p("max-pages", "int", "hard ceiling on pages fetched, 0 walks to exhaustion (optional)", false, "0"),
 		p("page-size", "int", "rows bound per page for the paged bills walk (optional)", false, "100"),
 	},
 	"QBO.GQL.TASKS_WALK": {
 		p("from", "string", "window start dd/MM/yyyy or yyyy-MM-dd for the paged tasks walk (optional)", false, ""),
 		p("to", "string", "window end dd/MM/yyyy or yyyy-MM-dd for the paged tasks walk (optional)", false, ""),
-		p("max-pages", "int", "hard ceiling on pages fetched, 0 walks to exhaustion (optional)", false, "10"),
+		p("max-pages", "int", "hard ceiling on pages fetched, 0 walks to exhaustion (optional)", false, "0"),
 		p("page-size", "int", "rows bound per page for the paged tasks walk (optional)", false, "100"),
 	},
 	"QBO.GQL.ITEMS_WALK": {
-		p("max-pages", "int", "hard ceiling on pages fetched, 0 walks to exhaustion (optional)", false, "10"),
+		p("max-pages", "int", "hard ceiling on pages fetched, 0 walks to exhaustion (optional)", false, "0"),
 		p("page-size", "int", "rows bound per page for the paged items walk (optional)", false, "100"),
 	},
 	"QBO.GQL.MUTATE_CREATE_ACCOUNT": {
@@ -849,7 +854,7 @@ var auParamGaps = map[string][]paramDoc{
 	},
 	"QBO.COSTGROUPS.GROUP_LIST": {
 		p("status", "string", "list filter active, inactive, or all cost groups (optional)", false, ""),
-		p("limit", "int", "max cost groups to return between 1 and 100 (optional)", false, "25"),
+		p("limit", "int", "max cost groups to return between 1 and 100 (optional)", false, "0"),
 		p("type", "string", "cost group type filter, defaults to ITEM like the SPA (optional)", false, ""),
 	},
 	"QBO.COSTGROUPS.GROUP_CREATE": {

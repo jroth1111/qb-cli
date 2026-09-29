@@ -361,7 +361,9 @@ func TestReplayBudgetListLimitClamps(t *testing.T) {
 	saveUsableAudit(t)
 	fs := newAcctDeepServer(t, nil, map[string]string{"POST /graphql": gqlEnvelope(`{"businessPlanningBudgets":{"edges":[]}}`)})
 	interceptHTTP(t, fs.start(t))
-	for _, tc := range []struct{ input, want int }{{0, 20}, {-5, 20}, {1000, 100}, {5, 5}} {
+	// <1 asks for everything (first=99999 — the service enforces its own
+	// page ceiling); positive limits pass through unclamped.
+	for _, tc := range []struct{ input, want int }{{0, 99999}, {-5, 99999}, {1000, 1000}, {5, 5}} {
 		if _, err := ReplayBudgetList(context.Background(), tc.input); err != nil {
 			t.Fatalf("limit %d: %v", tc.input, err)
 		}

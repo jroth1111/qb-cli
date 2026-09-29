@@ -48,12 +48,6 @@ func PlannedCustomersOverviewURL() string { return customersOverviewGraphQLURL }
 // replayCustomersOverview POSTs captured invoiceSummary + both getTransactions.
 // Must not return a Customer list.
 func replayCustomersOverview(ctx context.Context, _, _ string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err

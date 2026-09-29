@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,19 +83,13 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "" {
 		return nil, fmt.Errorf("query requires an entity")
 	}
-	if limit < 1 {
-		limit = 20
-	}
 	if entity == "SalesOrder" {
 		return replayGetSalesOrders(ctx, id, query, limit)
 	}
-	// want preserves the caller's row target for the generic v3 query path,
-	// which pages STARTPOSITION past the 100-row page size. The replay
-	// entity lanes below keep the historic clamped limit.
-	want := limit
-	if limit > 100 {
-		limit = 100
-	}
+	// The caller's --limit is the row target everywhere: the generic v3
+	// path pages STARTPOSITION windows of queryPageSize past the server's
+	// 100-row page, and replay lanes receive it unclamped — any real
+	// ceiling is the server's to enforce, not ours to pre-impose.
 	if entity == "TPAR" {
 		return replayTPARInstances(ctx, id, query, limit)
 	}
@@ -325,15 +320,24 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	// Page the v3 query endpoint when the caller asks for more than one page
 	// of rows. Single-page requests keep the historic statement shape;
 	// multi-page requests order by Id so STARTPOSITION paging is stable.
-	paged := want > queryPageSize
+	// limit <= 0 means no client-side bound: walk until a short page.
+	paged := limit < 1 || limit > queryPageSize
 	responseEntity := queryResponseEntity(entity)
 	var items []QueryItem
 	status := http.StatusOK
-	for pages := 0; pages < maxQueryPages && len(items) < want; pages++ {
+	// Page until the caller's limit is satisfied or the server reports a
+	// short page — both conditions are terminal, so no page ceiling. A
+	// server that ignores STARTPOSITION would page forever: stop when a
+	// page is byte-identical to an earlier one or contributes no new ids.
+	seenPage := map[[32]byte]bool{}
+	seenID := map[string]bool{}
+	for pages := 0; limit < 1 || len(items) < limit; pages++ {
 		start := 1 + pages*queryPageSize
 		pageSize := queryPageSize
-		if rem := want - len(items); rem < pageSize {
-			pageSize = rem
+		if limit > 0 {
+			if rem := limit - len(items); rem < pageSize {
+				pageSize = rem
+			}
 		}
 		stmt := buildQueryAt(entity, id, query, pageSize, start, paged, act)
 		body, code, qerr := v3QueryGET(ctx, ac, entity, stmt)
@@ -350,10 +354,28 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		if err := validateQueryEnvelope(responseEntity, body); err != nil {
 			return nil, err
 		}
+		if sum := sha256.Sum256(body); seenPage[sum] {
+			break
+		} else {
+			seenPage[sum] = true
+		}
 		page := projectQuery(responseEntity, body)
-		items = append(items, page...)
+		// First page lands verbatim — consumers use len(items) to detect a
+		// full (capped) page. Later pages drop ids already seen: a server
+		// sliding its window must not double-count rows downstream.
+		fresh := 0
+		for _, it := range page {
+			if it.ID != "" {
+				if pages > 0 && seenID[it.ID] {
+					continue
+				}
+				seenID[it.ID] = true
+			}
+			fresh++
+			items = append(items, it)
+		}
 		status = code
-		if len(page) < pageSize {
+		if len(page) < pageSize || (len(page) > 0 && fresh == 0) {
 			break
 		}
 	}
@@ -363,8 +385,8 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	// client-side filter applies the requested text. Keep this fallback scoped
 	// to Estimate so ordinary queries do not gain an extra network round trip.
 	if entity == "Estimate" && query != "" && id == "" && len(items) == 0 {
-		fbLimit := want
-		if fbLimit > queryPageSize {
+		fbLimit := limit
+		if fbLimit < 1 || fbLimit > queryPageSize {
 			fbLimit = queryPageSize
 		}
 		stmt := buildQuery(entity, "", "", fbLimit, act)
@@ -384,8 +406,8 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		items = filterItems(items, query)
 	}
 
-	if len(items) > want {
-		items = items[:want]
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
 	}
 	return &QueryResult{
 		Status: status,
@@ -395,12 +417,10 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	}, nil
 }
 
-// queryPageSize is the per-request row ceiling for the generic v3 query
-// path; maxQueryPages bounds the STARTPOSITION loop.
-const (
-	queryPageSize = 100
-	maxQueryPages = 50
-)
+// queryPageSize is the v3 query service's per-request row ceiling; the
+// STARTPOSITION loop above walks it until the caller's limit is met or a
+// short page signals exhaustion.
+const queryPageSize = 100
 
 // v3QueryGET issues one v3 query request and returns the body and status.
 func v3QueryGET(ctx context.Context, ac *apiClient, entity, stmt string) ([]byte, int, error) {

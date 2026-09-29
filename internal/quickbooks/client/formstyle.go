@@ -156,12 +156,6 @@ func isHexColor(s string) bool {
 }
 
 func replayFormStyles(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -204,7 +198,7 @@ func projectFormStyles(body []byte, query string, limit int) *QueryResult {
 			continue
 		}
 		items = append(items, it)
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}

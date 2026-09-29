@@ -28,9 +28,6 @@ const tripsListDoc = `query MileageListQuery($filter: String!) {
 // ReplayTripsList queries company.trips on the trips host. --id filters on the
 // node id (or its numeric suffix); --query substring-filters node JSON.
 func ReplayTripsList(ctx context.Context, id, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 50
-	}
 	payload, err := json.Marshal(map[string]any{
 		"operationName": "MileageListQuery",
 		"variables":     map[string]any{"filter": "deleted=false"},

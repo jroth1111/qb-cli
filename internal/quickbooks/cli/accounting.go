@@ -36,7 +36,7 @@ func newAccountingRegisterCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID, "account id")
-	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max transactions to fetch")
+	cmd.Flags().IntVar(&ff.limit, "limit", 0, "max transactions to fetch (0 = all)")
 	cmd.Flags().IntVar(&ff.offset, "offset", 0, "zero-based register row offset; page until empty and check stable row identities")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.REGISTER_READ")
 	return cmd
@@ -119,7 +119,7 @@ func newAccountingAuditLogReadCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&id, "id", "", "target audit event id")
 	cmd.Flags().StringVar(&entityID, "entity-id", "", "server-side accounting entity ID filter (not a bank-feed ID)")
 	cmd.Flags().BoolVar(&includeSnapshots, "include-snapshots", false, "include historical transaction snapshots in JSON output")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max events to return")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max events to return (0 = all)")
 	cmd.Flags().StringVar(&fromDate, "from", "", "inclusive start timestamp (RFC3339, with timezone; requires --to)")
 	cmd.Flags().StringVar(&toDate, "to", "", "inclusive end timestamp (RFC3339, with timezone; requires --from)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "server event offset; use pageInfo for subsequent pages")
@@ -175,7 +175,7 @@ func newAccountingAuditLogSearchCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().BoolVar(&includeSnapshots, "include-snapshots", false, "include historical transaction snapshots in JSON output")
 	cmd.Flags().StringVar(&user, "user", "", "filter by user id")
 	cmd.Flags().StringVar(&query, "query", "", "substring match on type/name/user")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max events to return")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max events to return (0 = all)")
 	cmd.Flags().StringVar(&fromDate, "from", "", "inclusive start timestamp (RFC3339, with timezone; requires --to)")
 	cmd.Flags().StringVar(&toDate, "to", "", "inclusive end timestamp (RFC3339, with timezone; requires --from)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "server event offset; use pageInfo for subsequent pages")

@@ -148,7 +148,7 @@ func reportParamDocs(id, report string) []paramDoc {
 		p("accounting-method", "string", "Cash or Accrual basis, sent as accounting_method (omit for the API default)", false, ""),
 		p("columns", "string", "column grouping sent as summarize_column_by (Total, Month, Quarter, Year; monthly is an alias for Month); comparison/detail-field lists are unsupported", false, ""),
 		p("id", "string", "unsupported for reports; explicit use is rejected (use --report to select a report)", false, ""),
-		p("limit", "int", "unsupported for reports; explicit use is rejected (reports are not paginated entity lists)", false, "20"),
+		p("limit", "int", "unsupported for reports; explicit use is rejected (reports are not paginated entity lists)", false, "0"),
 	}
 	if report == "TAXABLE_PAYMENTS" {
 		ps[2].Help = "unsupported by TAXABLE_PAYMENTS; explicit non-empty use is rejected"
@@ -228,7 +228,7 @@ func v3UniformParams(id string) ([]paramDoc, bool) {
 		p("query", "string", "substring match on name or doc number (case-insensitive)", queryReq, ""),
 		p("id", "string", "v3 entity id to fetch a single record (omit to list)", false, ""),
 		p("active", "string", "v3 Active filter: true, false, or all (include inactive)", false, ""),
-		p("limit", "int", "max rows to return from the v3 query endpoint", false, "20"),
+		p("limit", "int", "max rows to return from the v3 query endpoint", false, "0"),
 	}, true
 }
 
@@ -278,12 +278,12 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("id", "string", "placement name (AdvancedShellBanner, UserMgtTop, QBOModalInterrupters, ...) — defaults to AdvancedShellBanner", false, ""),
 			p("query", "string", "substring match on offer name, CTA text, or body copy (case-insensitive)", false, ""),
-			p("limit", "int", "max offers to return (maps to the service's numberOfRecommendations)", false, "20"),
+			p("limit", "int", "max offers to return (maps to the service's numberOfRecommendations)", false, "0"),
 		}, true
 	case "QBO.FEED.TXN_PENDING", "QBO.FEED.TXN_POSTED", "QBO.FEED.TXN_EXCLUDED":
 		return []paramDoc{
 			p("account-id", "string", "banking account id (see feed account list)", false, "204"),
-			p("limit", "int", "max rows to fetch (X-Range page)", false, "20"),
+			p("limit", "int", "max rows to fetch (X-Range page)", false, "0"),
 		}, true
 	case "QBO.FEED.TXN_POPULATION":
 		// Population runs a full completeness-checked walk; --limit is
@@ -340,7 +340,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		}, true
 	case "QBO.FEED.TXN_POPULATION_ALL":
 		return []paramDoc{
-			p("max-pages-per-account", "int", "page ceiling per account at 300 rows per page", false, "40"),
+			p("max-pages-per-account", "int", "page ceiling per account at 300 rows per page", false, "0"),
 		}, true
 	case "QBO.INVENTORY.ITEM_RECEIPT_CREATE":
 		// Standalone single-line receipt; the catalog's PO-linked flag text
@@ -405,17 +405,15 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		}, true
 	case "QBO.ACCOUNTING.BUDGET_LIST":
 		return []paramDoc{
-			p("limit", "int", "max budgets to fetch from the budgeting backend", false, "20"),
+			p("limit", "int", "max budgets to fetch from the budgeting backend", false, "0"),
 		}, true
 	case "QBO.ACCOUNTING.CLASS_DELETE":
 		return []paramDoc{
 			p("id", "string", "target class id for deactivation (required)", true, ""),
-			p("active", "string", "set deactivation state explicitly, false deactivates", false, ""),
 		}, true
 	case "QBO.ACCOUNTING.LOCATION_DELETE":
 		return []paramDoc{
 			p("id", "string", "target department id for deactivation (required)", true, ""),
-			p("active", "string", "set deactivation state explicitly, false deactivates", false, ""),
 		}, true
 	case "QBO.ACCOUNTING.LOCATION_EDIT":
 		return []paramDoc{
@@ -533,13 +531,13 @@ func wiredParams(id string) ([]paramDoc, bool) {
 			p("query", "string", "substring match on type/name/user", true, ""),
 			p("event-type", "string", "filter by event type (LOGIN, VOID, CREATED)", false, ""),
 			p("user", "string", "filter by user id", false, ""),
-			p("limit", "int", "max events to return", false, "20"),
+			p("limit", "int", "max events to return", false, "0"),
 		}, true
 	case "QBO.FEED.TXN_LOOKUP":
 		return []paramDoc{
 			p("query", "string", "substring match on id, olbTxnId, or description (hyphens fold to spaces)", true, ""),
 			p("account-id", "string", "banking account id", false, "204"),
-			p("limit", "int", "max matching rows returned after all pages are searched", false, "20"),
+			p("limit", "int", "max matching rows returned after all pages are searched", false, "0"),
 		}, true
 	case "QBO.FEED.TXN_EXCLUDE", "QBO.FEED.TXN_UNDO_EXCLUDED":
 		return []paramDoc{
@@ -585,7 +583,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 	case "QBO.ACCOUNTING.REGISTER_READ":
 		return []paramDoc{
 			p("account-id", "string", "GL/bank account id. Register is booked-state ground truth (posted, not For review)", false, "204"),
-			p("limit", "int", "max register rows", false, "20"),
+			p("limit", "int", "max register rows", false, "0"),
 			p("offset", "int", "zero-based register row offset; a page is not a complete census", false, "0"),
 		}, true
 	case "QBO.REPORTS.AGED_PAYABLES_READ", "QBO.REPORTS.AGED_RECEIVABLES_READ", "QBO.REPORTS.GENERAL_LEDGER_READ", "QBO.REPORTS.TRIAL_BALANCE_READ", "QBO.REPORTS.PROFIT_LOSS_READ", "QBO.REPORTS.BALANCE_SHEET_READ", "QBO.REPORTS.VENDOR_BALANCE_READ", "QBO.REPORTS.CUSTOMER_BALANCE_READ", "QBO.REPORTS.CUSTOMER_SALES_READ", "QBO.REPORTS.VENDOR_EXPENSES_READ":
@@ -593,7 +591,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 			p("report", "string", "v3 report name: AgedPayables, AgedReceivables, GeneralLedger, or TrialBalance (required)", true, ""),
 			p("date-range", "string", "report period start,end as YYYY-MM-DD,YYYY-MM-DD (required)", true, ""),
 			p("id", "string", "target report id (accepted, not forwarded to v3 reports API)", false, ""),
-			p("limit", "int", "max rows (accepted for catalog parity; reports are not list endpoints)", false, "20"),
+			p("limit", "int", "max rows (accepted for catalog parity; reports are not list endpoints)", false, "0"),
 		}, true
 	case "QBO.PAYROLL.EMPLOYEE_CREATE":
 		return []paramDoc{
@@ -641,9 +639,9 @@ func inferredParams(id string) []paramDoc {
 	switch {
 	case strings.HasSuffix(suffix, "_SEARCH") || suffix == "LOOKUP" || suffix == "SEARCH":
 		out = append(out, p("query", "string", "search text", true, ""))
-		out = append(out, p("limit", "int", "max rows", false, "20"))
+		out = append(out, p("limit", "int", "max rows", false, "0"))
 	case strings.HasSuffix(suffix, "_READ"):
-		out = append(out, p("limit", "int", "max rows when listing", false, "20"))
+		out = append(out, p("limit", "int", "max rows when listing", false, "0"))
 	case strings.HasSuffix(suffix, "_DELETE") || strings.HasSuffix(suffix, "_DEACTIVATE") ||
 		strings.HasSuffix(suffix, "_EDIT") || strings.Contains(suffix, "_LIST_EDIT") ||
 		strings.Contains(suffix, "_FORM_DELETE") || suffix == "UNPOST" || suffix == "VOID" ||

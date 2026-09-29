@@ -473,10 +473,11 @@ func TestCostGroupPlannersRejectMissingInput(t *testing.T) {
 	}
 }
 
-// TestClampFirstRejectsBadLimits pins page-size clamping: <1 defaults to 25,
-// >100 caps at 100 (the SPA's own constant), in-between passes through.
+// TestClampFirstRejectsBadLimits pins page-size normalization: <1 asks for
+// everything (99999 — the service enforces its own cap); anything else
+// passes through unclamped.
 func TestClampFirstRejectsBadLimits(t *testing.T) {
-	for _, tc := range []struct{ in, want int }{{0, 25}, {-5, 25}, {1, 1}, {100, 100}, {101, 100}, {5000, 100}} {
+	for _, tc := range []struct{ in, want int }{{0, 99999}, {-5, 99999}, {1, 1}, {100, 100}, {101, 101}, {5000, 5000}} {
 		if got := clampFirst(tc.in); got != tc.want {
 			t.Fatalf("clampFirst(%d) = %d, want %d", tc.in, got, tc.want)
 		}

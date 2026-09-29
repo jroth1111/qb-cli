@@ -338,12 +338,12 @@ func PlanTPARList(limit int) *RequestPlan {
 	return gqlPlan(tparInstancesURL, "salestx.tpar.list", body, "universalreportinsights TAXABLE_PAYMENTS/instances; not sent")
 }
 
+// clampPage normalizes the requested page size; the service enforces its
+// own ceiling, so no client-side cap is applied here. A caller limit <= 0
+// asks for everything — the service decides how much it returns.
 func clampPage(limit int) int {
 	if limit < 1 {
-		return 20
-	}
-	if limit > 100 {
-		return 100
+		return 99999
 	}
 	return limit
 }

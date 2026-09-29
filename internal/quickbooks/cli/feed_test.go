@@ -363,8 +363,8 @@ func TestFeedCommandSurfaceExtended(t *testing.T) {
 		t.Fatal("feed txn population should not expose --limit (walk is completeness-checked, not capped)")
 	}
 	for _, name := range []string{"posted", "excluded"} {
-		if got := findSub(listEnt, name).Flag("limit").DefValue; got != "20" {
-			t.Fatalf("feed txn list %s --limit default = %q, want 20", name, got)
+		if got := findSub(listEnt, name).Flag("limit").DefValue; got != "0" {
+			t.Fatalf("feed txn list %s --limit default = %q, want 0 (all)", name, got)
 		}
 	}
 	rule := findSub(feed, "rule")

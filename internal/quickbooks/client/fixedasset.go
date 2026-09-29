@@ -35,7 +35,7 @@ const financeAssetsDoc = `query financeAssets($first: Int, $last: Int, $after: S
 // on assetId; --query substring-filters the projected node JSON.
 func ReplayFinanceAssets(ctx context.Context, id, query string, limit int) (*QueryResult, error) {
 	if limit < 1 {
-		limit = 20
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	payload, err := json.Marshal(map[string]any{
 		"operationName": "financeAssets",

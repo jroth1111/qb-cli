@@ -41,7 +41,7 @@ func newCompanySearchCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&query, "query", "", "search text — name, memo, number, or id (required)")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rows to return")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rows to return (0 = all)")
 	_ = cmd.MarkFlagRequired("query")
 	applyCatalogHelp(cmd, "QBO.COMPANY.SEARCH")
 	return cmd

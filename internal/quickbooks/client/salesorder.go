@@ -117,9 +117,6 @@ func replayGetSalesOrders(ctx context.Context, id, query string, limit int) (*Qu
 	if id != "" && query != "" {
 		return nil, fmt.Errorf("sales-order: id and search query cannot be combined")
 	}
-	if limit < 1 {
-		limit = 20
-	}
 	res := &QueryResult{Status: http.StatusOK, Entity: "SalesOrder", Counts: map[string]int{}, Items: []QueryItem{}}
 	if id != "" {
 		row, err := salesOrderGet(ctx, ac, id)
@@ -142,7 +139,7 @@ func replayGetSalesOrders(ctx context.Context, id, query string, limit int) (*Qu
 			return nil, err
 		}
 		size := 100
-		if query == "" && limit-len(res.Items) < size {
+		if query == "" && limit > 0 && limit-len(res.Items) < size {
 			size = limit - len(res.Items)
 		}
 		page, err := salesOrderCall(ctx, ac, "GetSalesOrders", getSalesOrdersQuery, map[string]any{"offset": offset, "limit": size, "filter": map[string]any{}, "sort": []any{}}, "result")
@@ -176,13 +173,13 @@ func replayGetSalesOrders(ctx context.Context, id, query string, limit int) (*Qu
 			seen[item.ID] = true
 			if query == "" || strings.Contains(strings.ToLower(item.Name), query) || strings.Contains(strings.ToLower(item.DocNumber), query) || strings.Contains(strings.ToLower(item.ID), query) {
 				matched++
-				if len(res.Items) < limit {
+				if limit < 1 || len(res.Items) < limit {
 					res.Items = append(res.Items, item)
 				}
 			}
 		}
 		offset += len(rows)
-		if offset >= total || (query == "" && len(res.Items) >= limit) {
+		if offset >= total || (query == "" && limit > 0 && len(res.Items) >= limit) {
 			break
 		}
 	}

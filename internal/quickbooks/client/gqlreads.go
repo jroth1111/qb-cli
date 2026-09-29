@@ -98,12 +98,6 @@ func replayWarehouseLocations(ctx context.Context, _, query string, limit int) (
 // and projects the edge-node list at edgePath onto QueryItems. endpoint ""
 // uses the op's catalog endpoint.
 func replayCatalogQuery(ctx context.Context, opName, endpoint string, vars map[string]any, entity, query string, limit int, edgePath []string) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
 	op, err := gql.Lookup(opName)
 	if err != nil {
 		return nil, err
@@ -188,7 +182,7 @@ func projectEdgeNodes(entity, note string, body []byte, edgePath []string, query
 			continue
 		}
 		items = append(items, one)
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}

@@ -172,13 +172,11 @@ func ReplayFeed(ctx context.Context, accountID, reviewState string, limit int) (
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
-	if limit < 1 {
-		limit = 1
-	}
 	// The live endpoint caps a single response below large requested ranges and
 	// may return truncated JSON for oversized X-Range requests. Page large
-	// bounded reads instead of presenting a partial or undecodable response.
-	if limit > 999 {
+	// bounded reads — and all unbounded reads (limit<=0) — instead of
+	// presenting a partial or undecodable response.
+	if limit < 1 || limit > 999 {
 		return replayFeedPagedLimit(ctx, accountID, reviewState, limit)
 	}
 	res, err := replayFeedOnce(ctx, accountID, reviewState, limit)
@@ -200,10 +198,6 @@ func ReplayFeed(ctx context.Context, accountID, reviewState string, limit int) (
 
 func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, limit int) (*PendingResult, error) {
 	const pageSize = 300
-	const maxPages = 40
-	if limit > pageSize*maxPages {
-		return nil, fmt.Errorf("feed list limit %d exceeds paged ceiling %d", limit, pageSize*maxPages)
-	}
 	state := strings.ToUpper(strings.TrimSpace(reviewState))
 	if state == "" {
 		state = "PENDING"
@@ -212,12 +206,16 @@ func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, li
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Transaction, 0, limit)
+	out := make([]Transaction, 0, min(max(limit, 0), pageSize))
 	seen := make(map[string]struct{})
 	expected := -1
 	terminalPageSeen := false
-	for start := 0; start < limit; start += pageSize {
-		size := min(pageSize, limit-start)
+	// limit <= 0 is unbounded: walk until a short page ends the population.
+	for start := 0; limit < 1 || start < limit; start += pageSize {
+		size := pageSize
+		if limit > 0 {
+			size = min(pageSize, limit-start)
+		}
 		page, err := fetchFeedPage(ctx, ac, accountID, state, start, size)
 		if err != nil {
 			return nil, err
@@ -309,10 +307,11 @@ type feedPage struct {
 //     dateFilter) are ignored server-side. They are not sent; date
 //     slicing must be done client-side by filtering Transaction.Date.
 //
-// When expectedCount > 0 and unique ids fetched < expectedCount after the
-// hard page ceiling, ErrIncomplete is returned rather than a silently
+// When expectedCount > 0 and unique ids fetched < expectedCount when the
+// population ends, ErrIncomplete is returned rather than a silently
 // partial result. accountID defaults to DefaultAccountID; an empty
-// reviewState defaults to PENDING. maxPages bounds runaway loops.
+// reviewState defaults to PENDING. maxPages > 0 is a caller opt-in bound;
+// <= 0 walks to the end of the population (expected count or short page).
 func ReplayFeedComplete(ctx context.Context, accountID, reviewState string, maxPages int) (*PendingResult, error) {
 	if accountID == "" {
 		accountID = DefaultAccountID
@@ -320,9 +319,6 @@ func ReplayFeedComplete(ctx context.Context, accountID, reviewState string, maxP
 	state := strings.ToUpper(strings.TrimSpace(reviewState))
 	if state == "" {
 		state = "PENDING"
-	}
-	if maxPages < 1 {
-		maxPages = 40 // 300/page x 40 = 12000 rows ceiling
 	}
 
 	ac, err := newAPIClient()
@@ -335,7 +331,7 @@ func ReplayFeedComplete(ctx context.Context, accountID, reviewState string, maxP
 	const pageSize = 300
 	seen := make(map[string]struct{})
 	out := make([]Transaction, 0)
-	for pageNum := 0; pageNum < maxPages; pageNum++ {
+	for pageNum := 0; maxPages < 1 || pageNum < maxPages; pageNum++ {
 		start := pageNum * pageSize
 		page, err := fetchFeedPage(ctx, ac, accountID, state, start, pageSize)
 		if err != nil {
@@ -495,6 +491,13 @@ func ReplayLookup(ctx context.Context, accountID, query string, limit int) (*Pen
 	if strings.TrimSpace(query) == "" {
 		return nil, ErrEmptyQuery
 	}
+	result, err := replayLookupComplete(ctx, accountID, query, limit)
+	if !errors.Is(err, ErrLookupDrift) {
+		return result, err
+	}
+	// Feed pages are sequential, not an atomic snapshot. Retry exactly once
+	// when QBO moved rows between review states while paging; persistent drift
+	// still returns ErrIncomplete and never an incomplete search result.
 	return replayLookupComplete(ctx, accountID, query, limit)
 }
 

@@ -269,13 +269,12 @@ func costGroupFilter(status, typ string) map[string]any {
 	return m
 }
 
-// clampFirst bounds the page size the way the SPA does (constant 100 cap).
+// clampFirst normalizes the requested page size; the service enforces its
+// own ceiling, so no client-side cap is applied here. A caller limit <= 0
+// asks for everything — the service decides how much it returns.
 func clampFirst(limit int) int {
 	if limit < 1 {
-		return 25
-	}
-	if limit > 100 {
-		return 100
+		return 99999
 	}
 	return limit
 }

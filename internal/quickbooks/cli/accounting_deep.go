@@ -88,7 +88,7 @@ func newAccountingBudgetListCmd(flags *rootFlags) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 20, "max budgets to fetch")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max budgets to fetch (0 = all)")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.BUDGET_READ")
 	return cmd
 }

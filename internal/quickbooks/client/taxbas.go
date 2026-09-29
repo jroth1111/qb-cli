@@ -142,9 +142,6 @@ func firstTaxAgencyID(ctx context.Context) (string, error) {
 // first indirect-tax agency. filterExpr scopes the taxReturns connection
 // (e.g. taxReturnType); "" returns all.
 func ReplayTaxReturns(ctx context.Context, entity, filterExpr, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 50
-	}
 	agencyID, err := firstTaxAgencyID(ctx)
 	if err != nil {
 		return nil, err
@@ -250,9 +247,6 @@ fragment Loader_TaxAgency on Indirecttaxes_TaxAgency {
 // return line) for the company's first tax agency — the modernised liability
 // surface the tax home renders.
 func ReplayTaxLiability(ctx context.Context, startDate, endDate, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
 	agencyID, err := firstTaxAgencyID(ctx)
 	if err != nil {
 		return nil, err
@@ -321,7 +315,7 @@ const businessForecastsDoc = `query getAllBusinessForecasts($first: Int, $after:
 // planningforecasting.api.intuit.com — proven live on TC2 (typed empty).
 func ReplayBusinessForecasts(ctx context.Context, id, query string, limit int) (*QueryResult, error) {
 	if limit < 1 {
-		limit = 50
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {
@@ -376,9 +370,6 @@ var performanceMetrics = []string{
 // universalreportinsights /v1/metrics/{name} — proven live on TC2 (real
 // dataFrames with company figures).
 func ReplayPerformanceMetrics(ctx context.Context, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = len(performanceMetrics)
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -438,7 +429,7 @@ func ReplayPerformanceMetrics(ctx context.Context, query string, limit int) (*Qu
 			}
 		}
 		items = append(items, QueryItem{ID: m, Name: m, Amount: total})
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}

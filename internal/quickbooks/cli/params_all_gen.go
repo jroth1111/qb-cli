@@ -4,7 +4,7 @@ package cli
 
 var auParamAll = map[string][]paramDoc{
 	"QBO.ACCOUNTING.AUDIT_LOG_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Audit log tracks all account activity: user sign-ins, settings changes, edits to"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Audit log tracks all account activity: user sign-ins, settings changes, edits to"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.AUDIT_LOG_SEARCH": {
@@ -12,7 +12,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "user", Type: "string", Required: false, Help: "filter by user who made the change — Use the audit log to locate deleted-transaction details for manual re-entry; del"},
 		{Name: "date-range", Type: "string", Required: false, Help: "period to search (events retained 2 years)"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Use the audit log to locate deleted-transaction details for manual re-entry; del"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Use the audit log to locate deleted-transaction details for manual re-entry; del"},
 	},
 	"QBO.ACCOUNTING.BUDGET_CREATE": {
 		{Name: "fiscal-year", Type: "string", Required: false, Help: "budget year (best started at beginning of financial year)"},
@@ -31,27 +31,27 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "name", Type: "string", Required: false, Help: "display name (renames the class segment)"},
 	},
 	"QBO.ACCOUNTING.BUDGET_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a budget to compare actual income/expenses against plan; budgets by class s"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a budget to compare actual income/expenses against plan; budgets by class s"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.CLASS_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "class name (department, product line, or other segment). Turn on class tracking first"},
 	},
 	"QBO.ACCOUNTING.CLASS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a class to review transactions tagged to that segment and run sales/cost/pr"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a class to review transactions tagged to that segment and run sales/cost/pr"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.COA_READ": {
 		{Name: "account-id", Type: "string", Required: false, Help: "read a single account by id — QBO account id"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Chart of accounts is the complete list of company accounts and balances; Account"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Chart of accounts is the complete list of company accounts and balances; Account"},
 	},
 	"QBO.ACCOUNTING.COA_SEARCH": {
 		{Name: "name", Type: "string", Required: false, Help: "account name (use parent:subaccount for subaccounts)"},
 		{Name: "number", Type: "string", Required: false, Help: "account number (numbers feature off by default)"},
 		{Name: "type", Type: "string", Required: false, Help: "account type / detail type filter — Search the COA by name, number, or type; account numbers are off by default and"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search the COA by name, number, or type; account numbers are off by default and"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search the COA by name, number, or type; account numbers are off by default and"},
 	},
 	"QBO.ACCOUNTING.DEPOSIT_CREATE": {
 		{Name: "account", Type: "string", Required: true, Help: "destination bank account — account name or id"},
@@ -70,7 +70,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "memo", Type: "string", Required: false, Help: "memo — memo / description — Edit a bank deposit from the account history; customer names in the 'Select paym"},
 	},
 	"QBO.ACCOUNTING.DEPOSIT_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a bank deposit from the account history; missing payments in the Bank Depos"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a bank deposit from the account history; missing payments in the Bank Depos"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.FIXED_ASSET_CREATE": {
@@ -86,16 +86,16 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.ACCOUNTING.FIXED_ASSET_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a fixed asset and its depreciation schedule from the Fixed Assets app (Adva"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a fixed asset and its depreciation schedule from the Fixed Assets app (Adva"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.FIXED_ASSET_SEARCH": {
 		{Name: "name", Type: "string", Required: false, Help: "asset name filter — display name — Search fixed assets in the Fixed Assets app (Advanced). L19788yU0"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search fixed assets in the Fixed Assets app (Advanced). L19788yU0"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search fixed assets in the Fixed Assets app (Advanced). L19788yU0"},
 	},
 	"QBO.ACCOUNTING.INTEGRATION_TXN_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — no AU help article found"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — no AU help article found"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.JOURNAL_CREATE": {
@@ -116,18 +116,18 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "memo", Type: "string", Required: false, Help: "memo — memo / description — Edit a journal entry from the account history; adjusting entries can be marked/i"},
 	},
 	"QBO.ACCOUNTING.JOURNAL_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a journal entry from the account history or run a Journal report to see all"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a journal entry from the account history or run a Journal report to see all"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.LOCATION_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "location name (office, region, outlet). Plus/Advanced only"},
 	},
 	"QBO.ACCOUNTING.LOCATION_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a location to review per-location sales and deposits. L2raFkEBC"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a location to review per-location sales and deposits. L2raFkEBC"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.MY_ACCOUNTANT_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The My Accountant page lists requests/documents from a connected accountant user"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The My Accountant page lists requests/documents from a connected accountant user"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.OPENING_BALANCE_SET": {
@@ -135,7 +135,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "lines", Type: "string", Required: true, Help: "accounts with debit/credit amounts per the trial balance"},
 	},
 	"QBO.ACCOUNTING.PREPAID_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — no AU help article found"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — no AU help article found"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.PROJECT_CREATE": {
@@ -146,14 +146,14 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.ACCOUNTING.PROJECT_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a project dashboard for grouped transactions, income, and costs. L9GAdLMyT"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a project dashboard for grouped transactions, income, and costs. L9GAdLMyT"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.PROJECT_SEARCH": {
 		{Name: "customer", Type: "string", Required: false, Help: "parent customer filter — customer display name or id (must be unique vs supplier/employee)"},
 		{Name: "name", Type: "string", Required: false, Help: "project name filter — display name — Search projects by customer or name; project cost quotes (Advanced) forecast inc"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search projects by customer or name; project cost quotes (Advanced) forecast inc"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search projects by customer or name; project cost quotes (Advanced) forecast inc"},
 	},
 	"QBO.ACCOUNTING.RECONCILE_CREATE": {
 		{Name: "account", Type: "string", Required: true, Help: "account to reconcile — account name or id"},
@@ -161,7 +161,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "ending-date", Type: "string", Required: true, Help: "statement ending date (dd/MM/yyyy) — Reconciling matches QuickBooks transactions to the bank/credit card statement fo"},
 	},
 	"QBO.ACCOUNTING.RECONCILE_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — A reconciliation report is auto-generated after each session; it cannot be expor"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — A reconciliation report is auto-generated after each session; it cannot be expor"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.RECURRING_CREATE": {
@@ -176,21 +176,21 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.ACCOUNTING.RECURRING_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a recurring template to review its type, schedule, and linked customer/item"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a recurring template to review its type, schedule, and linked customer/item"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.RECURRING_SEARCH": {
 		{Name: "customer", Type: "string", Required: false, Help: "customer name filter — customer display name or id (must be unique vs supplier/employee)"},
 		{Name: "name", Type: "string", Required: false, Help: "template name filter — display name — Search recurring templates by name or customer to find duplicates and failed run"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search recurring templates by name or customer to find duplicates and failed run"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search recurring templates by name or customer to find duplicates and failed run"},
 	},
 	"QBO.ACCOUNTING.REGISTER_READ": {
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "GL/bank account id. Register is booked-state ground truth (posted, not For review)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The account register (account history) is the booked-state ground truth: it list"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The account register (account history) is the booked-state ground truth: it list"},
 	},
 	"QBO.ACCOUNTING.REVENUE_RECOGNITION_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Revenue recognition (Advanced) records future-delivered product/service revenue"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Revenue recognition (Advanced) records future-delivered product/service revenue"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.TRANSFER_CREATE": {
@@ -211,7 +211,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "memo", Type: "string", Required: false, Help: "memo — memo / description — Edit a transfer from the account history; the change is reflected in both affect"},
 	},
 	"QBO.ACCOUNTING.TRANSFER_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a transfer from either account's register (chart of accounts → account hist"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a transfer from either account's register (chart of accounts → account hist"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ACCOUNTING.TXN_VOID": {
@@ -233,7 +233,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.ADVANCED.CUSTOM_ROLES_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Custom firm roles are listed and managed from the Manage users area of QuickBook"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Custom firm roles are listed and managed from the Manage users area of QuickBook"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ADVANCED.EXPENSE_CLAIMS_CREATE": {
@@ -245,7 +245,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "memo", Type: "string", Required: false, Help: "memo — memo / description — No QBO Advanced-specific expense-claims feature article exists in AU learn-suppo"},
 	},
 	"QBO.ADVANCED.EXPENSE_CLAIMS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — To check outstanding employee reimbursements, run the Transaction Detail by Acco"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — To check outstanding employee reimbursements, run the Transaction Detail by Acco"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ADVANCED.EXPENSE_CLAIMS_REVIEW": {
@@ -277,7 +277,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "name", Type: "string", Required: true, Help: "new task name — the only field proven mutable on update"},
 	},
 	"QBO.ADVANCED.TASKS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — All tasks appear in the Tasks menu / Task manager; filter by open, due today, ov"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — All tasks appear in the Tasks menu / Task manager; filter by open, due today, ov"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.ADVANCED.WORKFLOWS_CREATE": {
@@ -288,14 +288,14 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.ADVANCED.WORKFLOWS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Workflows are listed and managed from the Workflows area in QBO Advanced; each s"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Workflows are listed and managed from the Workflows area in QBO Advanced; each s"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.ACCOUNTANT_INVITE": {
 		{Name: "email", Type: "string", Required: true, Help: "accountant's email to send the invite to"},
 	},
 	"QBO.COMPANY.ATTACHMENT_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Attachments can be added to customer and supplier profiles and to transactions;"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Attachments can be added to customer and supplier profiles and to transactions;"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.BILLS_IMPORT": {
@@ -306,7 +306,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "password", Type: "string", Required: false, Help: "closing-date password required to edit protected transactions when password mode is selected"},
 	},
 	"QBO.COMPANY.BUSINESS_FEED_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The transactions hub is the starting point for getting transactions into QuickBo"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The transactions hub is the starting point for getting transactions into QuickBo"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.COA_IMPORT": {
@@ -326,7 +326,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.CURRENCY_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Currencies page lists home currency plus added foreign currencies; the Currency"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Currencies page lists home currency plus added foreign currencies; the Currency"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.CURRENCY_REVALUE": {
@@ -347,24 +347,24 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.CUSTOM_FIELD_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Custom fields appear on sales forms, purchase orders, expense forms, and custome"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Custom fields appear on sales forms, purchase orders, expense forms, and custome"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.FORM_STYLE_EDIT": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.FORM_STYLE_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Sales form styles (invoices, quotes, sales receipts) are customised under the Cu"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Sales form styles (invoices, quotes, sales receipts) are customised under the Cu"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.ITEMS_IMPORT": {
 		{Name: "file", Type: "string", Required: true, Help: "path to CSV/XLSX/PDF; first row maps columns; no bulk undo"},
 	},
 	"QBO.COMPANY.LIST_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Lists include chart of accounts, products and services, customers, suppliers, cl"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Lists include chart of accounts, products and services, customers, suppliers, cl"},
 	},
 	"QBO.COMPANY.MARKETING_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Marketing integrations live under Customers & leads > Marketing; the Mailchimp i"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Marketing integrations live under Customers & leads > Marketing; the Mailchimp i"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.ROLE_CREATE": {
@@ -378,18 +378,18 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.ROLE_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Billable roles: primary admin, company admin, standard all access, customer/marc"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Billable roles: primary admin, company admin, standard all access, customer/marc"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.SEARCH": {
 		{Name: "query", Type: "string", Required: true, Help: "search text — search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows — max rows to return (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows — max rows to return (0 = all)"},
 	},
 	"QBO.COMPANY.SETTINGS_EDIT": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.SETTINGS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Settings live under Gear > Account and settings with tabs: Company, Sales, Expen"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Settings live under Gear > Account and settings with tabs: Company, Sales, Expen"},
 	},
 	"QBO.COMPANY.SUPPLIERS_IMPORT": {
 		{Name: "file", Type: "string", Required: true, Help: "path to CSV/XLSX/PDF; first row maps columns; no bulk undo"},
@@ -405,7 +405,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.TAG_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Tags are flexible tracking labels that do not affect the General Ledger unless y"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Tags are flexible tracking labels that do not affect the General Ledger unless y"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.COMPANY.USER_CREATE": {
@@ -419,26 +419,26 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
 	},
 	"QBO.COMPANY.USER_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — User list is on the Manage users page; each email address on the plan is assigne"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — User list is on the Manage users page; each email address on the plan is assigne"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.CUSTOMERS.APPOINTMENT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Scheduled meetings are listed in the Upcoming section of the Appointments page,"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Scheduled meetings are listed in the Upcoming section of the Appointments page,"},
 	},
 	"QBO.CUSTOMERS.APPOINTMENT_SEARCH": {
 		{Name: "date-range", Type: "string", Required: false, Help: "filter upcoming appointments by date — appointment bookings can be made up to 30 days in advance"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Appointments page lists upcoming video meetings with existing customers and"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Appointments page lists upcoming video meetings with existing customers and"},
 	},
 	"QBO.CUSTOMERS.CONTRACT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Contract builder sends a contract for e-signature directly within QuickBooks Onl"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Contract builder sends a contract for e-signature directly within QuickBooks Onl"},
 	},
 	"QBO.CUSTOMERS.CONTRACT_SEARCH": {
 		{Name: "status", Type: "string", Required: false, Help: "filter by e-signature status — Manage all contracts in one location and review their e-signature status. L0LenC"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Manage all contracts in one location and review their e-signature status. L0LenC"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Manage all contracts in one location and review their e-signature status. L0LenC"},
 	},
 	"QBO.CUSTOMERS.CUSTOMER_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "customer display name (required, must be unique) — display name identifies the profile and must not duplicate an existing customer"},
@@ -465,11 +465,11 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.CUSTOMERS.CUSTOMER_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "customer id (display name or list ref) to read — Transaction List by Customer report shows all transactions; modify to show only charges"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Transaction List by Customer report shows all transactions for a customer an"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Transaction List by Customer report shows all transactions for a customer an"},
 	},
 	"QBO.CUSTOMERS.CUSTOMER_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "match by display name, company, email, phone, or account number — display name identifies the customer profile; edit a duplicate's display name before merging to avoid confusion"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The display name identifies the customer profile; before merging duplicates, edi"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The display name identifies the customer profile; before merging duplicates, edi"},
 	},
 	"QBO.CUSTOMERS.OPPORTUNITY_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "lead name (required) — display name — Manually add leads in the Customer Hub to track leads and their status in the sa"},
@@ -478,15 +478,15 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.CUSTOMERS.OPPORTUNITY_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Leads are listed and prioritised on the Leads page in QuickBooks as Hot or Warm."},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Leads are listed and prioritised on the Leads page in QuickBooks as Hot or Warm."},
 	},
 	"QBO.CUSTOMERS.OPPORTUNITY_SEARCH": {
 		{Name: "status", Type: "string", Required: false, Help: "filter by lead status (Hot, Warm, Not a lead)"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Leads page lists and prioritises leads as Hot or Warm; items marked 'Not a l"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Leads page lists and prioritises leads as Hot or Warm; items marked 'Not a l"},
 	},
 	"QBO.CUSTOMERS.OVERVIEW_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Customer AI automates lead sourcing and prioritisation from your Gmail or Ou"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Customer AI automates lead sourcing and prioritisation from your Gmail or Ou"},
 	},
 	"QBO.CUSTOMERS.PROPOSAL_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer/lead contact id the proposal is addressed to (contactId, e.g. 1) — Use the proposal builder to create a proposal wi"},
@@ -495,21 +495,21 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.CUSTOMERS.PROPOSAL_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Track a proposal's status on the Proposals page after sending it to the customer"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Track a proposal's status on the Proposals page after sending it to the customer"},
 	},
 	"QBO.CUSTOMERS.PROPOSAL_SEARCH": {
 		{Name: "status", Type: "string", Required: false, Help: "filter by proposal status (sent, approved, declined)"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Proposals page lists proposals together with their current status (sent, app"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Proposals page lists proposals together with their current status (sent, app"},
 	},
 	"QBO.CUSTOMERS.REVIEW_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "customer id whose survey response to read — survey responses can be viewed directly on the customer's Profile page"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — QuickBooks Online offers an optional post-invoice survey that collects a 5-star"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — QuickBooks Online offers an optional post-invoice survey that collects a 5-star"},
 	},
 	"QBO.CUSTOMERS.REVIEW_SEARCH": {
 		{Name: "rating", Type: "string", Required: false, Help: "filter by survey rating or work-again response"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Work Requests widget shows the customers that have said they'd like to work"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Work Requests widget shows the customers that have said they'd like to work"},
 	},
 	"QBO.EXPENSES.BANK_FEE_CREATE": {
 		{Name: "account", Type: "string", Required: true, Help: "bank account charged — account name or id"},
@@ -555,14 +555,14 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.BILL_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "optional projection of bill fields — Read a single bill by id; the Bills page groups bills into For review, Unpaid, a"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a single bill by id; the Bills page groups bills into For review, Unpaid, a"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a single bill by id; the Bills page groups bills into For review, Unpaid, a"},
 	},
 	"QBO.EXPENSES.BILL_SEARCH": {
 		{Name: "supplier", Type: "string", Required: false, Help: "filter by supplier id — supplier display name or id"},
 		{Name: "status", Type: "string", Required: false, Help: "for-review | unpaid | paid — Search/list bills from the Expenses page or Bills page; filter by supplier and p"},
 		{Name: "date-range", Type: "string", Required: false, Help: "inclusive start/end as dd/MM/yyyy — inclusive start/end as dd/MM/yyyy,dd/MM/yyyy"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search/list bills from the Expenses page or Bills page; filter by supplier and p"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search/list bills from the Expenses page or Bills page; filter by supplier and p"},
 	},
 	"QBO.EXPENSES.CHEQUE_BOUNCE": {
 		{Name: "id", Type: "string", Required: true, Help: "v3 Payment id for the bounced cheque — reversed via a JournalEntry (A/R debit to customer, deposit-account credit)"},
@@ -588,7 +588,7 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.CHEQUE_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "fields to return — AU spelling is 'cheque' (not 'check'); CLI verbs and fields use cheque. The QBO"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — AU spelling is 'cheque' (not 'check'); CLI verbs and fields use cheque. The QBO"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — AU spelling is 'cheque' (not 'check'); CLI verbs and fields use cheque. The QBO"},
 	},
 	"QBO.EXPENSES.CHEQUE_REPRINT": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
@@ -623,7 +623,7 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.EXPENSE_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "fields to return — Read a single expense by id; fields include payee, payment account, line items,"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a single expense by id; fields include payee, payment account, line items,"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a single expense by id; fields include payee, payment account, line items,"},
 	},
 	"QBO.EXPENSES.EXPENSE_RECATEGORISE": {
 		{Name: "id", Type: "string", Required: true, Help: "expense or bank-transaction id to recategorise"},
@@ -636,7 +636,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "date-range", Type: "string", Required: false, Help: "inclusive start/end as dd/MM/yyyy — inclusive start/end as dd/MM/yyyy,dd/MM/yyyy"},
 		{Name: "project", Type: "string", Required: false, Help: "project name or id — Search/list expenses from the Expenses page; filter by payee, account, date, and"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search/list expenses from the Expenses page; filter by payee, account, date, and"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search/list expenses from the Expenses page; filter by payee, account, date, and"},
 	},
 	"QBO.EXPENSES.EXPENSE_SPLIT": {
 		{Name: "id", Type: "string", Required: true, Help: "transaction id to split — target QBO record id (not a bank-feed :ofx display id)"},
@@ -668,18 +668,18 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.MILEAGE_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "fields to return — Read a single trip by id; fields include vehicle, date, distance (km), trip type"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a single trip by id; fields include vehicle, date, distance (km), trip type"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a single trip by id; fields include vehicle, date, distance (km), trip type"},
 	},
 	"QBO.EXPENSES.MILEAGE_SEARCH": {
 		{Name: "vehicle", Type: "string", Required: false, Help: "vehicle name — Search/list trips; export mileage to CSV (tax-year or all-time) for tax programs"},
 		{Name: "date-range", Type: "string", Required: false, Help: "inclusive start/end as dd/MM/yyyy — inclusive start/end as dd/MM/yyyy,dd/MM/yyyy"},
 		{Name: "trip-type", Type: "string", Required: false, Help: "business or personal — Search/list trips; export mileage to CSV (tax-year or all-time) for tax programs"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search/list trips; export mileage to CSV (tax-year or all-time) for tax programs"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search/list trips; export mileage to CSV (tax-year or all-time) for tax programs"},
 	},
 	"QBO.EXPENSES.OVERVIEW_READ": {
 		{Name: "fields", Type: "string", Required: false, Help: "projection of overview fields — Overview of the expenses domain: bills (pay later, A/P), cheques (pay now from b"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Overview of the expenses domain: bills (pay later, A/P), cheques (pay now from b"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Overview of the expenses domain: bills (pay later, A/P), cheques (pay now from b"},
 	},
 	"QBO.EXPENSES.RECEIPT_DELETE": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
@@ -694,14 +694,14 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.RECEIPT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "fields to return — Read a single receipt/bill capture; fields include extracted date, amount, suppl"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a single receipt/bill capture; fields include extracted date, amount, suppl"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a single receipt/bill capture; fields include extracted date, amount, suppl"},
 	},
 	"QBO.EXPENSES.RECEIPT_SEARCH": {
 		{Name: "supplier", Type: "string", Required: false, Help: "supplier display name or id — Search/list receipt captures in the Receipts tab; filter by match status and sup"},
 		{Name: "status", Type: "string", Required: false, Help: "for-review | reviewed | needs-action — Search/list receipt captures in the Receipts tab; filter by match status and sup"},
 		{Name: "date-range", Type: "string", Required: false, Help: "inclusive start/end as dd/MM/yyyy — inclusive start/end as dd/MM/yyyy,dd/MM/yyyy"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search/list receipt captures in the Receipts tab; filter by match status and sup"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search/list receipt captures in the Receipts tab; filter by match status and sup"},
 	},
 	"QBO.EXPENSES.RECEIPT_UPLOAD": {
 		{Name: "files", Type: "string", Required: true, Help: "image/PDF files (JPEG, JPG, GIF, PNG, PDF) to upload — single or batch upload supported"},
@@ -731,7 +731,7 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.SUPPLIER_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "fields to return — Read a single supplier by id; the Suppliers tab shows profile, transactions, and"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a single supplier by id; the Suppliers tab shows profile, transactions, and"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a single supplier by id; the Suppliers tab shows profile, transactions, and"},
 	},
 	"QBO.EXPENSES.SUPPLIER_SEARCH": {
 		{Name: "name", Type: "string", Required: false, Help: "display name — Search/list suppliers from the Suppliers tab; view all transactions for a specif"},
@@ -739,7 +739,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "tpar", Type: "bool", Required: false, Help: "TPAR-reportable contractor — Search/list suppliers from the Suppliers tab; view all transactions for a specif"},
 		{Name: "date-range", Type: "string", Required: false, Help: "inclusive start/end as dd/MM/yyyy — inclusive start/end as dd/MM/yyyy,dd/MM/yyyy"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search/list suppliers from the Suppliers tab; view all transactions for a specif"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search/list suppliers from the Suppliers tab; view all transactions for a specif"},
 	},
 	"QBO.EXPENSES.VENDOR_CREDIT_CREATE": {
 		{Name: "supplier", Type: "string", Required: true, Help: "supplier display name or id — A supplier credit (vendor credit) records money returned/owed by a supplier; met"},
@@ -758,7 +758,7 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.EXPENSES.VENDOR_CREDIT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a display :ofx id)"},
 		{Name: "fields", Type: "string", Required: false, Help: "fields to return — Read a single supplier credit by id; fields include supplier, date, amount, line"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read a single supplier credit by id; fields include supplier, date, amount, line"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read a single supplier credit by id; fields include supplier, date, amount, line"},
 	},
 	"QBO.FEED.ACCOUNT_LINK": {
 		{Name: "bank", Type: "string", Required: true, Help: "bank/financial institution — Three AU feed types: Open Banking (CDR, 365-day consent, real-time), standard (w"},
@@ -788,11 +788,11 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.FEED.RULE_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Lists bank rules and their conditions/category/auto-add settings. L0mjJl0nD"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Lists bank rules and their conditions/category/auto-add settings. L0mjJl0nD"},
 	},
 	"QBO.FEED.RULE_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "filter by condition text, category, or basis"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Filter rules to diagnose why a rule is/is not applying (bank text vs description"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Filter rules to diagnose why a rule is/is not applying (bank text vs description"},
 	},
 	"QBO.FEED.TXN_ATTACH": {
 		{Name: "id", Type: "string", Required: true, Help: "transaction id to attach to — target QBO record id (not a bank-feed :ofx display id)"},
@@ -816,7 +816,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.FEED.TXN_EXCLUDED": {
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "filter to one connected account — QBO account id"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to fetch (X-Range page) — max rows to return (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to fetch (X-Range page) — max rows to return (0 = all)"},
 	},
 	"QBO.FEED.TXN_IMPORT": {
 		{Name: "account-id", Type: "string", Required: true, Help: "target bank/credit card account — cannot import to a subaccount (current limitation); use the parent account id"},
@@ -828,7 +828,7 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.FEED.TXN_LOOKUP": {
 		{Name: "query", Type: "string", Required: true, Help: "phrase or filter to match transaction fields"},
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "scope to one account — QBO account id (see feed account list)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max matching rows returned after all pages are searched (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max matching rows returned after all pages are searched (0 = all)"},
 	},
 	"QBO.FEED.TXN_MATCH": {
 		{Name: "ids", Type: "strings", Required: true, Help: "pending feed transaction ids to match — olbTxnId only, never display :ofx ids"},
@@ -838,15 +838,15 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.FEED.TXN_PENDING": {
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "filter to one connected account — QBO account id"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to fetch (X-Range page) — max rows to return (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to fetch (X-Range page) — max rows to return (0 = all)"},
 	},
 	"QBO.FEED.TXN_POPULATION": {
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "connected account to check — QBO account id"},
-		{Name: "limit", Type: "int", Required: false, Default: "300", Help: "max rows to fetch (X-Range page) — max rows to return (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to fetch (X-Range page) — max rows to return (0 = all)"},
 	},
 	"QBO.FEED.TXN_POSTED": {
 		{Name: "account-id", Type: "string", Required: false, Default: "204", Help: "filter to one connected account — QBO account id"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to fetch (X-Range page) — max rows to return (default 20)"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to fetch (X-Range page) — max rows to return (0 = all)"},
 	},
 	"QBO.FEED.TXN_SPLIT": {
 		{Name: "ids", Type: "strings", Required: true, Help: "pending transaction ids to split — olbTxnId only, never display :ofx ids"},
@@ -907,7 +907,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.INVENTORY.ITEM_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Item record exposes QOH, Qty on PO (on order, not yet received), reorder point,"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Item record exposes QOH, Qty on PO (on order, not yet received), reorder point,"},
 	},
 	"QBO.INVENTORY.ITEM_RECEIPT_CREATE": {
 		{Name: "purchase-order", Type: "string", Required: true, Help: "PO to receive against (item receipts are created from a PO and auto-linked)"},
@@ -922,14 +922,14 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.INVENTORY.ITEM_RECEIPT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — A receipt shows received quantities, the linked PO, the supplier, and whether a"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — A receipt shows received quantities, the linked PO, the supplier, and whether a"},
 	},
 	"QBO.INVENTORY.ITEM_RECEIPT_SEARCH": {
 		{Name: "supplier", Type: "string", Required: false, Help: "filter by supplier — supplier display name or id"},
 		{Name: "purchase-order", Type: "string", Required: false, Help: "filter by linked PO — Item receipts are accessed via the Expenses & Bills transaction list; no dedicat"},
 		{Name: "date", Type: "string", Required: false, Help: "receipt date range — date as dd/MM/yyyy (Australia/Sydney)"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Item receipts are accessed via the Expenses & Bills transaction list; no dedicat"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Item receipts are accessed via the Expenses & Bills transaction list; no dedicat"},
 	},
 	"QBO.INVENTORY.ITEM_SEARCH": {
 		{Name: "type", Type: "string", Required: false, Help: "filter by Inventory | NonInventory | Service | Bundle"},
@@ -938,11 +938,11 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "category", Type: "string", Required: false, Help: "product category — The Products & Services list is the item catalogue; add the Quantity on PO colum"},
 		{Name: "active", Type: "string", Required: false, Help: "include inactive items — The Products & Services list is the item catalogue; add the Quantity on PO colum"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Products & Services list is the item catalogue; add the Quantity on PO colum"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Products & Services list is the item catalogue; add the Quantity on PO colum"},
 	},
 	"QBO.INVENTORY.OVERVIEW_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "inventory item id — target QBO record id (not a bank-feed :ofx display id)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Inventory Asset (Balance Sheet) holds stock value at FIFO or Moving Average Cost"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Inventory Asset (Balance Sheet) holds stock value at FIFO or Moving Average Cost"},
 	},
 	"QBO.INVENTORY.OVERVIEW_SEARCH": {
 		{Name: "name", Type: "string", Required: false, Help: "item name or partial match — display name"},
@@ -950,7 +950,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "low-stock", Type: "string", Required: false, Help: "filter to items at/below reorder point — Inventory features are Plus/Advanced only; Simple Start/Essentials cannot track"},
 		{Name: "out-of-stock", Type: "string", Required: false, Help: "filter to items with QOH <= 0 (incl. negative)"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Inventory features are Plus/Advanced only; Simple Start/Essentials cannot track"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Inventory features are Plus/Advanced only; Simple Start/Essentials cannot track"},
 	},
 	"QBO.INVENTORY.PURCHASE_ORDER_CREATE": {
 		{Name: "supplier", Type: "string", Required: true, Help: "supplier the PO is sent to (preferred supplier can be pre-assigned on the item)"},
@@ -973,14 +973,14 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.INVENTORY.PURCHASE_ORDER_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — A PO shows line items, quantities, supplier, status (Open/Closed), and received"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — A PO shows line items, quantities, supplier, status (Open/Closed), and received"},
 	},
 	"QBO.INVENTORY.PURCHASE_ORDER_SEARCH": {
 		{Name: "supplier", Type: "string", Required: false, Help: "filter by supplier — supplier display name or id"},
 		{Name: "status", Type: "string", Required: false, Help: "Open | Closed — Open POs are listed from the Expenses & Bills transaction list; sent POs can be"},
 		{Name: "date", Type: "string", Required: false, Help: "PO date range — date as dd/MM/yyyy (Australia/Sydney)"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Open POs are listed from the Expenses & Bills transaction list; sent POs can be"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Open POs are listed from the Expenses & Bills transaction list; sent POs can be"},
 	},
 	"QBO.PAYROLL.BPAY_CREATE": {
 		{Name: "pay-run", Type: "string", Required: true, Help: "pay run to generate employee BPAY/ABA file from"},
@@ -997,15 +997,15 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.PAYROLL.DEDUCTION_READ": {
 		{Name: "employee", Type: "string", Required: false, Help: "filter by employee — employee name or id"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — List deductions on the employee or pay-run inclusion."},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — List deductions on the employee or pay-run inclusion."},
 	},
 	"QBO.PAYROLL.EMPLOYEE_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "employee identifier from the payroll employee list — payroll employee id, not the QBO vendor/customer id"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Employee records hold TFN, bank account, super fund choice and employment detail"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Employee records hold TFN, bank account, super fund choice and employment detail"},
 	},
 	"QBO.PAYROLL.EMPLOYEE_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "name, location or employment-status filter for the employee list — searches payroll employees, not QBO suppliers/customers"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Employees can be filtered by location and employment status; the import template"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Employees can be filtered by location and employment status; the import template"},
 	},
 	"QBO.PAYROLL.EMPLOYEE_TERMINATE": {
 		{Name: "employee", Type: "string", Required: true, Help: "employee to terminate. All pay runs must be finalised first"},
@@ -1027,7 +1027,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.PAYROLL.LEAVE_CATEGORY_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read leave categories configured for the company."},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read leave categories configured for the company."},
 	},
 	"QBO.PAYROLL.LUMP_SUM_CREATE": {
 		{Name: "employee", Type: "string", Required: true, Help: "employee — employee name or id — Method A or B(ii) for PAYG/STSL on lump sums. Employment Hero can calculate; ask"},
@@ -1038,7 +1038,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "financial-year", Type: "string", Required: false, Help: "filter STP events/pay runs by financial year"},
 		{Name: "event-type", Type: "string", Required: false, Help: "filter by pay event, update event or finalisation event"},
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Single Touch Payroll page lists all historical Pay Events and Update Events"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Single Touch Payroll page lists all historical Pay Events and Update Events"},
 	},
 	"QBO.PAYROLL.PAYG_SUMMARY_CREATE": {
 		{Name: "year", Type: "string", Required: true, Help: "FY. STP-exempt businesses only — do not use if you lodge STP"},
@@ -1056,7 +1056,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.PAYROLL.PAY_CATEGORY_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Pay categories expose rate, super-attracting, leave-accruing and STP classificat"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Pay categories expose rate, super-attracting, leave-accruing and STP classificat"},
 	},
 	"QBO.PAYROLL.PAY_RUN_CREATE": {
 		{Name: "pay-schedule", Type: "string", Required: true, Help: "pay schedule (weekly/fortnightly/monthly) that drives the pay run — pay schedule settings are reused each run to calculate pay"},
@@ -1072,7 +1072,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.PAYROLL.PAY_RUN_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Pay Run Audit Report shows bank and super payments required for a pay run; i"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Pay Run Audit Report shows bank and super payments required for a pay run; i"},
 	},
 	"QBO.PAYROLL.SETUP_RUN": {
 		{Name: "ato-supplier", Type: "string", Required: true, Help: "ATO supplier settings (employer vs registered Tax/BAS agent) required before STP can lodge — AU only: configures ATO (Australian Taxation Office) supplier, not US tax agencies"},
@@ -1105,7 +1105,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.PAYROLL.SUPER_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "super payment batch or employee super record id"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Super payment status and historical batches can be viewed on the Pay Runs page a"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Super payment status and historical batches can be viewed on the Pay Runs page a"},
 	},
 	"QBO.PAYROLL.SUPER_RESC_EDIT": {
 		{Name: "employee", Type: "string", Required: true, Help: "employee whose RESC is wrong — employee name or id"},
@@ -1114,11 +1114,11 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.PAYROLL.TEAM_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "team member (firm user / payroll manager) id"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Payroll team members are firm users with permissions over payroll; restricted re"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Payroll team members are firm users with permissions over payroll; restricted re"},
 	},
 	"QBO.PAYROLL.TEAM_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "team member name or permission/role filter"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Search returns firm team members and their payroll access level; filter by manag"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Search returns firm team members and their payroll access level; filter by manag"},
 	},
 	"QBO.PAYROLL.TIMESHEET_CREATE": {
 		{Name: "employee", Type: "string", Required: true, Help: "employee the timesheet is for (managers can submit on behalf of timesheet-enabled employees)"},
@@ -1131,7 +1131,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.PAYROLL.TIMESHEET_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Timesheet costings can be viewed from the timesheet grid; the Actions menu provi"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Timesheet costings can be viewed from the timesheet grid; the Actions menu provi"},
 	},
 	"QBO.PAYROLL.WORKCOVER_CREATE": {
 		{Name: "employee", Type: "string", Required: false, Help: "employee — employee name or id — Workers compensation / WorkCover via a pay category. L6fnya3rA."},
@@ -1142,11 +1142,11 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "report", Type: "string", Required: true, Help: "Statement of Cash Flows, cash flow chart, or Cash Flow Planner — Statement of Cash Flows is a standard report; Cash Flow Planner is a separate interactive tool"},
 		{Name: "date-range", Type: "string", Required: true, Help: "period for the Statement of Cash Flows; monthly filter for the planner — planner has a monthly filter; planner forecasts the next 1-3 months"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Statement of Cash Flows shows cash in/out within a specific period and is accrua"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Statement of Cash Flows shows cash in/out within a specific period and is accrua"},
 	},
 	"QBO.REPORTS.CUSTOM_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "custom report group name — POSTs a CRB_GROUP folio to universalreportinsights /v1/folio"},
-		{Name: "report", Type: "string", Required: false, Default: "PANDL", Help: "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)"},
+		{Name: "report", Type: "strings", Required: false, Default: "PANDL", Help: "report token per page — repeat to add pages in order; TOKEN:macro overrides that page's period, e.g. 70:all (PANDL, a numeric memorised-report id, or an sbg: saved-report id)"},
 		{Name: "title", Type: "string", Required: false, Help: "page title (defaults to the report display name)"},
 		{Name: "date-macro", Type: "string", Required: false, Default: "thisyeartodate", Help: "report date macro (e.g. thisyeartodate, thismonth, lastmonth)"},
 	},
@@ -1154,7 +1154,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "scope", Type: "string", Required: false, Help: "firm reports or a client's reports — Accountant can view both firm and client custom reports"},
 		{Name: "export-format", Type: "string", Required: false, Help: "Excel or PDF for a single report; Excel .zip for bulk export — PDF subject to 50,000-cell limit; bulk export of reports+lists is a single .zip of Excel files"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — View and manage saved custom/memorised reports from the Custom Reports list; Acc"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — View and manage saved custom/memorised reports from the Custom Reports list; Acc"},
 	},
 	"QBO.REPORTS.FORECAST_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "forecast name — createBusinessForecast input.name (required)"},
@@ -1171,11 +1171,11 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.REPORTS.FORECAST_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Read an Advanced forecast. L7SlFsgsy."},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Read an Advanced forecast. L7SlFsgsy."},
 	},
 	"QBO.REPORTS.MANAGEMENT_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "management report name — POSTs a FOLIO folio (cover page + report pages) to universalreportinsights /v1/folio"},
-		{Name: "report", Type: "string", Required: false, Default: "PANDL", Help: "report token for the page (PANDL, BAL_SHEET, or an sbg: saved-report id)"},
+		{Name: "report", Type: "strings", Required: false, Default: "PANDL", Help: "report token per page — repeat to add pages in order, e.g. per-unit details then combined summary and owner distributions; TOKEN:macro overrides that page's period, e.g. 70:all (PANDL, a numeric memorised-report id, or an sbg: saved-report id)"},
 		{Name: "date-macro", Type: "string", Required: false, Default: "thisyear", Help: "report date macro (e.g. thisyear, thisyeartodate)"},
 		{Name: "prepared-by", Type: "string", Required: false, Help: "cover-page 'prepared by' (defaults to the account email)"},
 	},
@@ -1185,7 +1185,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.REPORTS.MANAGEMENT_READ": {
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — View a management report. L90RAh2XZ."},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — View a management report. L90RAh2XZ."},
 	},
 	"QBO.REPORTS.PERFORMANCE_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "chart name — the dashboardframework panel name shown on the dashboard"},
@@ -1202,7 +1202,7 @@ var auParamAll = map[string][]paramDoc{
 	"QBO.REPORTS.PERFORMANCE_READ": {
 		{Name: "chart", Type: "string", Required: false, Help: "chart id or metric in the Performance centre"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The Performance centre dashboard shows all charts in one place (Reports > Perfor"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The Performance centre dashboard shows all charts in one place (Reports > Perfor"},
 	},
 	"QBO.REPORTS.REPORT_CREATE": {
 		{Name: "name", Type: "string", Required: true, Help: "name to save the custom report under — Save (memorise) a customised report to keep its filters/columns/settings"},
@@ -1215,7 +1215,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "accounting-method", Type: "string", Required: false, Help: "accrual or cash basis — set via Customise > General options; Statement of Cash Flows is accrual-only"},
 		{Name: "columns", Type: "string", Required: false, Help: "period columns / compare time periods side-by-side — some reports support year-over-year or period comparison columns"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Reports are run from Reports > Standard reports; customise filters/columns then"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Reports are run from Reports > Standard reports; customise filters/columns then"},
 	},
 	"QBO.SALES.CREDIT_CARD_CREDIT_CREATE": {
 		{Name: "credit-card-account", Type: "string", Required: true, Help: "credit card account the credit is recorded against"},
@@ -1235,7 +1235,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.CREDIT_MEMO_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Adjustment notes can be downloaded/printed as PDFs. Customisations applied to th"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Adjustment notes can be downloaded/printed as PDFs. Customisations applied to th"},
 	},
 	"QBO.SALES.DELAYED_CHARGE_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer (or sub-customer) the charge is for"},
@@ -1264,19 +1264,19 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.ESTIMATE_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Quotes can be downloaded/printed as PDFs. A quote report shows customer, quote n"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Quotes can be downloaded/printed as PDFs. A quote report shows customer, quote n"},
 	},
 	"QBO.SALES.ESTIMATE_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Run a quotes report to see status of all proposals and which have been converted"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Run a quotes report to see status of all proposals and which have been converted"},
 	},
 	"QBO.SALES.HUB_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "sales transaction id — target QBO record id (not a bank-feed :ofx display id)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Invoice = customer pays later (terms set how long). Sales receipt = customer pay"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Invoice = customer pays later (terms set how long). Sales receipt = customer pay"},
 	},
 	"QBO.SALES.HUB_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "filter by customer, form type, date, status"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Filter the sales list to batch email/print or to locate marked forms. L7hjsl70p"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Filter the sales list to batch email/print or to locate marked forms. L7hjsl70p"},
 	},
 	"QBO.SALES.INVOICE_COPY": {
 		{Name: "id", Type: "string", Required: true, Help: "invoice to duplicate. Prefer recurring txn if the same customer repeats"},
@@ -1323,7 +1323,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.INVOICE_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Sales forms can be downloaded/printed as PDFs. L6pyi04NN"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Sales forms can be downloaded/printed as PDFs. L6pyi04NN"},
 	},
 	"QBO.SALES.INVOICE_REMIND": {
 		{Name: "id", Type: "string", Required: false, Help: "invoice id (omit to run automatic reminder settings)"},
@@ -1331,7 +1331,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.INVOICE_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "filter by customer, date range, status, or form type"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The sales list can be filtered to batch email/print or to find marked forms. L7h"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The sales list can be filtered to batch email/print or to find marked forms. L7h"},
 	},
 	"QBO.SALES.INVOICE_SEND": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id)"},
@@ -1342,7 +1342,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "account", Type: "string", Required: false, Help: "bad-debt expense account — account name or id"},
 	},
 	"QBO.SALES.OVERVIEW_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Use an invoice when the customer agrees to pay later; a sales receipt when they"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Use an invoice when the customer agrees to pay later; a sales receipt when they"},
 	},
 	"QBO.SALES.PAYMENT_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer paying the invoice — customer display name or id (must be unique vs supplier/employee)"},
@@ -1359,7 +1359,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.PAYMENT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Remaining balance for the customer is shown after recording a payment. L4ZadDW7F"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Remaining balance for the customer is shown after recording a payment. L4ZadDW7F"},
 	},
 	"QBO.SALES.RECEIPT_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer who paid on the spot — customer display name or id (must be unique vs supplier/employee)"},
@@ -1375,7 +1375,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.RECEIPT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Sales receipts can be downloaded/printed as PDFs. L6pyi04NN"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Sales receipts can be downloaded/printed as PDFs. L6pyi04NN"},
 	},
 	"QBO.SALES.REFUND_RECEIPT_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer being refunded — customer display name or id (must be unique vs supplier/employee)"},
@@ -1391,7 +1391,7 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.REFUND_RECEIPT_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Refund receipts can be downloaded/printed as PDFs. L6pyi04NN"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Refund receipts can be downloaded/printed as PDFs. L6pyi04NN"},
 	},
 	"QBO.SALES.SALES_ORDER_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer for the order — customer display name or id (must be unique vs supplier/employee)"},
@@ -1406,11 +1406,11 @@ var auParamAll = map[string][]paramDoc{
 	},
 	"QBO.SALES.SALES_ORDER_READ": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Linked quote/invoices are visible in the Linked transactions section and via the"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Linked quote/invoices are visible in the Linked transactions section and via the"},
 	},
 	"QBO.SALES.SALES_ORDER_SEARCH": {
 		{Name: "query", Type: "string", Required: false, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Sales orders can be filtered and managed from the sales orders list. L1K2AQ1Lx"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Sales orders can be filtered and managed from the sales orders list. L1K2AQ1Lx"},
 	},
 	"QBO.SALES.STATEMENT_CREATE": {
 		{Name: "customer", Type: "string", Required: true, Help: "customer (or parent customer) to statement"},
@@ -1429,7 +1429,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "period", Type: "string", Required: false, Help: "BAS/GST period (e.g. 2026-Q1) — BAS/GST/IAS period (e.g. 2026-Q1 or Jul 2026)"},
 	},
 	"QBO.TAX.BAS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — BAS Detail Report lists every transaction included in each BAS box; defaults to"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — BAS Detail Report lists every transaction included in each BAS box; defaults to"},
 	},
 	"QBO.TAX.CODE_DELETE": {
 		{Name: "id", Type: "string", Required: true, Help: "target QBO txn/record id (not a display :ofx id)"},
@@ -1440,16 +1440,16 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "period", Type: "string", Required: false, Help: "BAS/GST period (e.g. 2026-Q1) — BAS/GST/IAS period (e.g. 2026-Q1 or Jul 2026)"},
 	},
 	"QBO.TAX.CODE_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Simpler GST codes (default for new files): GST, GST Free, Out of Scope. L4819AT7"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Simpler GST codes (default for new files): GST, GST Free, Out of Scope. L4819AT7"},
 		{Name: "id", Type: "string", Required: false, Help: "target QBO record id (not a bank-feed :ofx display id) — omit to list"},
 	},
 	"QBO.TAX.CODE_SEARCH": {
 		{Name: "query", Type: "string", Required: true, Help: "search text (name, memo, number, or id; case-insensitive)"},
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — Transactions by Tax Code report gives a detailed breakdown of all transactions b"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — Transactions by Tax Code report gives a detailed breakdown of all transactions b"},
 		{Name: "period", Type: "string", Required: false, Help: "BAS/GST period (e.g. 2026-Q1) — BAS/GST/IAS period (e.g. 2026-Q1 or Jul 2026)"},
 	},
 	"QBO.TAX.GST_AMENDMENTS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — The GST Amendments report shows amendments — changes carried forward when a tran"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — The GST Amendments report shows amendments — changes carried forward when a tran"},
 	},
 	"QBO.TAX.GST_DEFERRED_CREATE": {
 		{Name: "amount", Type: "string", Required: true, Help: "deferred GST liability AUD — AUD amount (income positive, expense negative on feed import)"},
@@ -1478,7 +1478,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "period", Type: "string", Required: false, Help: "BAS/GST period (e.g. 2026-Q1) — BAS/GST/IAS period (e.g. 2026-Q1 or Jul 2026)"},
 	},
 	"QBO.TAX.IAS_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — An Instalment Activity Statement (IAS) is lodged monthly and is used when PAYG W"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — An Instalment Activity Statement (IAS) is lodged monthly and is used when PAYG W"},
 	},
 	"QBO.TAX.LODGEIT_EXPORT": {
 		{Name: "period", Type: "string", Required: true, Help: "BAS period to pull GST/PAYGW into LodgeiT"},
@@ -1487,7 +1487,7 @@ var auParamAll = map[string][]paramDoc{
 		{Name: "period", Type: "string", Required: false, Help: "BAS/GST period (e.g. 2026-Q1) — BAS/GST/IAS period (e.g. 2026-Q1 or Jul 2026)"},
 	},
 	"QBO.TAX.TPAR_READ": {
-		{Name: "limit", Type: "int", Required: false, Default: "20", Help: "max rows to return (default 20) — TPAR tracks taxable payments made to contractors/subcontractors; the report is d"},
+		{Name: "limit", Type: "int", Required: false, Default: "0", Help: "max rows to return (0 = all) — TPAR tracks taxable payments made to contractors/subcontractors; the report is d"},
 	},
 }
 

@@ -235,10 +235,7 @@ func budgetNodeToItem(node *budgetListNode) (QueryItem, error) {
 // ReplayBudgetList lists budgets using the current UI's active-budget filter.
 func ReplayBudgetList(ctx context.Context, limit int) (*QueryResult, error) {
 	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {
@@ -304,7 +301,7 @@ func ReplayBudgetList(ctx context.Context, limit int) (*QueryResult, error) {
 		}
 		items = append(items, item)
 	}
-	if len(items) > limit {
+	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
 	return &QueryResult{
@@ -388,10 +385,7 @@ func ReplayDimensionList(ctx context.Context, dimension string, limit int) (*Que
 		return nil, fmt.Errorf("unknown dimension %q (want class or location)", dimension)
 	}
 	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	query := klassListQuery
 	op := "GetKlasses"

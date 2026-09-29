@@ -11,6 +11,8 @@ Read-only evidence reviewed 2026-07-13 from Mega Style Apartments QuickBooks rec
 
 The property class belongs on both sides of every paired fee journal. Do not infer unit 10 versus 14 from the account alone.
 
+**Owner-name evidence (verified 2026-09-29):** live `Owner Distribution` memos read `Transfer To Julie Virtue NetBank Melo Gingelly OW` / `Transfer to other Bank NetBank Melo Gingelly OW`. The payee on record is **Julie Virtue**; `Melo Gingelly` is the owner-withdrawal reference label, matching the folio names ("Melo and Gingelly Statement", "EOFYS Satement 2020- Melo Gingelly"). "Melo" and "Gingelly" therefore function as per-property statement labels (Melo ≈ Melody → unit 10), not owner surnames — the "Melo & Gingelly" phrasing above is inherited documentation language, not verified legal identity. No Customer record exists for the owner; treat owner identity as established by the distribution payee, and "Melo"/"Gingelly" as unit labels.
+
 ## Owner-statement equation
 
 For each property and statement period:

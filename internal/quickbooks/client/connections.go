@@ -104,12 +104,6 @@ func PlannedConnectionsURL() string { return connectionsGraphQLURL }
 // via wrap ATS (same leftover_ats_probe extras). Read-only. Empty edges is
 // an honest empty list, not a remap onto Purchase.
 func ReplayConnections(ctx context.Context, id string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -153,7 +147,7 @@ func ReplayConnections(ctx context.Context, id string, limit int) (*QueryResult,
 		}
 		items = filtered
 	}
-	if len(items) > limit {
+	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
 	if items == nil {

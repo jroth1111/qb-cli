@@ -19,7 +19,7 @@ func salesOrderParamDocs(id string) ([]paramDoc, bool) {
 		return []paramDoc{
 			p("id", "string", "native sales-order ID; cannot be combined with --query", false, ""),
 			p("query", "string", "case-insensitive name, order number or ID search across all native pages", strings.HasSuffix(id, "_SEARCH"), ""),
-			p("limit", "int", "maximum returned rows; larger limits fetch successive native pages", false, "20"),
+			p("limit", "int", "maximum returned rows; larger limits fetch successive native pages (0 = all)", false, "0"),
 		}, true
 	}
 	create := strings.HasSuffix(id, "_CREATE")

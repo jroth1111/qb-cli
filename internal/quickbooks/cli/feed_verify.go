@@ -92,8 +92,8 @@ func newFeedPopulationAllCmd(flags *rootFlags) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().IntVar(&maxPages, "max-pages-per-account", 40,
-		"page ceiling per account (300 rows per page)")
+	cmd.Flags().IntVar(&maxPages, "max-pages-per-account", 0,
+		"page ceiling per account (300 rows per page; 0 = walk to exhaustion)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_POPULATION_ALL")
 	return cmd
 }

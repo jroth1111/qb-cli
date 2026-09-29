@@ -90,9 +90,6 @@ const cashflowSummaryDoc = `query GetCashflowSummary($input: CashflowSummaryInpu
 // apixGraphQL POSTs a captured GraphQL document to an api.intuit.com host and
 // projects the response through edgePath (object payloads project as one row).
 func apixGraphQL(ctx context.Context, ac *apiClient, entity, url, host string, doc string, vars map[string]any, edgePath []string, note string, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 50
-	}
 	payload, err := json.Marshal(map[string]any{"query": doc, "variables": vars})
 	if err != nil {
 		return nil, err
@@ -214,9 +211,6 @@ var experimentAssignmentDoc = map[string]any{
 // ReplayExperimentAssignments returns A/B experiment bucket assignments via
 // experimentassignment.api.intuit.com — proven live on TC2 (real assignment rows).
 func ReplayExperimentAssignments(ctx context.Context, query string, limit int) (*QueryResult, error) {
-	if limit < 1 {
-		limit = 50
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -258,7 +252,7 @@ func ReplayExperimentAssignments(ctx context.Context, query string, limit int) (
 		id := fmt.Sprintf("%v", a["experimentId"])
 		name := fmt.Sprintf("%v", a["experimentKey"])
 		items = append(items, QueryItem{ID: id, Name: name, Type: fmt.Sprintf("%v", a["treatmentKey"])})
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}
@@ -302,7 +296,7 @@ func ReplayAppflowIntegrations(ctx context.Context, query string, limit int) (*Q
 			continue
 		}
 		items = append(items, QueryItem{ID: fmt.Sprintf("%v", a["id"]), Name: fmt.Sprintf("%v", a["name"])})
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}
@@ -376,9 +370,6 @@ func apixGet(ctx context.Context, ac *apiClient, entity, url, host, note string)
 // apixGetItems projects a decoded GET body onto QueryItems: arrays map to rows;
 // objects map to a single row. Substring-filters on the raw node blob.
 func apixGetItems(entity, note string, doc any, status int, query string, limit int) *QueryResult {
-	if limit < 1 {
-		limit = 50
-	}
 	var rows []any
 	switch v := doc.(type) {
 	case []any:
@@ -411,7 +402,7 @@ func apixGetItems(entity, note string, doc any, status int, query string, limit 
 			it = []QueryItem{{Type: entity}}
 		}
 		items = append(items, it[0])
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}
@@ -468,7 +459,7 @@ func ReplaySalesOverview(ctx context.Context, query string, limit int) (*QueryRe
 			continue
 		}
 		items = append(items, QueryItem{ID: k, Name: k, Type: "SalesOverview"})
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}
@@ -742,7 +733,7 @@ func ReplayBudgetPlanning(ctx context.Context, query string, limit int) (*QueryR
 		return nil, err
 	}
 	if limit < 1 {
-		limit = 10
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	vars := map[string]any{
 		"last": nil, "first": limit, "after": nil, "before": nil,

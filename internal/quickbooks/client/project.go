@@ -166,7 +166,7 @@ func ReplayProjectUpdate(ctx context.Context, flags map[string]string) (*MutateR
 // orderBy:"name"). --id filters client-side on the Work_Project global id.
 func ReplayProjectList(ctx context.Context, id, query string, limit int) (*QueryResult, error) {
 	if limit < 1 {
-		limit = 50
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	doc := `query getJobs_workflow($pageSize: Int, $after: String, $filter: String, $order: String) { company { projects(first: $pageSize, after: $after, filterBy: $filter, orderBy: $order) { edges { node { ` + workProjectFields + ` } } } } }`
 	payload, err := json.Marshal(map[string]any{

@@ -39,7 +39,7 @@ func newSalesSettingsGetCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&query, "form", "", "sales form type filter (informational)")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rows (0 = all)")
 	applyCatalogHelp(cmd, "QBO.SALES.SALES_SETTINGS_GET")
 	return cmd
 }

@@ -49,7 +49,7 @@ func newFolioServer(t *testing.T) *folioServer {
 			out, _ := json.Marshal(m)
 			_, _ = w.Write(out)
 		case strings.HasPrefix(r.URL.Path, "/v1/folio/") && r.Method == http.MethodGet:
-			_, _ = w.Write([]byte(`{"reportKindEnum":"FOLIO","id":"sbg:f1","name":"Old","active":true,"reportingNamespace":"qbo","folioDataRequest":{"templateName":"Old","templateType":"USER","pages":[],"editSequence":0}}`))
+			_, _ = w.Write([]byte(`{"reportKindEnum":"FOLIO","id":"sbg:f1","name":"Old","active":true,"reportingNamespace":"qbo","folioDataRequest":{"templateName":"Old","templateType":"USER","dateMacro":"custom","startDate":"2026-05-01","endDate":"2026-05-31","pages":[{"pageType":"page","type":"COVER_PAGE","title":"Old"},{"pageType":"report","type":"URI_REPORT","title":"Detail","reportToken":"42","reportDateMacro":"custom","startDate":"2026-05-01","endDate":"2026-05-31","customReport":true},{"pageType":"report","type":"URI_REPORT","title":"Owner Distributions","reportToken":"70","reportDateMacro":"all","customReport":true}],"editSequence":0}}`))
 		case strings.HasPrefix(r.URL.Path, "/v1/folio/") && r.Method == http.MethodPut:
 			var m map[string]any
 			_ = json.Unmarshal(b, &m)
@@ -75,7 +75,7 @@ func TestFolioCustomCreatePostsCRBGroup(t *testing.T) {
 	saveUsableURIHost(t)
 	srv := newFolioServer(t)
 	interceptHTTP(t, srv.URL)
-	res, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "My Group", "PANDL", "", "", "")
+	res, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "My Group", []string{"PANDL"}, "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestFolioManagementCreatePostsCoverAndReport(t *testing.T) {
 	saveUsableURIHost(t)
 	srv := newFolioServer(t)
 	interceptHTTP(t, srv.URL)
-	if _, err := ReplayFolioMutate(context.Background(), "management", "create", "", "Mgmt", "PANDL", "", "thisyear", "A Person"); err != nil {
+	if _, err := ReplayFolioMutate(context.Background(), "management", "create", "", "Mgmt", []string{"PANDL"}, "", "thisyear", "", "", "A Person"); err != nil {
 		t.Fatal(err)
 	}
 	_, _, _, body := srv.snap()
@@ -135,7 +135,7 @@ func TestFolioSbgTokenMarksCustomReport(t *testing.T) {
 	saveUsableURIHost(t)
 	srv := newFolioServer(t)
 	interceptHTTP(t, srv.URL)
-	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "G", "sbg:440e822b-x", "", "", ""); err != nil {
+	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "G", []string{"sbg:440e822b-x"}, "", "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	_, _, _, body := srv.snap()
@@ -148,11 +148,199 @@ func TestFolioSbgTokenMarksCustomReport(t *testing.T) {
 	}
 }
 
+// Repeated --report produces one report page per token in flag order — the
+// live multi-property statement shape (per-unit details + combined summary
+// + owner distributions) as a single create.
+func TestFolioManagementCreateMultiReportPages(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	reports := []string{"42", "41", "59", "70"}
+	if _, err := ReplayFolioMutate(context.Background(), "management", "create", "", "Melo and Gingelly Statement", reports, "", "", "2026-05-01", "2026-05-31", "P"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, body := srv.snap()
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	req, _ := m["folioDataRequest"].(map[string]any)
+	pages := req["pages"].([]any)
+	if len(pages) != 5 {
+		t.Fatalf("pages = %d, want cover + 4 report pages", len(pages))
+	}
+	for i, tok := range reports {
+		page, _ := pages[i+1].(map[string]any)
+		if page["reportToken"] != tok || page["customReport"] != true || page["reportDateMacro"] != "custom" {
+			t.Fatalf("page %d = %v", i+1, page)
+		}
+	}
+}
+
+// A TOKEN:macro suffix overrides that page's period scope: "70:all" keeps
+// an owner-distributions page all-time (the live folio shape) while sibling
+// pages pin the statement window.
+func TestFolioCreatePageMacroOverride(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	reports := []string{"42", "70:all"}
+	if _, err := ReplayFolioMutate(context.Background(), "management", "create", "", "S", reports, "", "", "2026-06-01", "2026-06-30", "P"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, body := srv.snap()
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	req, _ := m["folioDataRequest"].(map[string]any)
+	pages := req["pages"].([]any)
+	if len(pages) != 3 {
+		t.Fatalf("pages = %d, want cover + 2 report pages", len(pages))
+	}
+	detail, _ := pages[1].(map[string]any)
+	if detail["reportToken"] != "42" || detail["reportDateMacro"] != "custom" || detail["startDate"] != "2026-06-01" || detail["endDate"] != "2026-06-30" {
+		t.Fatalf("detail page = %v", detail)
+	}
+	dist, _ := pages[2].(map[string]any)
+	if dist["reportToken"] != "70" || dist["reportDateMacro"] != "all" {
+		t.Fatalf("distributions page = %v", dist)
+	}
+	if _, ok := dist["startDate"]; ok {
+		t.Fatalf("all-macro page must not pin dates: %v", dist)
+	}
+	if dist["customReport"] != true {
+		t.Fatalf("distributions page customReport = %v", dist["customReport"])
+	}
+	if dist["title"] != "70" {
+		t.Fatalf("title should be the stripped token, got %v", dist["title"])
+	}
+}
+
+// sbg: tokens contain a colon but must not split on a macro-looking
+// boundary — the UUID tail is never a macro name.
+func TestFolioSbgTokenDoesNotSplitMacro(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	reports := []string{"sbg:3ba75975-cb3c-494b-b458-be738a884e1c"}
+	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "S", reports, "", "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, body := srv.snap()
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	req, _ := m["folioDataRequest"].(map[string]any)
+	page, _ := req["pages"].([]any)[0].(map[string]any)
+	if page["reportToken"] != "sbg:3ba75975-cb3c-494b-b458-be738a884e1c" || page["customReport"] != true {
+		t.Fatalf("page = %v", page)
+	}
+}
+
+// An unknown suffix stays part of the token — the server, not the parser,
+// rejects bad tokens.
+func TestFolioUnknownSuffixStaysInToken(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	reports := []string{"foo:bar"}
+	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "S", reports, "", "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, body := srv.snap()
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	req, _ := m["folioDataRequest"].(map[string]any)
+	page, _ := req["pages"].([]any)[0].(map[string]any)
+	if page["reportToken"] != "foo:bar" {
+		t.Fatalf("token = %v", page["reportToken"])
+	}
+}
+
+// A relative macro other than "all" also carries no pinned dates.
+func TestFolioRelativeMacroPageNoDates(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	reports := []string{"42:lastmonth"}
+	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "S", reports, "", "", "2026-06-01", "2026-06-30", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, body := srv.snap()
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	req, _ := m["folioDataRequest"].(map[string]any)
+	page, _ := req["pages"].([]any)[0].(map[string]any)
+	if page["reportToken"] != "42" || page["reportDateMacro"] != "lastmonth" {
+		t.Fatalf("page = %v", page)
+	}
+	if _, ok := page["startDate"]; ok {
+		t.Fatalf("relative-macro page must not pin dates: %v", page)
+	}
+}
+
+// Numeric reportTokens are classic mem_rpt_ids — live management folios
+// carry customReport:true on those pages (tokens 41/42/59/70/162/558).
+func TestFolioNumericTokenMarksCustomReport(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	if _, err := ReplayFolioMutate(context.Background(), "management", "create", "", "S", []string{"42"}, "", "", "2026-05-01", "2026-05-31", "P"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, body := srv.snap()
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	req, _ := m["folioDataRequest"].(map[string]any)
+	if req["dateMacro"] != "custom" || req["startDate"] != "2026-05-01" || req["endDate"] != "2026-05-31" {
+		t.Fatalf("folio period = %v", req)
+	}
+	pages := req["pages"].([]any)
+	report, _ := pages[1].(map[string]any)
+	if report["customReport"] != true || report["reportToken"] != "42" ||
+		report["reportDateMacro"] != "custom" || report["startDate"] != "2026-05-01" || report["endDate"] != "2026-05-31" {
+		t.Fatalf("report page = %v", report)
+	}
+	if df := req["dynamicFields"].(map[string]any); df["{ReportEndDate}"] != "31 May 2026" {
+		t.Fatalf("dynamicFields = %v", df)
+	}
+}
+
+// management update --start-date/--end-date repins the statement period:
+// the folio window and every period-bound report page take the new range,
+// while reportDateMacro:"all" pages (owner distributions) stay untouched.
+func TestFolioManagementUpdatePinsPeriod(t *testing.T) {
+	saveUsableURIHost(t)
+	srv := newFolioServer(t)
+	interceptHTTP(t, srv.URL)
+	if _, err := ReplayFolioMutate(context.Background(), "management", "update", "sbg:f1", "", nil, "", "", "2026-06-01", "2026-06-30", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, meth, _, body := srv.snap()
+	if meth != http.MethodPut {
+		t.Fatalf("method = %s", meth)
+	}
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	if m["name"] != "Old" {
+		t.Fatalf("name changed without --name: %v", m["name"])
+	}
+	req, _ := m["folioDataRequest"].(map[string]any)
+	if req["dateMacro"] != "custom" || req["startDate"] != "2026-06-01" || req["endDate"] != "2026-06-30" {
+		t.Fatalf("folio period = %v", req)
+	}
+	pages := req["pages"].([]any)
+	detail, _ := pages[1].(map[string]any)
+	if detail["startDate"] != "2026-06-01" || detail["endDate"] != "2026-06-30" || detail["reportDateMacro"] != "custom" {
+		t.Fatalf("detail page = %v", detail)
+	}
+	dist, _ := pages[2].(map[string]any)
+	if dist["reportDateMacro"] != "all" || dist["startDate"] != nil || dist["endDate"] != nil {
+		t.Fatalf("distributions page was repinned: %v", dist)
+	}
+}
+
 func TestFolioUpdateGetsThenPutsFullFolio(t *testing.T) {
 	saveUsableURIHost(t)
 	srv := newFolioServer(t)
 	interceptHTTP(t, srv.URL)
-	res, err := ReplayFolioMutate(context.Background(), "management", "update", "sbg:f1", "Renamed", "", "", "", "")
+	res, err := ReplayFolioMutate(context.Background(), "management", "update", "sbg:f1", "Renamed", nil, "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,16 +366,16 @@ func TestFolioValidationBeforeHTTP(t *testing.T) {
 	saveUsableURIHost(t)
 	srv := newFolioServer(t)
 	interceptHTTP(t, srv.URL)
-	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "", "", "", "", ""); err == nil {
+	if _, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "", nil, "", "", "", "", ""); err == nil {
 		t.Fatal("empty name should fail")
 	}
-	if _, err := ReplayFolioMutate(context.Background(), "management", "update", "", "X", "", "", "", ""); err == nil {
+	if _, err := ReplayFolioMutate(context.Background(), "management", "update", "", "X", nil, "", "", "", "", ""); err == nil {
 		t.Fatal("empty id should fail")
 	}
-	if _, err := ReplayFolioMutate(context.Background(), "management", "update", "sbg:f1", "", "", "", "", ""); err == nil {
+	if _, err := ReplayFolioMutate(context.Background(), "management", "update", "sbg:f1", "", nil, "", "", "", "", ""); err == nil {
 		t.Fatal("empty update name should fail")
 	}
-	if _, err := ReplayFolioMutate(context.Background(), "bogus", "create", "", "X", "", "", "", ""); err == nil {
+	if _, err := ReplayFolioMutate(context.Background(), "bogus", "create", "", "X", nil, "", "", "", "", ""); err == nil {
 		t.Fatal("unknown kind should fail")
 	}
 	if calls, _, _, _ := srv.snap(); calls != 0 {
@@ -203,7 +391,7 @@ func TestFolioServiceErrorPropagates(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	interceptHTTP(t, srv.URL)
-	_, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "X", "", "", "", "")
+	_, err := ReplayFolioMutate(context.Background(), "custom", "create", "", "X", nil, "", "", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "folio name required") {
 		t.Fatalf("err = %v", err)
 	}

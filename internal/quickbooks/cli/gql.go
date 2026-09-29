@@ -249,7 +249,7 @@ func newGqlWalkCmd(flags *rootFlags) *cobra.Command {
 			return gqlWalkError(res)
 		},
 	}
-	cmd.Flags().IntVar(&maxPages, "max-pages", 10, "hard ceiling on pages fetched (0 = walk to exhaustion)")
+	cmd.Flags().IntVar(&maxPages, "max-pages", 0, "hard ceiling on pages fetched (0 = walk to exhaustion)")
 	cmd.Flags().IntVar(&pageSize, "page-size", 100, "rows bound to $first/$limit per page")
 	cmd.Flags().StringSliceVar(&rawVars, "vars", nil, "variables as k=v pairs")
 	// First-class walks hang off `walk` itself: qb gql walk bills|tasks|items
@@ -358,7 +358,7 @@ func newGqlWalkBillsCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	dates.register(cmd)
-	cmd.Flags().IntVar(&maxPages, "max-pages", 10, "hard ceiling on pages fetched (0 = walk to exhaustion)")
+	cmd.Flags().IntVar(&maxPages, "max-pages", 0, "hard ceiling on pages fetched (0 = walk to exhaustion)")
 	cmd.Flags().IntVar(&pageSize, "page-size", 100, "rows per page")
 	return cmd
 }
@@ -383,7 +383,7 @@ func newGqlWalkTasksCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	dates.register(cmd)
-	cmd.Flags().IntVar(&maxPages, "max-pages", 10, "hard ceiling on pages fetched (0 = walk to exhaustion)")
+	cmd.Flags().IntVar(&maxPages, "max-pages", 0, "hard ceiling on pages fetched (0 = walk to exhaustion)")
 	cmd.Flags().IntVar(&pageSize, "page-size", 100, "rows per page")
 	return cmd
 }
@@ -417,7 +417,7 @@ func newGqlWalkItemsCmd(flags *rootFlags) *cobra.Command {
 			return runNamedWalk(cmd, flags, "Items", gql.DateWindowSpec{}, gqlDateFlags{}, w, nil)
 		},
 	}
-	cmd.Flags().IntVar(&maxPages, "max-pages", 10, "hard ceiling on pages fetched (0 = walk to exhaustion)")
+	cmd.Flags().IntVar(&maxPages, "max-pages", 0, "hard ceiling on pages fetched (0 = walk to exhaustion)")
 	cmd.Flags().IntVar(&pageSize, "page-size", 100, "rows per page")
 	return cmd
 }

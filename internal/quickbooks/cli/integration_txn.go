@@ -36,7 +36,7 @@ func newAccountingIntegrationTxnReadCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "id", "", "target connection id")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rows (0 = all)")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.INTEGRATION_TXN_READ")
 	return cmd
 }

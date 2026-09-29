@@ -132,7 +132,7 @@ func newCostGroupsListCmd(flags *rootFlags) *cobra.Command {
 		Use:   "list",
 		Short: "List cost groups (GetCostGroupsWithFilter query)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if handled, err := dryRunPOST(flags, cmd, "costgroups group list", "QBO.COSTGROUPS.GROUP_LIST", client.PlanCostGroupList(ff.limit, ff.status, ff.typ)); handled {
+			if handled, err := dryRunPOST(flags, cmd, "costgroups list", "QBO.COSTGROUPS.GROUP_LIST", client.PlanCostGroupList(ff.limit, ff.status, ff.typ)); handled {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
@@ -145,7 +145,7 @@ func newCostGroupsListCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&ff.status, "status", "active", "active|inactive|all")
-	cmd.Flags().IntVar(&ff.limit, "limit", 25, "max rows (1-100)")
+	cmd.Flags().IntVar(&ff.limit, "limit", 0, "max rows (0 = all; the service applies its own page cap)")
 	cmd.Flags().StringVar(&ff.typ, "type", "", "cost group type (default ITEM)")
 	return cmd
 }

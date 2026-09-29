@@ -54,9 +54,6 @@ func replayTags(ctx context.Context, id, query string, limit int) (*QueryResult,
 	if err != nil {
 		return nil, err
 	}
-	if limit < 1 {
-		limit = 20
-	}
 	id = strings.TrimSpace(id)
 	if id != "" {
 		// Single-tag read: GET tags/{id} answers one object.
@@ -105,7 +102,7 @@ func replayTags(ctx context.Context, id, query string, limit int) (*QueryResult,
 			continue
 		}
 		items = append(items, t.item())
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}

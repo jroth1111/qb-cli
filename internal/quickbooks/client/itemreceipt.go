@@ -94,10 +94,7 @@ func replayGetItemReceipts(ctx context.Context, id, _ string, limit int) (*Query
 		return replayGetItemReceipt(ctx, id)
 	}
 	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {

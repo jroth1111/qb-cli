@@ -433,7 +433,7 @@ func newV3QueryCmd(flags *rootFlags, e primitiveEntry, command, entity string) *
 	cmd.Flags().StringVar(&id, "id", "", "v3 entity id")
 	cmd.Flags().StringVar(&query, "query", "", "substring match on name or doc number")
 	cmd.Flags().StringVar(&active, "active", "", "v3 Active filter: true, false, or all (include inactive)")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rows")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rows (0 = all)")
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
@@ -494,7 +494,7 @@ func newV3ReportCmd(flags *rootFlags, e primitiveEntry, command, def string) *co
 	cmd.Flags().StringVar(&accountingMethod, "accounting-method", "", "")
 	cmd.Flags().StringVar(&columns, "columns", "", "")
 	cmd.Flags().StringVar(&id, "id", "", "")
-	cmd.Flags().IntVar(&limit, "limit", 20, "")
+	cmd.Flags().IntVar(&limit, "limit", 0, "(0 = all)")
 	if command == "feed rec get" {
 		cmd.Flags().StringVar(&accountID, "account-id", client.DefaultAccountID, "")
 	}

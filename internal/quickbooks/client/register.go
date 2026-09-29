@@ -71,9 +71,6 @@ func ReplayRegisterPage(ctx context.Context, accountID string, offset, limit int
 	if accountID == "" {
 		accountID = DefaultAccountID
 	}
-	if limit < 1 {
-		limit = 1
-	}
 	res, err := replayRegisterOnce(ctx, accountID, offset, limit)
 	if err == nil || !allowInactiveFallback(accountID) || !isInactiveAccount(err) {
 		return res, err
@@ -97,7 +94,12 @@ func replayRegisterOnce(ctx context.Context, accountID string, offset, limit int
 		return nil, err
 	}
 	url := fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, accountID)
+	// limit <= 0 asks for the open-ended range (items=offset-) — the server
+	// decides how much it returns rather than a client-imposed window.
 	xRange := fmt.Sprintf("items=%d-%d", offset, offset+limit-1)
+	if limit < 1 {
+		xRange = fmt.Sprintf("items=%d-", offset)
+	}
 
 	resp, err := ac.get(ctx, url, xRange)
 	if err != nil {

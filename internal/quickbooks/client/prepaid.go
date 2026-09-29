@@ -22,10 +22,7 @@ func PlannedPrepaidURL() string { return prepaidGraphQLURL }
 
 func replayGetSchedules(ctx context.Context, _, _ string, limit int) (*QueryResult, error) {
 	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {

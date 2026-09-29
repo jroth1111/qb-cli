@@ -41,10 +41,7 @@ func PlannedSalesHubURL() string { return salesHubGraphQLURL }
 
 func replaySalesHub(ctx context.Context, _, query string, limit int) (*QueryResult, error) {
 	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
+		limit = 99999 // unbounded ask; service applies its own ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {
@@ -153,7 +150,7 @@ func projectSalesHub(body []byte, query string, limit int) *QueryResult {
 			continue
 		}
 		items = append(items, it)
-		if len(items) >= limit {
+		if limit > 0 && len(items) >= limit {
 			break
 		}
 	}

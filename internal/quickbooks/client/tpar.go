@@ -51,10 +51,7 @@ func replayTPARInstances(ctx context.Context, start, end string, limit int) (*Qu
 // response so both the list projector and the report projection can read it.
 func fetchTPARInstances(ctx context.Context, start, end string, limit int) ([]byte, int, error) {
 	if limit < 1 {
-		limit = 20
-	}
-	if limit > 500 {
-		limit = 500
+		limit = 99999 // unbounded ask; the service enforces its own page ceiling
 	}
 	ac, err := newAPIClient()
 	if err != nil {

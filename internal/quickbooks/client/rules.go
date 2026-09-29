@@ -47,15 +47,17 @@ type rawBankRule struct {
 // ReplayRules GETs lists/olbrules/getRules (captured 2026-08-17).
 // Unknown shapes return status + byte count and an empty list — never the raw body.
 func ReplayRules(ctx context.Context, limit int) (*RulesResult, error) {
-	if limit < 1 {
-		limit = 20
-	}
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
 	}
 	url := strings.ReplaceAll(PlannedRulesURL(), realmToken, ac.realm)
+	// limit <= 0 asks for the open-ended range (items=0-) — the server
+	// decides how much it returns rather than a client-imposed window.
 	xRange := fmt.Sprintf("items=0-%d", limit-1)
+	if limit < 1 {
+		xRange = "items=0-"
+	}
 	resp, err := ac.get(ctx, url, xRange)
 	if err != nil {
 		return nil, fmt.Errorf("getRules: %w", err)
@@ -76,7 +78,7 @@ func ReplayRules(ctx context.Context, limit int) (*RulesResult, error) {
 			Rules:  []BankRule{},
 		}, nil
 	}
-	if len(raw) > limit {
+	if limit > 0 && len(raw) > limit {
 		raw = raw[:limit]
 	}
 	return projectRules(raw), nil

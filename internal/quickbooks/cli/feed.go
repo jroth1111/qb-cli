@@ -43,10 +43,10 @@ func newFeedCmd(flags *rootFlags) *cobra.Command {
 	listEnt.Use = "list"
 	listEnt.Short = "List feed rows by review state (default: pending)"
 	txn.AddCommand(listEnt)
-	listEnt.AddCommand(newFeedStateCmd(flags, "posted", "List posted (accepted) transactions for an account", "ACCEPTED", 20))
-	listEnt.AddCommand(newFeedStateCmd(flags, "excluded", "List excluded transactions for an account", "EXCLUDED", 20))
+	listEnt.AddCommand(newFeedStateCmd(flags, "posted", "List posted (accepted) transactions for an account", "ACCEPTED", 0))
+	listEnt.AddCommand(newFeedStateCmd(flags, "excluded", "List excluded transactions for an account", "EXCLUDED", 0))
 	txn.AddCommand(newFeedLookupCmd(flags))
-	txn.AddCommand(newFeedStateCmd(flags, "population", "List the full pending population for an account (limit 300)", "PENDING", 300))
+	txn.AddCommand(newFeedStateCmd(flags, "population", "List the full pending population for an account", "PENDING", 0))
 	txn.AddCommand(newFeedVerifyCmd(flags))
 	txn.AddCommand(newFeedPopulationAllCmd(flags))
 	updateEnt := &cobra.Command{Use: "update", Short: "Mutate pending feed rows"}
@@ -164,7 +164,7 @@ func newFeedPendingCmd(flags *rootFlags) *cobra.Command {
 		"banking account id (defaults to "+client.DefaultAccountID+")")
 	cmd.Flags().StringVar(&ff.reviewState, "review-state", "pending",
 		"review state filter (QBO enum; sent uppercased, e.g. PENDING)")
-	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max transactions to fetch")
+	cmd.Flags().IntVar(&ff.limit, "limit", 0, "max transactions to fetch (0 = all)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_PENDING")
 	return cmd
 }
@@ -199,7 +199,7 @@ func newFeedStateCmd(flags *rootFlags, use, short, reviewState string, defaultLi
 			var res *client.PendingResult
 			var err error
 			if use == "population" {
-				res, err = client.ReplayFeedComplete(ctx, ff.accountID, reviewState, 40)
+				res, err = client.ReplayFeedComplete(ctx, ff.accountID, reviewState, 0)
 				if errors.Is(err, client.ErrIncomplete) {
 					// Surface partial rows plus the mismatch; exit non-zero
 					// so pipelines cannot mistake this for a complete dump.
@@ -271,7 +271,7 @@ func newFeedLookupCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
 		"banking account id (defaults to "+client.DefaultAccountID+")")
 	cmd.Flags().StringVar(&query, "query", "", "search query (matches id or description, case-insensitive)")
-	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max matching rows returned; all three review states are fully searched")
+	cmd.Flags().IntVar(&ff.limit, "limit", 0, "max matching rows returned; all three review states are fully searched (0 = all)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_LOOKUP")
 	return cmd
 
@@ -793,7 +793,7 @@ func newFeedRuleReadCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "id", "", "specific bank rule id")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rules to return")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rules to return (0 = all)")
 	applyCatalogHelp(cmd, "QBO.FEED.RULE_READ")
 	return cmd
 }
@@ -835,7 +835,7 @@ func newFeedRuleSearchCmd(flags *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&query, "query", "", "substring match on rule name")
-	cmd.Flags().IntVar(&limit, "limit", 20, "max rules to return")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rules to return (0 = all)")
 	applyCatalogHelp(cmd, "QBO.FEED.RULE_SEARCH")
 	return cmd
 }
@@ -1062,7 +1062,7 @@ func newFeedRecReportCmd(flags *rootFlags, e primitiveEntry) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
 		"banking account id (defaults to "+client.DefaultAccountID+")")
-	cmd.Flags().IntVar(&ff.limit, "limit", 20, "max rows")
+	cmd.Flags().IntVar(&ff.limit, "limit", 0, "max rows (0 = all)")
 	applyCatalogHelp(cmd, e.ID)
 	return cmd
 }
