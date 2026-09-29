@@ -99,8 +99,10 @@ func newAccountingJournalBulkCreateCmd(flags *rootFlags) *cobra.Command {
 		Use:   "create",
 		Short: "Bulk-create balanced journal entries (v3 /batch)",
 		Long: "Bulk-create journal entries in one v3 batch request.\n" +
-			"--items-json must decode to [{\"date\":\"yyyy-MM-dd\",\"amount\":N,\"from-account\":\"ID\",\"to-account\":\"ID\",\"memo\":\"...\"}].\n" +
-			"Every item books a two-line entry: debit from-account, credit to-account.",
+			"--items-json must decode to [{\"date\":\"yyyy-MM-dd\",\"amount\":N,\"from-account\":\"ID\",\"to-account\":\"ID\",\"memo\":\"...\",\"class\":\"ID\"}].\n" +
+			"Every item books a two-line entry: debit from-account, credit to-account.\n" +
+			"Optional \"class\" applies the QBO class id to both lines; validate first\n" +
+			"with `qb policy check-journal`.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			items, perr := client.ParseJournalBulkItems(itemsJSON)
 			if perr != nil {

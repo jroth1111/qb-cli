@@ -377,7 +377,7 @@ func TestSalesDomainListAndGetProjectsV3Rows(t *testing.T) {
 	}
 
 	// Projection spot-checks: payment carries PaymentType, invoice carries
-	// DocNumber/date, and limit clamps to the v3 ceiling of 100.
+	// DocNumber/date, and oversized limits page via ordered windows of 100.
 	if got := srv.snap().QParam; true {
 		_ = got // last recorded call below re-checks the clamp explicitly
 	}
@@ -389,8 +389,8 @@ func TestSalesDomainListAndGetProjectsV3Rows(t *testing.T) {
 	if err != nil || len(inv.Items) != 1 || inv.Items[0].DocNumber != "INV-188" {
 		t.Fatalf("invoice projection = %+v (%v)", inv, err)
 	}
-	if got := srv.snap().QParam; got != "select * from Invoice maxresults 100" {
-		t.Fatalf("limit clamp query = %q", got)
+	if got := srv.snap().QParam; got != "select * from Invoice orderby Id maxresults 100" {
+		t.Fatalf("paged limit query = %q", got)
 	}
 }
 

@@ -1,0 +1,141 @@
+# Mega Style Apartments — categorisation signal registry
+#
+# Distilled from categorisation-decision-model.md and
+# two-year-categorisation-audit.md (evidence window 2024-07-13..2026-07-13).
+# Where the two docs disagree the audit's full-window counts win, per the
+# audit's own authority note. These are repeated POSTED mappings, not
+# unconditional automation rules: class still needs independent evidence,
+# and weak signals need a second discriminator before use.
+#
+# match:        list of case-insensitive regexes; a signal fires when any
+#               pattern matches the transaction text (party + memo joined).
+# strong:       evidence >= ~98% across dominant posted signatures.
+# discriminator: required additional evidence for weak signals.
+# conflicts:    signals that must NEVER auto-classify; they surface the
+#               observed alternatives instead.
+
+version: 1
+source_window: "2024-07-13 to 2026-07-13"
+
+signals:
+  - match: ['\biinet\b', '\bii\s*net\b']
+    account: "MSA Property Expenses:Internet"
+    evidence: "162/162 across dominant signatures (audit)"
+    strong: true
+  - match: ['\btangerine\b']
+    account: "MSA Property Expenses:Internet"
+    evidence: "105/105 (audit)"
+    strong: true
+  - match: ['\borigin\b', 'origin energy']
+    account: "MSA Property Expenses:Utilities"
+    evidence: "140/141 direct-debit + 123/124 party variants (audit)"
+    strong: true
+  - match: ['\bwinconnect\b']
+    account: "MSA Property Expenses:Utilities"
+    evidence: "50/50 (audit)"
+    strong: true
+  - match: ['tango energy']
+    account: "MSA Property Expenses:Utilities"
+    evidence: "10/10 (decision model; small sample)"
+    strong: true
+  - match: ['south east water']
+    account: "MSA Property Expenses:Utilities"
+    evidence: "5/5 (decision model; small sample)"
+    strong: true
+  - match: ['\bcarepark\b']
+    account: "MSA Property Expenses:Parking"
+    evidence: "9/9 (decision model; small sample)"
+    strong: true
+  - match: ['\bparking\b', 'car\s*park']
+    account: "MSA Property Expenses:Parking"
+    evidence: "69/69 across explicit property/space transfer signatures (audit)"
+    strong: false
+    discriminator: "explicit property or space wording required (e.g. '2403 parking'); generic parking merchant text can instead be Motor vehicle expenses with a person class"
+  - match: ['international fee.*keynest', 'keynest.*international', '\brabat\b']
+    account: "Bank charges"
+    evidence: "63/63 dominant signature (audit)"
+    strong: true
+    note: "some MEL/Jacob international-fee variants historically posted to meet-and-greet — keep related-parent evidence when diverging"
+  - match: ['\bkeynest\b', 'key\s*nest']
+    account: "Meet and Greet Expense"
+    evidence: "170/170 base-charge signatures (audit)"
+    strong: true
+    discriminator: "international-fee variants post to Bank charges (63/63); wording decides"
+  - match: ['\bo2\s*technology\b', '\bo2\s*tech\b']
+    account: "MSA Property Expenses:Meet & Greet"
+    evidence: "75/75 (audit)"
+    strong: true
+  - match: ['\bmicm\b']
+    account: "Guaranteed Rental - MSA"
+    evidence: "186/188 BPAY rent signatures (audit)"
+    strong: true
+  - match: ['\brent\b', '\brental\b']
+    account: "Guaranteed Rental - MSA"
+    evidence: "103/104 CBA rent transfers + 49/49 stable property-wording transfers (audit)"
+    strong: true
+    discriminator: "rent must appear with stable property wording or a rent-transfer signature; bare transfer text is a known conflict"
+  - match: ['jacob.*(sal|salary|payroll)', '(sal|salary|payroll).*jacob']
+    account: "Director Compensation"
+    evidence: "103/103 (audit)"
+    strong: true
+    class_hint: "Jacob"
+  - match: ['maggie.*(sal|salary|payroll)', '(sal|salary|payroll).*maggie']
+    account: "Director Compensation"
+    evidence: "103/103 (audit)"
+    strong: true
+    class_hint: "Maggie"
+  - match: ['\bmaxo\b']
+    account: "IT"
+    evidence: "23/23 (audit)"
+    strong: true
+    class_hint: "Parent Entity"
+  - match: ['\bbookkeeping\b']
+    account: "Contractor Payments"
+    evidence: "22/22 transfer signature (audit)"
+    strong: true
+  - match: ['owner\s*(distribution|payout|dist)']
+    account: "Client Property Expenses:Owner Distribution"
+    evidence: "74/74 transfer signature (audit)"
+    strong: true
+  - match: ['merchant fee', 'merchant fees', 'cba merchant']
+    account: "Bank charges:Merchant Fees"
+    evidence: "23/23 (audit)"
+    strong: true
+  - match: ['\bchunming\b', 'chunming liu']
+    account: "MSA Property Expenses:Cleaning"
+    evidence: "618/651 MSA cleaning; 33 amenity expense (decision model)"
+    strong: false
+    discriminator: "95% hit rate is below the 98% gate — confirm the job's workflow (property clean vs amenity) before posting"
+  - match: ['\bjack\s*tai\b']
+    account: "MSA Property Expenses:Repairs and maintenance"
+    evidence: "114/120 repairs; 5 client repair account (decision model)"
+    strong: false
+    discriminator: "95% hit rate is below the 98% gate — confirm whether the job is MSA or client-property before posting"
+
+conflicts:
+  - match: ['\bcba\s*card\b']
+    reason: "party label describes the payment channel, not the substance"
+    alternatives: ["Guest Security Deposits", "MSA Property Revenue", "Client Property Revenue", "Management Income", "MSA Property Expenses:Parking"]
+  - match: ['\bpushkar\b']
+    reason: "supplier spans cleaning workflows (531 MSA cleaning, 76 amenity)"
+    alternatives: ["MSA Property Expenses:Cleaning", "Cleaning Amenities Expense"]
+  - match: ['\burbanaide\b']
+    reason: "supplier bundle spans purposes (251 cleaning, 68 amenities, 11 rent, 3 client expense)"
+    alternatives: ["MSA Property Expenses:Cleaning", "Cleaning Amenities Expense", "Guaranteed Rental - MSA", "Client Property Expenses:*"]
+  - match: ['\btpg\b']
+    reason: "property operating model decides the account family (64 MSA internet, 27 client-property internet)"
+    alternatives: ["MSA Property Expenses:Internet", "Client Property Expenses:*"]
+  - match: ['\bairbnb\b', 'booking\.?com', '\bexpedia\b', 'trip\.?com']
+    reason: "channel does not determine property ownership"
+    alternatives: ["MSA Property Revenue", "Client Property Revenue"]
+  - match: ['\btransfer\b', '\bbpay\b']
+    reason: "generic transfer labels carry no economic meaning (observed as both security deposit and revenue)"
+    alternatives: ["Guest Security Deposits", "MSA Property Revenue", "Client Property Revenue"]
+
+# Building names without a unit number are ambiguous class evidence —
+# the audit lists these explicitly.
+ambiguous_class_names: ["victoria one", "mainpoint", "vision", "capri", "light house"]
+
+# Unit tokens: 3-4 digit numbers (optional letter suffix) in the text map to
+# property classes by prefix ("2403 parking" -> "2403 Mainpoint").
+unit_token_pattern: '\b(\d{3,4}[A-Za-z]?)\b'

@@ -601,7 +601,9 @@ func newActionsCmd(flags *rootFlags) *cobra.Command {
 		Long: "Agent contract: qb actions --json lists every primitive with usage, params, and notes.\n" +
 			"Commands are qb <domain> <entity> <verb>. mode=read/wired honour flags.\n" +
 			"mode=blocked documents flags then returns not-wired. mode=excluded has no command.\n" +
-			"Wired mutations without readback adapters are also blocked; inspect the JSON verification field.",
+			"Wired mutations without readback adapters are also blocked; inspect the JSON verification field.\n" +
+			"Company accounting policy (fee rules, journal templates, reference docs) is not a QBO\n" +
+			"primitive — it lives on the read-only `qb policy` surface.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if mode != "" && mode != "read" && mode != "wired" && mode != "blocked" && mode != "excluded" {
 				return &ExitError{Code: ExitInputError, Err: fmt.Errorf("unknown mode %q", mode)}

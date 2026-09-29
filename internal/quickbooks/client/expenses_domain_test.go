@@ -531,13 +531,13 @@ func TestExpensesBillListGetSearchUseSanitizedSelect(t *testing.T) {
 		t.Fatalf("search items = %+v, want only the QB-CLI row", res.Items)
 	}
 
-	// clamp: oversized limits collapse to the v3 max of 100
+	// page: oversized limits page via ordered STARTPOSITION windows of 100
 	if _, err := ReplayQuery(context.Background(), "Bill", "", "", 500); err != nil {
-		t.Fatalf("bill list clamped: %v", err)
+		t.Fatalf("bill list paged: %v", err)
 	}
 	q = expQueryOf(t, srv.lastRawQuery)
-	if got := q.Get("query"); got != "select * from Bill maxresults 100" {
-		t.Fatalf("clamped query = %q", got)
+	if got := q.Get("query"); got != "select * from Bill orderby Id maxresults 100" {
+		t.Fatalf("paged query = %q", got)
 	}
 }
 

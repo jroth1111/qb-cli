@@ -1,0 +1,77 @@
+# Mega Style Apartments — temporal policy registry
+
+# Machine-readable company policies. Every rule carries an effective window, an
+# authority, and evidence references — a historical 2024 treatment must not
+# automatically govern August 2026. Narrative detail stays in the markdown
+# references; this file is the structured execution authority (loaded with the
+# company README before proposing classifications).
+
+# schemas: companies are validated by the skill validator against the
+# treatment-decision and temporal expectations in schemas/ (rule shape below).
+# (commented in the embedded qb copy: un-prefixed prose broke YAML parsing)
+
+rules:
+
+  - rule_id: MSA.LANDLORD_MANAGEMENT_FEE
+    scope: units 10 Toorak Melody and 14 Agatha (landlord-management model)
+    property: ["10 Toorak Melody", "14 Agatha"]
+    rate: 0.209
+    effective_from: null
+    effective_to: null
+    authority: USER_EXPLICIT
+    evidence_ref: "property-operating-models.md (Confirmed landlord-management properties)"
+    note: >
+      Management fee = 20.9% of the applicable gross revenue base. The historical
+      start of the 20.9% rate is UNKNOWN — do not apply it before the two-year
+      audit window (2024-07-13) without user confirmation. Reconfirm the rate with
+      the user if the operating model or agreement changes.
+    applies_to: management income calculation on landlord-management properties
+    supersedes: null
+
+  - rule_id: MSA.CLEANING_FEE_CARRY_FORWARD
+    scope: units 10 Toorak Melody and 14 Agatha
+    property: ["10 Toorak Melody", "14 Agatha"]
+    rate: null
+    effective_from: null
+    effective_to: null
+    authority: USER_EXPLICIT
+    evidence_ref: "property-operating-models.md (Application rules, item 5)"
+    dependency: prior_period_approved_cleaning_fee
+    note: >
+      "Same cleaning fee as the immediately preceding month" defines the AMOUNT
+      SOURCE, not a fixed perpetual amount. The current period's entry REQUIRES
+      the prior period's approved cleaning-fee amount: fetch and verify the
+      prior-month entry before preparing the current one. If the prior month has
+      no approved entry or has multiple conflicting amounts, leave the item
+      UNRESOLVED and request clarification (never copy the other property's fee).
+    applies_to: cleaning fee entries on landlord-management properties
+    supersedes: null
+
+  - rule_id: MSA.COST_MARGIN_EVIDENCE
+    scope: units 10 Toorak Melody and 14 Agatha cost recharges
+    property: ["10 Toorak Melody", "14 Agatha"]
+    rate: null
+    effective_from: null
+    effective_to: null
+    authority: USER_EXPLICIT
+    evidence_ref: "property-operating-models.md (Application rules, item 4) + landlord-statement-journal-patterns.md"
+    note: >
+      Do not invent the margin rate on landlord costs. Retrieve it from the prior
+      approved treatment or ask when it is not evidenced. A billed recharge is not
+      proof of its margin — locate the underlying supplier cost first.
+    applies_to: landlord cost recharge margin calculations
+    supersedes: null
+
+  - rule_id: MSA.AUDIT_WINDOW
+    scope: two-year categorisation audit
+    property: []
+    rate: null
+    effective_from: "2024-07-13"
+    effective_to: "2026-07-13"
+    authority: OBSERVED_EVIDENCE
+    evidence_ref: "two-year-categorisation-audit.md"
+    note: >
+      The audit covers 2024-07-13 through 2026-07-13. Counts and stable mappings
+      inside this window supersede smaller-sample counts in older references;
+      outside the window they are historical evidence, not policy.
+    supersedes: null

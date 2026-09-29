@@ -18,7 +18,7 @@ import (
 // AddCommand for any group (e.g. only feed wired).
 func TestRootHasLedgerMasterActions(t *testing.T) {
 	root := NewRootCommand()
-	for _, name := range []string{"feed", "accounting", "expenses", "sales", "customers", "inventory", "payroll", "tax", "company", "reports", "advanced", "actions"} {
+	for _, name := range []string{"feed", "accounting", "expenses", "sales", "customers", "inventory", "payroll", "tax", "company", "reports", "advanced", "policy", "actions"} {
 		if findSub(root, name) == nil {
 			t.Errorf("root missing %q subcommand", name)
 		}

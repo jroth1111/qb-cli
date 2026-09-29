@@ -149,6 +149,7 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 	root.AddCommand(newCompanyCmd(flags))
 	root.AddCommand(newReportsCmd(flags))
 	root.AddCommand(newCrmCmd(flags))
+	root.AddCommand(newPolicyCmd(flags))
 	// Service map (2026-08-24): documentation domains for never-triggered
 	// production services. Blocked stubs only.
 	root.AddCommand(newAccountantServiceMapCmd(flags))

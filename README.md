@@ -49,6 +49,8 @@ See [session lifecycle and controls](docs/SESSION_LIFECYCLE.md) for recovery, ba
 `qb crm` and `qb salestx` are additional command trees outside the actions catalog. `salestx` includes live v3 sales transactions and tax-service operations; its plan IDs are command identifiers, not catalog entries.
 
 Totals: **207 wired, 184 read-only, 155 blocked, 2 excluded of 548 actions.** Run `qb actions` for exact per-row counts — the table above is the map, the catalog is the truth.
+`qb policy` is also outside the catalog: a read-only, offline surface for embedded company accounting policy (Mega Style Apartments profile). It serves the reference docs (`docs`/`doc`), the machine-readable rules (`rules`/`rule`), journal-pair templates, account/class lookups (`accounts`/`classes`), the 20.9% fee calculator (`management-fee`), the owner-statement equation (`owner-net` — revenue from a class-filtered P&L via `--pnl`, deductions from posted journals via `--journals`), a posted-pattern suggester (`categorise`), and a pre-flight journal validator (`check-journal`) that accepts either a v3 JournalEntry or the `--items-json` create shape, decomposes balanced multi-pair entries, and exits nonzero on `fail`/`unverified` verdicts.
+
 
 OCR receipt read/search/delete aliases are blocked: they previously targeted v3 attachments, a different resource from financialdocument/stagetransactions receipts. Receipt upload and receipt-to-expense remain available. Invoice reminders preview by default; `--send` explicitly sends, is refused under verification harnesses, and reports delivery as unverified when QBO returns only an empty acknowledgement.
 

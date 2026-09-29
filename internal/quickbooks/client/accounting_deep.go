@@ -484,6 +484,7 @@ type JournalBulkItem struct {
 	FromAccount string  `json:"from-account"`
 	ToAccount   string  `json:"to-account"`
 	Memo        string  `json:"memo,omitempty"`
+	Class       string  `json:"class,omitempty"` // QBO class id; applied to both lines
 }
 
 // ParseJournalBulkItems decodes --items-json. Every item must carry a
@@ -515,15 +516,20 @@ func journalBatchEntry(bID, op string, obj map[string]any) map[string]any {
 	return map[string]any{"bId": bID, "operation": op, "JournalEntry": obj}
 }
 
-// journalLine builds one v3 JournalEntry line.
-func journalLine(posting, acct string, amt float64) map[string]any {
+// journalLine builds one v3 JournalEntry line. A non-empty class id adds a
+// ClassRef so paired entries can carry the same property class on both sides.
+func journalLine(posting, acct string, amt float64, class string) map[string]any {
+	detail := map[string]any{
+		"PostingType": posting,
+		"AccountRef":  map[string]any{"value": acct},
+	}
+	if class != "" {
+		detail["ClassRef"] = map[string]any{"value": class}
+	}
 	return map[string]any{
-		"Amount":     amt,
-		"DetailType": "JournalEntryLineDetail",
-		"JournalEntryLineDetail": map[string]any{
-			"PostingType": posting,
-			"AccountRef":  map[string]any{"value": acct},
-		},
+		"Amount":                 amt,
+		"DetailType":             "JournalEntryLineDetail",
+		"JournalEntryLineDetail": detail,
 	}
 }
 
@@ -548,8 +554,8 @@ func ReplayJournalBulkCreate(ctx context.Context, items []JournalBulkItem) (*Que
 		obj := map[string]any{
 			"TxnDate": date,
 			"Line": []map[string]any{
-				journalLine("Debit", it.FromAccount, it.Amount),
-				journalLine("Credit", it.ToAccount, it.Amount),
+				journalLine("Debit", it.FromAccount, it.Amount, it.Class),
+				journalLine("Credit", it.ToAccount, it.Amount, it.Class),
 			},
 		}
 		if it.Memo != "" {
@@ -696,10 +702,10 @@ func ReplayOpeningBalanceCreate(ctx context.Context, date string, lines []TrialB
 	v3lines := make([]map[string]any, 0, len(lines))
 	for _, l := range lines {
 		if l.Debit != 0 {
-			v3lines = append(v3lines, journalLine("Debit", l.Account, l.Debit))
+			v3lines = append(v3lines, journalLine("Debit", l.Account, l.Debit, ""))
 		}
 		if l.Credit != 0 {
-			v3lines = append(v3lines, journalLine("Credit", l.Account, l.Credit))
+			v3lines = append(v3lines, journalLine("Credit", l.Account, l.Credit, ""))
 		}
 	}
 	out["Line"] = v3lines

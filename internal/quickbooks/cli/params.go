@@ -519,7 +519,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 	case "QBO.ACCOUNTING.JOURNAL_CREATE":
 		// Bulk-create path: one --items-json array, not per-entry flags.
 		return []paramDoc{
-			p("items-json", "string", "JSON array of {date, amount, from-account, to-account, memo} (required)", true, ""),
+			p("items-json", "string", "JSON array of {date, amount, from-account, to-account, memo, class} (required)", true, ""),
 		}, true
 	case "QBO.ACCOUNTING.JOURNAL_DELETE":
 		// Bulk-delete path: entry ids via --ids, not a single --id.

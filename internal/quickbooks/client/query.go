@@ -27,6 +27,10 @@ type QueryItem struct {
 	Type      string  `json:"type,omitempty"`
 	Account   string  `json:"account,omitempty"`
 	AccountID string  `json:"accountId,omitempty"`
+	FullName  string  `json:"fullName,omitempty"`
+	SubType   string  `json:"subType,omitempty"`
+	Parent    string  `json:"parent,omitempty"`
+	ParentID  string  `json:"parentId,omitempty"`
 	Item      string  `json:"item,omitempty"`
 	ItemID    string  `json:"itemId,omitempty"`
 	Qty       float64 `json:"qty,omitempty"`
@@ -84,6 +88,10 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if entity == "SalesOrder" {
 		return replayGetSalesOrders(ctx, id, query, limit)
 	}
+	// want preserves the caller's row target for the generic v3 query path,
+	// which pages STARTPOSITION past the 100-row page size. The replay
+	// entity lanes below keep the historic clamped limit.
+	want := limit
 	if limit > 100 {
 		limit = 100
 	}
@@ -247,7 +255,6 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	if len(active) > 0 {
 		act = active[0]
 	}
-	stmt := buildQuery(entity, id, query, limit, act)
 	ac, err := newAPIClient()
 	if err != nil {
 		return nil, err
@@ -271,6 +278,29 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		items := projectQueryObjects(entity, []map[string]json.RawMessage{fields})
 		return &QueryResult{Status: 200, Entity: entity, Counts: map[string]int{"items": 1}, Items: items, Detail: obj}, nil
 	}
+	if entity == "JournalEntry" && id != "" {
+		// Journals are read and written as balanced line sets; the projected
+		// QueryItem drops Line, so single-entry reads return the full object
+		// in Detail for consumers that validate journal lines (e.g. the
+		// policy check-journal surface).
+		obj, err := fetchV3(ctx, ac, "journalentry", id)
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprint(obj["Id"]) != id {
+			return nil, fmt.Errorf("journalentry readback did not match the requested id")
+		}
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			return nil, err
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		items := projectQueryObjects(entity, []map[string]json.RawMessage{fields})
+		return &QueryResult{Status: 200, Entity: entity, Counts: map[string]int{"items": len(items)}, Items: items, Detail: obj}, nil
+	}
 	if entity == "Department" && id != "" {
 		// Department listing works, but the live v3 query service rejects
 		// filtering it by Id. Use the resource's actual GET endpoint.
@@ -292,57 +322,58 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		}
 		return &QueryResult{Status: 200, Entity: entity, Counts: map[string]int{"items": len(items)}, Items: items}, nil
 	}
-	u := strings.ReplaceAll(v3QueryTmpl, realmToken, ac.realm) + url.QueryEscape(stmt)
-	resp, err := ac.getJSON(ctx, u, "")
-	if err != nil {
-		return nil, fmt.Errorf("v3 query %s: %w", entity, err)
-	}
-	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
-	body, err := readBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("reading v3 query %s: %w", entity, err)
-	}
-	if resp.StatusCode == http.StatusBadRequest && query != "" && id == "" {
-		_ = drainAndClose(resp)
-		stmt = buildQuery(entity, "", "", limit, act)
-		u = strings.ReplaceAll(v3QueryTmpl, realmToken, ac.realm) + url.QueryEscape(stmt)
-		resp, err = ac.getJSON(ctx, u, "")
-		if err != nil {
-			return nil, fmt.Errorf("v3 query %s: %w", entity, err)
-		}
-		defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
-		body, err = readBody(resp)
-		if err != nil {
-			return nil, fmt.Errorf("reading v3 query %s: %w", entity, err)
-		}
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, &ReplayError{Status: resp.StatusCode, Message: errorMessage(body)}
-	}
+	// Page the v3 query endpoint when the caller asks for more than one page
+	// of rows. Single-page requests keep the historic statement shape;
+	// multi-page requests order by Id so STARTPOSITION paging is stable.
+	paged := want > queryPageSize
 	responseEntity := queryResponseEntity(entity)
-	if err := validateQueryEnvelope(responseEntity, body); err != nil {
-		return nil, err
+	var items []QueryItem
+	status := http.StatusOK
+	for pages := 0; pages < maxQueryPages && len(items) < want; pages++ {
+		start := 1 + pages*queryPageSize
+		pageSize := queryPageSize
+		if rem := want - len(items); rem < pageSize {
+			pageSize = rem
+		}
+		stmt := buildQueryAt(entity, id, query, pageSize, start, paged, act)
+		body, code, qerr := v3QueryGET(ctx, ac, entity, stmt)
+		if code == http.StatusBadRequest && query != "" && id == "" {
+			stmt = buildQueryAt(entity, "", "", pageSize, start, paged, act)
+			body, code, qerr = v3QueryGET(ctx, ac, entity, stmt)
+		}
+		if qerr != nil {
+			return nil, qerr
+		}
+		if code != http.StatusOK {
+			return nil, &ReplayError{Status: code, Message: errorMessage(body)}
+		}
+		if err := validateQueryEnvelope(responseEntity, body); err != nil {
+			return nil, err
+		}
+		page := projectQuery(responseEntity, body)
+		items = append(items, page...)
+		status = code
+		if len(page) < pageSize {
+			break
+		}
 	}
-	items := projectQuery(responseEntity, body)
 	// The live v3 query service accepts the Estimate DocNumber predicate but
 	// returns an empty 200 even when the matching estimate exists. A bounded
 	// unfiltered retry preserves the read/search contract, then the existing
 	// client-side filter applies the requested text. Keep this fallback scoped
 	// to Estimate so ordinary queries do not gain an extra network round trip.
 	if entity == "Estimate" && query != "" && id == "" && len(items) == 0 {
-		stmt = buildQuery(entity, "", "", limit, act)
-		u = strings.ReplaceAll(v3QueryTmpl, realmToken, ac.realm) + url.QueryEscape(stmt)
-		fallbackResp, ferr := ac.getJSON(ctx, u, "")
-		if ferr != nil {
-			return nil, fmt.Errorf("v3 query %s fallback: %w", entity, ferr)
+		fbLimit := want
+		if fbLimit > queryPageSize {
+			fbLimit = queryPageSize
 		}
-		defer func(r *http.Response) { _ = drainAndClose(r) }(fallbackResp)
-		fallbackBody, ferr := readBody(fallbackResp)
+		stmt := buildQuery(entity, "", "", fbLimit, act)
+		fallbackBody, code, ferr := v3QueryGET(ctx, ac, entity, stmt)
 		if ferr != nil {
-			return nil, fmt.Errorf("reading v3 query %s fallback: %w", entity, ferr)
+			return nil, ferr
 		}
-		if fallbackResp.StatusCode != http.StatusOK {
-			return nil, &ReplayError{Status: fallbackResp.StatusCode, Message: errorMessage(fallbackBody)}
+		if code != http.StatusOK {
+			return nil, &ReplayError{Status: code, Message: errorMessage(fallbackBody)}
 		}
 		if ferr := validateQueryEnvelope(responseEntity, fallbackBody); ferr != nil {
 			return nil, ferr
@@ -353,15 +384,37 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		items = filterItems(items, query)
 	}
 
-	if len(items) > limit {
-		items = items[:limit]
+	if len(items) > want {
+		items = items[:want]
 	}
 	return &QueryResult{
-		Status: resp.StatusCode,
+		Status: status,
 		Entity: entity,
 		Counts: map[string]int{"items": len(items)},
 		Items:  items,
 	}, nil
+}
+
+// queryPageSize is the per-request row ceiling for the generic v3 query
+// path; maxQueryPages bounds the STARTPOSITION loop.
+const (
+	queryPageSize = 100
+	maxQueryPages = 50
+)
+
+// v3QueryGET issues one v3 query request and returns the body and status.
+func v3QueryGET(ctx context.Context, ac *apiClient, entity, stmt string) ([]byte, int, error) {
+	u := strings.ReplaceAll(v3QueryTmpl, realmToken, ac.realm) + url.QueryEscape(stmt)
+	resp, err := ac.getJSON(ctx, u, "")
+	if err != nil {
+		return nil, 0, fmt.Errorf("v3 query %s: %w", entity, err)
+	}
+	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
+	body, err := readBody(resp)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("reading v3 query %s: %w", entity, err)
+	}
+	return body, resp.StatusCode, nil
 }
 
 // queryResponseEntity maps a CLI query entity onto the QueryResponse
@@ -666,6 +719,13 @@ func PlannedReportURL(name string) string {
 }
 
 func buildQuery(entity, id, query string, limit int, active ...string) string {
+	return buildQueryAt(entity, id, query, limit, 1, false, active...)
+}
+
+// buildQueryAt builds the v3 query statement. When paged is true the
+// statement gains "orderby Id" (stable ordering across STARTPOSITION
+// windows) and "startposition N" whenever start > 1.
+func buildQueryAt(entity, id, query string, limit, start int, paged bool, active ...string) string {
 	cheque := entity == "Cheque"
 	if cheque {
 		entity = "Purchase"
@@ -714,6 +774,12 @@ func buildQuery(entity, id, query string, limit int, active ...string) string {
 	}
 	if len(wheres) > 0 {
 		fmt.Fprintf(&b, " where %s", strings.Join(wheres, " AND "))
+	}
+	if paged {
+		fmt.Fprintf(&b, " orderby Id")
+		if start > 1 {
+			fmt.Fprintf(&b, " startposition %d", start)
+		}
 	}
 	fmt.Fprintf(&b, " maxresults %d", limit)
 	return b.String()
@@ -811,6 +877,13 @@ func projectQueryObjects(entity string, objs []map[string]json.RawMessage) []Que
 		if aid, aname := jsonRef(o, "AdjustAccountRef", "AccountRef"); aid != "" || aname != "" {
 			it.AccountID = aid
 			it.Account = aname
+		}
+		if entity == "Account" || entity == "Class" {
+			it.FullName = jsonString(o, "FullyQualifiedName")
+			it.ParentID, it.Parent = jsonRef(o, "ParentRef")
+		}
+		if entity == "Account" {
+			it.SubType = jsonString(o, "AccountSubType")
 		}
 		if iid, iname, qty, ok := firstAdjLine(o); ok {
 			it.ItemID = iid

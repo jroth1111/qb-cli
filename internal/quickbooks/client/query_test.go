@@ -2,6 +2,7 @@ package client
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -59,6 +60,71 @@ func TestEstimateSearchRetriesUnfilteredAfterFalseEmpty(t *testing.T) {
 	}
 	if calls != 2 || len(res.Items) != 1 || res.Items[0].ID != "111" {
 		t.Fatalf("calls=%d result=%+v, want bounded unfiltered fallback", calls, res)
+	}
+}
+
+// TestReplayQueryPagesStartPosition verifies that limits above one page
+// drive ordered STARTPOSITION paging and merge the windows.
+func TestReplayQueryPagesStartPosition(t *testing.T) {
+	saveUsable(t)
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		queries = append(queries, q)
+		write := func(n, base int) {
+			var rows strings.Builder
+			rows.WriteString(`{"QueryResponse":{"Class":[`)
+			for i := 0; i < n; i++ {
+				if i > 0 {
+					rows.WriteString(",")
+				}
+				fmt.Fprintf(&rows, `{"Id":"%d","Name":"C%d","Active":true}`, base+i, base+i)
+			}
+			rows.WriteString(`]}}`)
+			_, _ = io.WriteString(w, rows.String())
+		}
+		if strings.Contains(q, "startposition 101") {
+			write(25, 100)
+			return
+		}
+		write(100, 0)
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	res, err := ReplayQuery(t.Context(), "Class", "", "", 250)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 125 {
+		t.Fatalf("items=%d, want 125 across two pages", len(res.Items))
+	}
+	if len(queries) != 2 {
+		t.Fatalf("queries=%v", queries)
+	}
+	if !strings.Contains(queries[0], "orderby Id") || strings.Contains(queries[0], "startposition") {
+		t.Fatalf("page 1 query = %q, want ordered first window", queries[0])
+	}
+	if !strings.Contains(queries[1], "startposition 101") || !strings.Contains(queries[1], "orderby Id") {
+		t.Fatalf("page 2 query = %q", queries[1])
+	}
+}
+
+// TestReplayQuerySinglePageKeepsStatementShape verifies limits within one
+// page emit the historic un-ordered statement with no STARTPOSITION.
+func TestReplayQuerySinglePageKeepsStatementShape(t *testing.T) {
+	saveUsable(t)
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query().Get("query")
+		_, _ = io.WriteString(w, `{"QueryResponse":{"Class":[{"Id":"7","Name":"C","Active":true}]}}`)
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	if _, err := ReplayQuery(t.Context(), "Class", "", "", 20); err != nil {
+		t.Fatal(err)
+	}
+	if got != "select * from Class maxresults 20" {
+		t.Fatalf("query = %q", got)
 	}
 }
 
