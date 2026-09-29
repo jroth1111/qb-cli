@@ -602,10 +602,20 @@ func fetchV3(ctx context.Context, ac *apiClient, path, id string) (map[string]an
 }
 
 func fetchRecurringByID(ctx context.Context, ac *apiClient, id string) (map[string]any, error) {
+	// Targeted lookup — verified live (2026-09-29, AU build): `where Id`
+	// filters RecurringTransaction correctly and returns the wrapped entity.
+	// A successful query that returns nothing is a definitive not-found; the
+	// paged walk below remains only for builds that reject the predicate.
+	obj, found, err := queryRecurringByID(ctx, ac, id)
+	if err == nil {
+		if found {
+			return obj, nil
+		}
+		return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
+	}
 	// Walk the recurring-transaction population in server page windows until
 	// the id matches; no client-side row cap — the walk ends on a short page.
 	const pageSize = 100
-	nests := []string{"Invoice", "Bill", "Purchase", "Estimate", "JournalEntry", "SalesReceipt"}
 	for start := 1; ; start += pageSize {
 		qs := fmt.Sprintf("select * from RecurringTransaction startposition %d maxresults %d", start, pageSize)
 		u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/query?query=%s&minorversion=73", ac.realm, url.QueryEscape(qs))
@@ -635,7 +645,7 @@ func fetchRecurringByID(ctx context.Context, ac *apiClient, id string) (map[stri
 			return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
 		}
 		for _, row := range rows {
-			for _, nest := range nests {
+			for _, nest := range recurringNestKeys {
 				raw, ok := row[nest]
 				if !ok {
 					continue
@@ -654,6 +664,59 @@ func fetchRecurringByID(ctx context.Context, ac *apiClient, id string) (map[stri
 		}
 	}
 	return nil, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
+}
+
+// recurringNestKeys are the entity wrappers RecurringTransaction rows carry
+// (`{"Invoice": {...}}`, `{"JournalEntry": {...}}`, …).
+var recurringNestKeys = []string{"Invoice", "Bill", "Purchase", "Estimate", "JournalEntry", "SalesReceipt"}
+
+// queryRecurringByID runs `select * from RecurringTransaction where Id='…'`
+// and unwraps the single nested entity row. found=false with err=nil means
+// the company genuinely has no such template.
+func queryRecurringByID(ctx context.Context, ac *apiClient, id string) (obj map[string]any, found bool, err error) {
+	qs := fmt.Sprintf("select * from RecurringTransaction where Id = '%s'", sanitizeToken(id))
+	u := fmt.Sprintf("https://qbo.intuit.com/api/v3/company/%s/query?query=%s&minorversion=73", ac.realm, url.QueryEscape(qs))
+	resp, err := ac.getJSON(ctx, u, "")
+	if err != nil {
+		return nil, false, err
+	}
+	raw, rerr := readBody(resp)
+	status := resp.StatusCode
+	_ = drainAndClose(resp)
+	if rerr != nil {
+		return nil, false, rerr
+	}
+	if status != http.StatusOK {
+		return nil, false, &ReplayError{Status: status, Message: errorMessage(raw)}
+	}
+	var wrap struct {
+		QueryResponse map[string]json.RawMessage `json:"QueryResponse"`
+	}
+	if json.Unmarshal(raw, &wrap) != nil || wrap.QueryResponse == nil {
+		return nil, false, fmt.Errorf("v3 get recurringtransaction/%s: no entity object", id)
+	}
+	var rows []map[string]json.RawMessage
+	if raw := wrap.QueryResponse["RecurringTransaction"]; len(raw) > 0 {
+		if json.Unmarshal(raw, &rows) != nil {
+			return nil, false, fmt.Errorf("v3 get recurringtransaction/%s: malformed rows", id)
+		}
+	}
+	for _, row := range rows {
+		for _, nest := range recurringNestKeys {
+			raw, ok := row[nest]
+			if !ok {
+				continue
+			}
+			var o map[string]any
+			if json.Unmarshal(raw, &o) != nil {
+				continue
+			}
+			if fmt.Sprint(o["Id"]) == id {
+				return o, true, nil
+			}
+		}
+	}
+	return nil, false, nil
 }
 
 func buildCreateBody(entity string, flags map[string]string) (map[string]any, error) {
