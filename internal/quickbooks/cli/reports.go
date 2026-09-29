@@ -63,6 +63,7 @@ func newReportsCmd(flags *rootFlags) *cobra.Command {
 	managementEnt.AddCommand(newManagementUpdateCmd(flags))
 	managementEnt.AddCommand(newStubCmd(flags, "reports management", "get", "management read (universalreportinsights /v1/folio)"))
 	managementEnt.AddCommand(newManagementAuditCmd(flags))
+	managementEnt.AddCommand(newManagementAttributionCmd(flags))
 	cmd.AddCommand(managementEnt)
 	performanceEnt := &cobra.Command{Use: "performance", Short: "performance"}
 	performanceEnt.AddCommand(newPerformanceCreateCmd(flags))
@@ -753,6 +754,77 @@ func newManagementAuditCmd(flags *rootFlags) *cobra.Command {
 	_ = cmd.MarkFlagRequired("to")
 	applyCatalogHelp(cmd, "QBO.REPORTS.MANAGEMENT_AUDIT")
 	return cmd
+}
+
+// newManagementAttributionCmd implements `reports management attribution`:
+// scan deposit and invoice lines in a statement window for cancellation,
+// break-lease, claim, or guest-fee semantics posting to the owner revenue
+// account — money that belongs to Management Income, not the owner.
+// Detection-only; reclassification stays a human decision.
+func newManagementAttributionCmd(flags *rootFlags) *cobra.Command {
+	var from, to, account string
+	cmd := &cobra.Command{
+		Use:   "attribution",
+		Short: "Find revenue lines carrying MSA semantics (cancellation/claim/guest fee) posted to the owner revenue account",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
+				return fmt.Errorf("--from and --to are required (YYYY-MM)")
+			}
+			if flags.dryRun {
+				return writePlan(cmd, flags, planEnvelope{
+					Command: "reports management attribution",
+					Mode:    modeRead, Method: "GET(read)",
+					URL:   "v3 query deposit+invoice TxnDate in window",
+					Flags: localFlagMap(cmd), Note: "two paged v3 entity reads + local line scan; not sent",
+				})
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+			defer cancel()
+			audit, err := client.AuditRevenueAttribution(ctx, from, to, account)
+			if err != nil {
+				return feedErr(flags, err)
+			}
+			printAttributionAudit(cmd.OutOrStdout(), flags, audit)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&from, "from", "", "first statement month YYYY-MM (required)")
+	cmd.Flags().StringVar(&to, "to", "", "last statement month YYYY-MM (required)")
+	cmd.Flags().StringVar(&account, "account", "", "owner revenue account id (default 47, Client Property Revenue)")
+	_ = cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("to")
+	return cmd
+}
+
+// printAttributionAudit renders one row per flagged line — severity first so
+// msa-semantics rows sort ahead of review rows, then date, entity, class.
+func printAttributionAudit(stdout io.Writer, flags *rootFlags, audit *client.AttributionAudit) {
+	if flags.asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(audit)
+		return
+	}
+	fmt.Fprintf(stdout, "window=%s→%s\taccount=%s\tscanned=%d\tfindings=%d\n",
+		audit.From, audit.To, audit.RevenueAccount, audit.Scanned, len(audit.Findings))
+	if len(audit.Findings) == 0 {
+		return
+	}
+	sort.Slice(audit.Findings, func(i, j int) bool {
+		a, b := audit.Findings[i], audit.Findings[j]
+		if a.Severity != b.Severity {
+			return a.Severity == "msa"
+		}
+		if a.TxnDate != b.TxnDate {
+			return a.TxnDate < b.TxnDate
+		}
+		return a.EntityID < b.EntityID
+	})
+	fmt.Fprintln(stdout, "severity\tdirection\tdate\tentity\tid\tclass\tamount\tdescription")
+	for _, f := range audit.Findings {
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			f.Severity, f.Direction, f.TxnDate, f.Entity, f.EntityID, f.Class, money(f.Amount), f.Description)
+	}
 }
 
 // printFolioAudit renders the reconciliation matrix: one row per period, one
