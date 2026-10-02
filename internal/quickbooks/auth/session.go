@@ -103,10 +103,14 @@ func PrepareSessionRequest(req *http.Request) (*http.Request, error) {
 		old, new := headerGet(oldHeaders, key), headerGet(newHeaders, key)
 		if old != "" && new != "" && next.Header.Get(key) == old {
 			next.Header.Set(key, new)
+		} else if old != "" && new == "" && next.Header.Get(key) == old && s.token.CredentialGeneration != current.CredentialGeneration {
+			next.Header.Del(key)
 		}
 	}
 	if s.token.AuditAuthorization != "" && next.Header.Get("Authorization") == s.token.AuditAuthorization && current.AuditAuthorization != "" {
 		next.Header.Set("Authorization", current.AuditAuthorization)
+	} else if s.token.AuditAuthorization != "" && next.Header.Get("Authorization") == s.token.AuditAuthorization && s.token.CredentialGeneration != current.CredentialGeneration {
+		next.Header.Del("Authorization")
 	}
 	next.Header.Del("Cookie")
 	if cookies := CookieHeaderForURL(current.Cookies, next.URL, time.Now()); cookies != "" {
@@ -226,6 +230,9 @@ func ObserveSessionResponse(req *http.Request, resp *http.Response) error {
 	if !SameSession(s.token, current) {
 		return ErrSessionChanged
 	}
+	if s.token.CredentialGeneration != current.CredentialGeneration {
+		return ErrSessionChanged
+	}
 	before := map[string]Cookie{}
 	for _, c := range s.token.Cookies {
 		before[cookieKey(c)] = c
@@ -342,7 +349,7 @@ func SaveRenewedCapture(expected *TokenSet, cap *ATSCapture, source string) erro
 	}
 	defer unlock()
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) {
+	if err != nil || !SameSession(expected, current) || expected.CredentialGeneration != current.CredentialGeneration {
 		return ErrSessionChanged
 	}
 	if current.CapturedAt.After(expected.CapturedAt) {

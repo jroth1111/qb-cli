@@ -8,6 +8,14 @@ import (
 )
 
 var refreshQuiet = auth.RefreshQuiet
+var extendNativeTicket = auth.ExtendNativeTicket
+
+func maintainNativeTicket(ctx context.Context, tok *auth.TokenSet, allowManaged bool) error {
+	if !allowManaged || tok.Source != "managed-profile" {
+		return nil
+	}
+	return extendNativeTicket(ctx, tok, false)
+}
 
 func maintenanceProbe(ctx context.Context, ac *apiClient) (bool, int, bool) {
 	rejected := true
@@ -28,9 +36,11 @@ func maintenanceProbe(ctx context.Context, ac *apiClient) (bool, int, bool) {
 	return false, status, rejected
 }
 
-// MaintainSession performs only banking GETs. Renewal is attempted only after
+// MaintainSession uses banking GETs plus the native sessionextender read when
+// due. Credential recovery is attempted only after
 // both channels explicitly reject authentication, not on network/contract
-// errors or a permission denial. A write is never used as a heartbeat.
+// errors or a permission denial. Financial writes are never heartbeats; the
+// native authorization POST is the site's sessionextender permission read.
 func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged bool) (bool, int, string) {
 	ac, err := newAPIClient()
 	if err != nil {
@@ -42,6 +52,9 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 	ac.skipRemint = true
 	ok, status, rejected := maintenanceProbe(ctx, ac)
 	if ok {
+		if err = maintainNativeTicket(ctx, ac.tok, allowManaged); errors.Is(err, auth.ErrSessionChanged) {
+			return false, status, "session_changed"
+		}
 		return true, status, "live"
 	}
 	if !rejected {
@@ -53,6 +66,9 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 		}
 		if errors.Is(err, auth.ErrEgoUserControl) {
 			return false, status, "user_control"
+		}
+		if errors.Is(err, auth.ErrRecoveryAttention) || errors.Is(err, auth.ErrRecoveryKeyUnavailable) {
+			return false, status, "needs_attention"
 		}
 		if errors.Is(err, auth.ErrRemintNeedsLogin) || errors.Is(err, auth.ErrNoATSAuthorization) || errors.Is(err, auth.ErrSessionIdentityUnverified) {
 			return false, status, "needs_login"
@@ -66,6 +82,9 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 	fresh.skipRemint = true
 	ok, status, rejected = maintenanceProbe(ctx, fresh)
 	if ok {
+		if err = maintainNativeTicket(ctx, fresh.tok, allowManaged); errors.Is(err, auth.ErrSessionChanged) {
+			return false, status, "session_changed"
+		}
 		return true, status, "live"
 	}
 	if rejected {

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -25,6 +26,23 @@ func RemintManaged(ctx context.Context) error {
 	if IsHarness() {
 		return ErrRemintNeedsLogin
 	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, managedRemintCeiling)
+		defer cancel()
+	}
+	unlock, err := LockProfile(ctx, HomeDir(), "renewal")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return remintManagedLocked(ctx)
+}
+
+func remintManagedLocked(ctx context.Context) error {
+	if IsHarness() {
+		return ErrRemintNeedsLogin
+	}
 	if os.Getenv(managedDisableEnv) == "1" {
 		return fmt.Errorf("managed refresh disabled via %s", managedDisableEnv)
 	}
@@ -36,6 +54,11 @@ func RemintManaged(ctx context.Context) error {
 	expected, err := Load()
 	if err != nil {
 		return err
+	}
+	if r, rerr := loadRecovery(); rerr == nil && r.Enabled {
+		return recoverManagedLocked(ctx, expected)
+	} else if rerr != nil && !errors.Is(rerr, ErrRecoveryDisabled) {
+		return rerr
 	}
 	cap, err := captureManagedHeadless(ctx, BankingCaptureURL)
 	if err != nil {

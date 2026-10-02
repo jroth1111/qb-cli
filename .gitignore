@@ -76,4 +76,11 @@ coverage.out
 # Runtime auth state (never commit sessions)
 profiles/
 credentials.json
+login-recovery.json
+
+# Local private material is never part of a public source push.
+/private/
+/.private/
+/internal/quickbooks/policy/companies/mega-style-apartments/owner-statement-close-and-payment-reconciliation.md
+/internal/quickbooks/policy/companies/mega-style-apartments/owner-statement-source-and-case-register.md
 *.log

@@ -34,6 +34,8 @@ type Request struct {
 	Endpoint string
 }
 
+type executionSessionKey struct{}
+
 // Response carries both transport and application outcomes distinctly:
 // Status/Body describe the HTTP exchange; Errors holds the GraphQL
 // `errors` array from a 200-with-errors response.
@@ -78,10 +80,14 @@ func Execute(ctx context.Context, req Request) (*Response, error) {
 	if expected != nil && expected.SessionID == "" {
 		expected, _ = auth.EnsureSession()
 	}
+	if expected != nil {
+		ctx = context.WithValue(ctx, executionSessionKey{}, expected)
+	}
 	resp, err := executeEgoFn(ctx, req)
 	// Browser cookies stay browser-owned. Only an explicitly read-only query
 	// may be repeated after a definite 401; never replay a mutation/unknown op.
-	if err != nil || resp == nil || resp.Status != 401 || req.Op == nil || req.Op.Kind != "query" || expected == nil {
+	rejected := resp != nil && resp.Status == 401 || errors.Is(err, auth.ErrRemintNeedsLogin)
+	if !rejected || req.Op == nil || req.Op.Kind != "query" || expected == nil {
 		return resp, err
 	}
 	rctx, cancel := context.WithTimeout(ctx, 100*time.Second)
@@ -98,9 +104,22 @@ func Execute(ctx context.Context, req Request) (*Response, error) {
 
 var remintGQL = auth.RemintATS
 
-// executeEgoFn runs the ego-browser execution. Tests replace it so Execute
-// is exercised without a browser.
-var executeEgoFn = ExecuteEgo
+// The dispatch seam keeps tests independent of both browser backends.
+var executeEgoFn = executeSession
+
+func executeSession(ctx context.Context, req Request) (*Response, error) {
+	tok, err := auth.Load()
+	if err != nil {
+		return nil, err
+	}
+	if expected, ok := ctx.Value(executionSessionKey{}).(*auth.TokenSet); ok && !auth.SameSession(expected, tok) {
+		return nil, auth.ErrSessionChanged
+	}
+	if tok.Source == "managed-profile" {
+		return executeManaged(ctx, tok, req)
+	}
+	return ExecuteEgo(ctx, req)
+}
 
 // RelayURL resolves the CDP relay endpoint: $QB_RELAY_URL or the default
 // loopback port used by the OMP relay.
@@ -119,6 +138,10 @@ func authHeadersFor(endpoint string, operations ...string) map[string]string {
 	if err != nil || tok == nil {
 		return nil
 	}
+	return authHeadersForToken(tok, endpoint, operations...)
+}
+
+func authHeadersForToken(tok *auth.TokenSet, endpoint string, operations ...string) map[string]string {
 	h := map[string]string{}
 	if u, err := url.Parse(endpoint); err == nil {
 		if captured := tok.URIHostHeaders[u.Hostname()]; len(captured) > 0 {

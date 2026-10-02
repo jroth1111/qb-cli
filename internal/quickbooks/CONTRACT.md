@@ -16,12 +16,22 @@ Module: `github.com/mvanhorn/cli-printing-press/v4`.
 - You sign in; `qb` mines ATS headers, cookies, and company/email/realm
   from the hydrated tab. Every success leads with the bound company
   (`Logged in as ...`); `--json` output never carries secrets.
-- **Auto-renewal is default.** Any 401 ladders relay → headless managed
-  refresh → ego, then replays. `QB_NO_MANAGED=1` opts out of the browser
-  rung only. `status --live` proves liveness via the v3 channel
+- **Keep the same session first.** The read-only keeper probes every five
+  minutes and persists server-issued cookie rotation. A definite 401 allows
+  one source-pinned warm recapture; only reads may be replayed. Managed
+  sessions never switch to an unrelated relay/Ego profile. `QB_NO_MANAGED=1`
+  disables the managed-browser rung. `status --live` proves liveness via the v3 channel
   (ATS headers — never the homepage shell, which redirects even for
   healthy jars). `auth whoami` reports the live-tab company first.
 - Credentials: `$QB_HOME/credentials.json`, 0600, atomic write.
+- **Autonomous re-login is opt-in.** `auth enroll --launch --enable-recovery`
+  binds terminal or explicit `--credentials-stdin` username/password/TOTP input to a verified managed
+  session. Secrets are encrypted; keys use macOS Keychain, Linux Secret
+  Service, cross-platform GPG, or an explicitly provisioned external private
+  key file. `--bootstrap` supports an initial credential login in a fresh home.
+  Only a confirmed sign-in wall after warm recapture permits using
+  these credentials. Recovery never requests approval or replays writes;
+  unsupported challenges/locked keys stop safely. See [AUTH-RECOVERY.md](AUTH-RECOVERY.md).
 
 ## CLI conventions
 
@@ -60,6 +70,13 @@ Module: `github.com/mvanhorn/cli-printing-press/v4`.
   resolved from the MEMORIZED or builder registry. Stored page dates are
   the last-saved configuration, not evidence of the last-generated period
   (renders can override dates without persisting).
+- Management period pinning updates the folio window, every `REPORT` and
+  `URI_REPORT` segment (including segments with no existing macro), and
+  the cover's `{ReportEndDate}` dynamic field. Explicit `all` segments
+  retain their running-ledger scope. Native preview was observed using
+  `POST universalreportsfolios.api.intuit.com/v1/managementreports/{templateID}/instances`;
+  this is a different service from `/v1/folio` CRUD. The CLI period-helper
+  fix does not enable unverified folio mutations or provide a PDF renderer.
 - `qb reports memorized run --id <N>` executes the saved report through
   `createReports_Report` on v4/entities — the same call the classic grid
   makes — and returns the section/transaction/total row tree. Bare `--id`
@@ -104,6 +121,11 @@ Module: `github.com/mvanhorn/cli-printing-press/v4`.
   unless every journal passes; unresolved evidence is `unverified`,
   never silently pass. `accounting journal get --id` returns the full
   entry in `detail` so it pipes straight into check-journal.
+- `accounting journal create` uses the independently verified batch adapter:
+  every created ID is read back and compared against its intended date, amounts,
+  accounts, class and descriptions. Partial results return nonzero with recovery
+  IDs; do not replay a write on an unverified outcome. Items support an optional
+  `description` for both accounting lines, separate from the private `memo`.
 - `qb policy categorise <text>` suggests account/class treatment from
   the embedded signal registry (posted-pattern evidence counts). Weak
   (<98%) signals and known conflicts never auto-suggest; they surface

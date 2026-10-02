@@ -37,6 +37,17 @@ type keeperStatus struct {
 var maintainSession = client.MaintainSession
 var launchKeeper = launchKeeperProcess
 
+func nativeKeeperDelay(interval time.Duration, tok *auth.TokenSet, now time.Time) time.Duration {
+	if tok == nil || tok.Source != "managed-profile" || tok.NativeTicket == nil || tok.NativeTicket.State != auth.NativeTicketExtended {
+		return interval
+	}
+	until := tok.NativeTicket.NextDue.Add(-time.Minute).Sub(now)
+	if until > 0 {
+		return min(interval, until)
+	}
+	return interval
+}
+
 func readKeeperFile(name string, out any) error {
 	raw, err := os.ReadFile(filepath.Join(auth.HomeDir(), name))
 	if err != nil {
@@ -210,7 +221,7 @@ func runKeeper(ctx context.Context, id string) error {
 	status := keeperStatus{SessionID: id, State: "starting", PID: os.Getpid(), Realm: expected.RealmID}
 	defer func() {
 		switch status.State {
-		case "needs_login", "user_control", "session_changed", "credentials_unavailable":
+		case "needs_login", "needs_attention", "user_control", "session_changed", "credentials_unavailable":
 		default:
 			status.State = "stopped"
 		}
@@ -231,12 +242,17 @@ func runKeeper(ctx context.Context, id string) error {
 		status.LastCheck = time.Now().UTC()
 		status.HTTPStatus = httpStatus
 		status.State = state
-		if state == "needs_login" || state == "user_control" || state == "session_changed" || state == "credentials_unavailable" {
+		if state == "needs_login" || state == "needs_attention" || state == "user_control" || state == "session_changed" || state == "credentials_unavailable" {
 			status.NextCheck = time.Time{}
 			return nil
 		}
 		if ok {
 			delay = policy.Interval
+			if policy.AllowManaged {
+				if tok, err := auth.Load(); err == nil && tok.SessionID == id {
+					delay = nativeKeeperDelay(delay, tok, time.Now())
+				}
+			}
 		} else {
 			delay = min(max(delay, policy.Interval)*2, 30*time.Minute)
 		}
@@ -288,7 +304,7 @@ func newAuthKeepaliveCmd(flags *rootFlags) *cobra.Command {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"action": action, "interval": interval.String()})
 	}}
 	start.Flags().DurationVar(&interval, "interval", keepaliveInterval, "read-only probe interval (1m–15m; default 5m)")
-	start.Flags().BoolVar(&managed, "managed-refresh", true, "allow recovery from an existing managed profile headlessly (no interactive sign-in)")
+	start.Flags().BoolVar(&managed, "managed-refresh", true, "allow source-pinned warm refresh and enrolled autonomous login (never an interactive sign-in)")
 	stop := &cobra.Command{Use: "stop", Short: "Stop background session maintenance (does not log out)", RunE: func(cmd *cobra.Command, args []string) error {
 		if flags.dryRun {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"dry_run": true, "dial": false})
@@ -304,7 +320,11 @@ func newAuthKeepaliveCmd(flags *rootFlags) *cobra.Command {
 		_ = readKeeperFile("keepalive-policy.json", &p)
 		_ = readKeeperFile("keepalive-status.json", &s)
 		running := p.Enabled && p.SessionID == s.SessionID && keeperStillWanted(p.SessionID) && s.State != "stopped" && s.State != "needs_login" && s.State != "user_control" && time.Now().Before(s.NextCheck.Add(time.Minute)) && keeperLeaseHeld()
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"enabled": p.Enabled, "running": running, "state": s.State, "realm": s.Realm, "pid": s.PID, "last_check": s.LastCheck, "next_check": s.NextCheck, "http_status": s.HTTPStatus})
+		out := map[string]any{"enabled": p.Enabled, "running": running, "state": s.State, "realm": s.Realm, "pid": s.PID, "last_check": s.LastCheck, "next_check": s.NextCheck, "http_status": s.HTTPStatus}
+		if tok, err := auth.Load(); err == nil && tok.SessionID == s.SessionID && tok.NativeTicket != nil {
+			out["native_ticket"] = tok.NativeTicket
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 	}}
 	cmd.AddCommand(start, stop, status)
 	return cmd

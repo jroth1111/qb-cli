@@ -24,6 +24,9 @@ func newAuthCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(newAuthWhoamiCmd(flags))
 	cmd.AddCommand(newAuthLogoutCmd(flags))
 	cmd.AddCommand(newAuthKeepaliveCmd(flags))
+	cmd.AddCommand(newAuthEnrollCmd(flags))
+	cmd.AddCommand(newAuthRecoveryCmd(flags))
+	cmd.AddCommand(newAuthTicketCmd(flags))
 	return cmd
 }
 

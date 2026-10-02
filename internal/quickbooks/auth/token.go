@@ -10,21 +10,23 @@ import (
 // Secrets live only in this file (mode 0600). Never print field values
 // that hold credentials.
 type TokenSet struct {
-	SessionID    string    `json:"session_id,omitempty"`
-	LastUsedAt   time.Time `json:"last_used_at,omitzero"`
-	Version      int       `json:"version"`
-	CapturedAt   time.Time `json:"captured_at"`
-	Source       string    `json:"source"` // relay-session | chrome-cookies | press-auth
-	LoginURL     string    `json:"login_url"`
-	FinalURL     string    `json:"final_url"`
-	RealmID      string    `json:"realm_id,omitempty"`
-	CompanyName  string    `json:"company_name,omitempty"`
-	Email        string    `json:"email,omitempty"`
-	AccessToken  string    `json:"access_token,omitempty"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	TokenType    string    `json:"token_type,omitempty"`
-	APIKey       string    `json:"api_key,omitempty"`
-	IntuitAppID  string    `json:"intuit_appid,omitempty"`
+	NativeTicket         *NativeTicketStatus `json:"native_ticket,omitempty"`
+	CredentialGeneration uint64              `json:"credential_generation,omitempty"`
+	SessionID            string              `json:"session_id,omitempty"`
+	LastUsedAt           time.Time           `json:"last_used_at,omitzero"`
+	Version              int                 `json:"version"`
+	CapturedAt           time.Time           `json:"captured_at"`
+	Source               string              `json:"source"` // relay-session | chrome-cookies | press-auth
+	LoginURL             string              `json:"login_url"`
+	FinalURL             string              `json:"final_url"`
+	RealmID              string              `json:"realm_id,omitempty"`
+	CompanyName          string              `json:"company_name,omitempty"`
+	Email                string              `json:"email,omitempty"`
+	AccessToken          string              `json:"access_token,omitempty"`
+	RefreshToken         string              `json:"refresh_token,omitempty"`
+	TokenType            string              `json:"token_type,omitempty"`
+	APIKey               string              `json:"api_key,omitempty"`
+	IntuitAppID          string              `json:"intuit_appid,omitempty"`
 	// Authorization is the full Authorization header from a live QBO
 	// request (e.g. "Intuit_APIKey intuit_apikey=...,intuit_apikey_version=1.0").
 	// When set, the HTTP client sends it verbatim.

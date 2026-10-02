@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strconv"
 	"time"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
 
 // ErrEgoMissing is returned when the ego-browser CLI is not on PATH.
@@ -108,6 +110,16 @@ func ExecuteEgo(ctx context.Context, req Request) (*Response, error) {
 // FetchEgo sends an exact request through the selected ego-browser app page.
 // GraphQL and browser-session REST surfaces share this transport.
 func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]string, payload []byte) (*Response, error) {
+	tok, loadErr := auth.Load()
+	if loadErr != nil {
+		return nil, loadErr
+	}
+	if expected, ok := ctx.Value(executionSessionKey{}).(*auth.TokenSet); ok && !auth.SameSession(expected, tok) {
+		return nil, auth.ErrSessionChanged
+	}
+	if tok.Source == "managed-profile" {
+		return fetchManagedSession(ctx, tok, endpoint, method, headers, payload)
+	}
 	if _, err := exec.LookPath("ego-browser"); err != nil {
 		return nil, ErrEgoMissing
 	}

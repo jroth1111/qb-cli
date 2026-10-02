@@ -14,7 +14,7 @@ func LockProfile(ctx context.Context, home, name string) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if name != "credentials" && name != "renewal" && name != "keepalive" {
+	if name != "credentials" && name != "renewal" && name != "keepalive" && name != "browser" {
 		return nil, fmt.Errorf("invalid profile lock")
 	}
 	if err := os.MkdirAll(home, 0700); err != nil {

@@ -66,6 +66,10 @@ func RemintATS(ctx context.Context) error {
 	if current.CapturedAt.After(expected.CapturedAt) {
 		return nil
 	}
+	// Managed sessions never switch to an unrelated browser during recovery.
+	if current.Source == "managed-profile" {
+		return remintManagedLocked(ctx)
+	}
 	// A captured Ego session must renew from that same existing source. Trying
 	// an unrelated managed profile first exhausts the deadline and never reaches
 	// the authenticated browser. Never open login or claim a user-controlled tab.
@@ -92,7 +96,7 @@ func RemintATS(ctx context.Context) error {
 	// fast failure when it needs a human. Runs before ego because ego
 	// needs an interactive Space the remint deadline cannot accommodate.
 	if allowManagedRemint(ctx) {
-		if err := RemintManaged(ctx); err == nil {
+		if err := remintManagedLocked(ctx); err == nil {
 			return nil
 		}
 	}

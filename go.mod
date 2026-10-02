@@ -7,6 +7,7 @@ require (
 	github.com/dave/dst v0.27.4
 	github.com/enetx/surf v1.0.199
 	github.com/getkin/kin-openapi v0.137.0
+	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/keybase/go-keychain v0.0.1
 	github.com/mozillazg/go-unidecode v0.2.0
@@ -16,6 +17,7 @@ require (
 	golang.org/x/net v0.55.0
 	golang.org/x/sync v0.20.0
 	golang.org/x/sys v0.45.0
+	golang.org/x/term v0.43.0
 	golang.org/x/text v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
 	tinygo.org/x/bluetooth v0.15.0
@@ -23,7 +25,6 @@ require (
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
-	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/saltosystems/winrt-go v0.0.0-20260317170058-9c2fec580d96 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/soypat/cyw43439 v0.1.0 // indirect

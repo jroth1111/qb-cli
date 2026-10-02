@@ -40,6 +40,7 @@ type ATSCapture struct {
 	// DOM during capture. Best-effort: empty when the tab was not
 	// hydrated or evaluation was unavailable.
 	Identity Identity
+	Evidence *LoginEvidence
 }
 
 // HasATSAuthorization reports whether t holds the SPA-minted ATS

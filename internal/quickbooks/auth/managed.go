@@ -2,13 +2,16 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/storage"
@@ -53,6 +56,11 @@ func captureManaged(ctx context.Context, loginURL, bankingURL string, headless b
 	if IsHarness() {
 		return nil, ErrRemintNeedsLogin
 	}
+	unlock, err := LockProfile(ctx, HomeDir(), "browser")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if loginURL == "" {
 		loginURL = DefaultLoginURL
 	}
@@ -60,7 +68,7 @@ func captureManaged(ctx context.Context, loginURL, bankingURL string, headless b
 		bankingURL = BankingCaptureURL
 	}
 	profile := ManagedProfileDir()
-	if err := os.MkdirAll(profile, 0o700); err != nil {
+	if err := prepareManagedProfile(); err != nil {
 		return nil, fmt.Errorf("creating managed profile: %w", err)
 	}
 
@@ -134,7 +142,9 @@ func interceptManagedATS(ctx context.Context, bankingURL string) (map[string]str
 			return
 		}
 		go func() {
-			_ = fetch.ContinueRequest(paused.RequestID).Do(ctx)
+			if target := chromedp.FromContext(ctx).Target; target != nil {
+				_ = fetch.ContinueRequest(paused.RequestID).Do(cdp.WithExecutor(ctx, target))
+			}
 		}()
 		headers := headerMap(paused.Request.Headers)
 		if host := ServiceHost(paused.Request.URL, headers); host != "" {
@@ -221,14 +231,38 @@ func snapshotManagedCookies(ctx context.Context) ([]Cookie, error) {
 		if path == "" {
 			path = "/"
 		}
+		expiry := managedCookieExpiry(c.Expires)
 		out = append(out, Cookie{
 			Name: c.Name, Value: c.Value, Domain: c.Domain,
 			HostOnly: !strings.HasPrefix(c.Domain, "."),
 			Path:     path,
-			Expires:  time.Unix(int64(c.Expires), 0).UTC(),
+			Expires:  expiry,
 			Secure:   c.Secure,
 			HTTPOnly: c.HTTPOnly,
 		})
 	}
 	return out, nil
+}
+
+func managedCookieExpiry(seconds float64) time.Time {
+	if seconds <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(int64(seconds), 0).UTC()
+}
+
+func prepareManagedProfile() error {
+	for _, dir := range []string{filepath.Join(HomeDir(), "profiles"), ManagedProfileDir()} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
+		info, err := os.Lstat(dir)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("managed profile must be an owned directory, not a symlink")
+		}
+		if runtime.GOOS != "windows" && (info.Mode().Perm()&0077 != 0 || !recoveryFileOwned(info)) {
+			return errors.New("managed profile directories must be private (0700) and owned by the service user")
+		}
+	}
+	return nil
 }

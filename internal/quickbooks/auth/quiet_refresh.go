@@ -28,6 +28,12 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 	if current.CapturedAt.After(expected.CapturedAt) {
 		return nil
 	}
+	if current.Source == "managed-profile" {
+		if !allowManaged {
+			return ErrRemintNeedsLogin
+		}
+		return remintManagedLocked(ctx)
+	}
 	if current.EgoSpace != "" || current.Source == "ego-existing" {
 		space := current.EgoSpace
 		if space == "" {
@@ -73,7 +79,7 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 	}
 	cancel()
 	if _, err := os.Stat(ManagedProfileDir()); allowManaged && err == nil && os.Getenv(managedDisableEnv) != "1" {
-		return RemintManaged(ctx)
+		return remintManagedLocked(ctx)
 	}
 	return ErrRemintNeedsLogin
 }
