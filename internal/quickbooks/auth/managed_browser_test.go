@@ -81,6 +81,9 @@ window.navigator.credentials.get({publicKey:{challenge:new Uint8Array(16)}}).cat
 	t.Cleanup(stop)
 	page, closePage := chromedp.NewContext(alloc)
 	t.Cleanup(closePage)
+	// Flush Chrome's profile writers before TempDir cleanup; killing the main
+	// process can leave a renderer briefly writing into Default under -race.
+	t.Cleanup(func() { _ = chromedp.Cancel(page) })
 	// The fixture models a browser-owned request pending until its AbortSignal
 	// fires. No credential or server authentication result is fabricated.
 	mock := `(()=>{if(location.origin!=='https://accounts.intuit.com'&&location.href!=='about:blank')return;
