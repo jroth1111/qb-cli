@@ -38,6 +38,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -478,11 +479,12 @@ type JournalBulkItem struct {
 	FromAccount string  `json:"from-account"`
 	ToAccount   string  `json:"to-account"`
 	Memo        string  `json:"memo,omitempty"`
+	Description string  `json:"description,omitempty"`
 	Class       string  `json:"class,omitempty"` // QBO class id; applied to both lines
 }
 
 // ParseJournalBulkItems decodes --items-json. Every item must carry a
-// non-zero amount and two distinct accounts; the two-line construction is
+// positive finite amount and two distinct accounts; the two-line construction is
 // balanced by definition (debit = credit = amount).
 func ParseJournalBulkItems(raw string) ([]JournalBulkItem, error) {
 	var items []JournalBulkItem
@@ -492,15 +494,26 @@ func ParseJournalBulkItems(raw string) ([]JournalBulkItem, error) {
 	if len(items) == 0 {
 		return nil, ErrEmptyJournalItems
 	}
-	for i, it := range items {
-		if it.Amount == 0 {
-			return nil, fmt.Errorf("item %d: amount must be non-zero", i)
+	if len(items) > 25 {
+		return nil, fmt.Errorf("journal batch caps at 25 items (got %d)", len(items))
+	}
+	for i := range items {
+		it := &items[i]
+		it.FromAccount = strings.TrimSpace(it.FromAccount)
+		it.ToAccount = strings.TrimSpace(it.ToAccount)
+		if it.Amount <= 0 || math.IsNaN(it.Amount) || math.IsInf(it.Amount, 0) {
+			return nil, fmt.Errorf("item %d: amount must be positive and finite", i)
 		}
 		if it.FromAccount == "" || it.ToAccount == "" {
 			return nil, fmt.Errorf("item %d: from-account and to-account are required", i)
 		}
 		if it.FromAccount == it.ToAccount {
 			return nil, fmt.Errorf("item %d: from-account and to-account must differ", i)
+		}
+		if it.Date != "" {
+			if _, err := time.Parse("2006-01-02", normalizeDate(it.Date)); err != nil {
+				return nil, fmt.Errorf("item %d: invalid journal date: %w", i, err)
+			}
 		}
 	}
 	return items, nil
@@ -527,14 +540,17 @@ func journalLine(posting, acct string, amt float64, class string) map[string]any
 	}
 }
 
-// ReplayJournalBulkCreate posts N balanced journal entries in one v3 /batch
-// request. Refuses prod writes and empty item lists.
+// ReplayJournalBulkCreate submits balanced journals through the verified batch
+// adapter. Success requires independent entity readback for every receipt.
 func ReplayJournalBulkCreate(ctx context.Context, items []JournalBulkItem) (*QueryResult, error) {
 	if len(items) == 0 {
 		return nil, ErrEmptyJournalItems
 	}
-	ac, err := newAPIClient()
+	rawItems, err := json.Marshal(items)
 	if err != nil {
+		return nil, err
+	}
+	if items, err = ParseJournalBulkItems(string(rawItems)); err != nil {
 		return nil, err
 	}
 	batch := make([]map[string]any, 0, len(items))
@@ -555,9 +571,41 @@ func ReplayJournalBulkCreate(ctx context.Context, items []JournalBulkItem) (*Que
 		if it.Memo != "" {
 			obj["PrivateNote"] = it.Memo
 		}
+		if it.Description != "" {
+			for _, line := range obj["Line"].([]map[string]any) {
+				line["Description"] = it.Description
+			}
+		}
 		batch = append(batch, journalBatchEntry(strconv.Itoa(i), "create", obj))
 	}
-	return postJournalBatch(ctx, ac, batch)
+	raw, err := json.Marshal(batch)
+	if err != nil {
+		return nil, err
+	}
+	receipts, err := ReplayBatch(ctx, string(raw))
+	if receipts == nil {
+		return nil, err
+	}
+	res := &QueryResult{Status: http.StatusOK, Entity: "JournalEntry", Counts: map[string]int{"items": len(receipts)}}
+	for _, receipt := range receipts {
+		row, _ := receipt.(map[string]any)
+		item := QueryItem{ID: anyString(row["bId"]), Type: "JournalEntry"}
+		entry, _ := row["JournalEntry"].(map[string]any)
+		if entry != nil {
+			item.ID = anyString(entry["Id"])
+			item.Date = anyString(entry["TxnDate"])
+		} else {
+			res.Counts["faults"]++
+			item.Name = "unverified batch item"
+		}
+		res.Items = append(res.Items, item)
+	}
+	if err != nil {
+		res.Note = "partial or unverified batch; read back receipt IDs before any retry"
+	} else {
+		res.Note = "all journal entries independently verified"
+	}
+	return res, err
 }
 
 // ReplayJournalBulkDelete deletes N journal entries in one v3 /batch

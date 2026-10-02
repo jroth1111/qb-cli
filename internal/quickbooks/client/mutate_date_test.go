@@ -257,6 +257,44 @@ func TestJournalEditMovesPostingAccounts(t *testing.T) {
 	}
 }
 
+func TestJournalEditAmountPreservesLineEdits(t *testing.T) {
+	existing := map[string]any{"Id": "1", "SyncToken": "0", "TxnDate": "2026-08-21", "TotalAmt": 0.0, "Line": []any{
+		map[string]any{"Id": "0", "Amount": 37.5, "Description": "old", "JournalEntryLineDetail": map[string]any{"PostingType": "Debit", "AccountRef": map[string]any{"value": "76"}, "ClassRef": map[string]any{"value": "unit-14"}, "Entity": map[string]any{"Type": "Vendor", "EntityRef": map[string]any{"value": "193"}}}},
+		map[string]any{"Id": "1", "Amount": 37.5, "JournalEntryLineDetail": map[string]any{"PostingType": "Credit", "AccountRef": map[string]any{"value": "166"}, "ClassRef": map[string]any{"value": "unit-14"}}},
+	}}
+	for _, explicit := range []bool{false, true} {
+		flags := map[string]string{"amount": "50", "from-account": "78", "to-account": "166"}
+		if explicit {
+			flags["line-items"] = `[{"Id":"0","Amount":37.5,"Description":"new","JournalEntryLineDetail":{"PostingType":"Debit","AccountRef":{"value":"78"},"ClassRef":{"value":"unit-14"},"Entity":null}},{"Id":"1","Amount":37.5,"Description":"new","JournalEntryLineDetail":{"PostingType":"Credit","AccountRef":{"value":"166"},"ClassRef":{"value":"unit-14"}}}]`
+		}
+		body, err := buildUpdateBody("JournalEntry", flags, existing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := body["TotalAmt"]; ok {
+			t.Fatal("journal update submitted the derived TotalAmt")
+		}
+		for _, value := range body["Line"].([]any) {
+			line := value.(map[string]any)
+			detail := line["JournalEntryLineDetail"].(map[string]any)
+			want := "166"
+			if detail["PostingType"] == "Debit" {
+				want = "78"
+			}
+			if line["Amount"] != 50.0 || detail["AccountRef"].(map[string]any)["value"] != want || detail["ClassRef"].(map[string]any)["value"] != "unit-14" {
+				t.Fatalf("explicit=%v amount discarded line edit: %+v", explicit, line)
+			}
+			if explicit && (line["Description"] != "new" || detail["PostingType"] == "Debit" && detail["Entity"] != nil) {
+				t.Fatalf("explicit line description/entity clear lost: %+v", line)
+			}
+		}
+	}
+	old := existing["Line"].([]any)[0].(map[string]any)
+	if old["Amount"] != 37.5 || old["JournalEntryLineDetail"].(map[string]any)["AccountRef"].(map[string]any)["value"] != "76" {
+		t.Fatal("journal edit mutated pre-state")
+	}
+}
+
 // journal create declared --items-json which was never consumed; the alias
 // must work and malformed input must error instead of falling through.
 func TestJournalCreateConsumesItemsJSONAndRejectsMalformed(t *testing.T) {

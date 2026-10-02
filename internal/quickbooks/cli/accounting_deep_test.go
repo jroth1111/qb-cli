@@ -16,6 +16,22 @@ import (
 	"time"
 )
 
+func TestJournalCreateHasVerifiedAdapterAndLineDescription(t *testing.T) {
+	root := NewRootCommand()
+	cmd, _, err := root.Find([]string{"accounting", "journal", "create"})
+	if err != nil || cmd.Annotations[readbackAnnotation] != "true" {
+		t.Fatalf("journal create lacks verified adapter: %v", err)
+	}
+	stdout, _, err := runQB(t, "accounting", "journal", "create", "--items-json", `[{"date":"2026-04-30","amount":90,"from-account":"71","to-account":"151","description":"AC deep clean","class":"unit-14"}]`, "--dry-run", "--json")
+	if err != nil || !strings.Contains(stdout, `"description": "AC deep clean"`) && !strings.Contains(stdout, `"description":"AC deep clean"`) {
+		t.Fatalf("dry-run lost description: %s err=%v", stdout, err)
+	}
+	stdout, _, err = runQB(t, "accounting", "journal", "delete", "--help")
+	if err != nil || !strings.Contains(stdout, "blocked before submission") {
+		t.Fatalf("unreviewed delete gate changed: %s err=%v", stdout, err)
+	}
+}
+
 // TestDeferredScheduleGetPlanIdentity proves each get leaf plans under its
 // own catalog row with read mode and never dials.
 func TestDeferredScheduleGetPlanIdentity(t *testing.T) {

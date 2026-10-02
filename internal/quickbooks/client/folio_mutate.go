@@ -356,14 +356,28 @@ func pinFolioPeriod(req map[string]any, start, end string) {
 	req["dateMacro"] = "custom"
 	req["startDate"] = start
 	req["endDate"] = end
+	// The cover is rendered from dynamicFields, not the report page dates.
+	// Native management-report preview updates it alongside every segment.
+	if date, err := time.Parse("2006-01-02", end); err == nil {
+		fields, _ := req["dynamicFields"].(map[string]any)
+		if fields == nil {
+			fields = make(map[string]any)
+			req["dynamicFields"] = fields
+		}
+		fields["{ReportEndDate}"] = date.Format("2 January 2006")
+	}
 	pages, _ := req["pages"].([]any)
 	for _, raw := range pages {
 		p, _ := raw.(map[string]any)
 		if p == nil {
 			continue
 		}
+		kind, _ := p["type"].(string)
+		if !strings.EqualFold(kind, "REPORT") && !strings.EqualFold(kind, "URI_REPORT") {
+			continue
+		}
 		macro, _ := p["reportDateMacro"].(string)
-		if macro == "" || strings.EqualFold(macro, "all") {
+		if strings.EqualFold(strings.TrimSpace(macro), "all") {
 			continue
 		}
 		p["reportDateMacro"] = "custom"

@@ -678,8 +678,8 @@ func TestReplayJournalBulkCreatePostsBatchRequest(t *testing.T) {
 		{Date: "25/08/2026", Amount: 55.5, FromAccount: "204", ToAccount: "93"},
 	}
 	res, err := ReplayJournalBulkCreate(context.Background(), items)
-	if err != nil {
-		t.Fatalf("ReplayJournalBulkCreate: %v", err)
+	if !errors.Is(err, ErrMutationUnverified) {
+		t.Fatalf("partial create must be unverified: %v", err)
 	}
 	if res.Entity != "JournalEntry" || res.Status != http.StatusOK {
 		t.Fatalf("envelope = %+v", res)
@@ -687,7 +687,7 @@ func TestReplayJournalBulkCreatePostsBatchRequest(t *testing.T) {
 	if len(res.Items) != 2 || res.Items[0].ID != "JE-1" {
 		t.Fatalf("items = %+v", res.Items)
 	}
-	if res.Items[1].ID != "1" || !strings.HasPrefix(res.Items[1].Name, "fault:") {
+	if res.Items[1].ID != "1" || res.Items[1].Name != "unverified batch item" {
 		t.Fatalf("fault row mis-projected: %+v", res.Items[1])
 	}
 	if res.Counts["faults"] != 1 {

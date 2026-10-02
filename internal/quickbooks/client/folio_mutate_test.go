@@ -336,6 +336,34 @@ func TestFolioManagementUpdatePinsPeriod(t *testing.T) {
 	}
 }
 
+func TestPinFolioPeriodPinsEveryReportAndCoverButPreservesAllDates(t *testing.T) {
+	var req map[string]any
+	if err := json.Unmarshal([]byte(`{"dynamicFields":{"{CompanyName}":"Company","{ReportEndDate}":"31 May 2026"},"pages":[{"type":"COVER_PAGE","reportPeriod":"For the period ended {ReportEndDate}"},{"type":"CUSTOM_PAGE","title":"Notes"},{"type":"REPORT","reportToken":"42"},{"type":"URI_REPORT","reportToken":"41","reportDateMacro":"lastmonth"},{"type":"REPORT","reportToken":"59","reportDateMacro":"custom","startDate":"2026-05-01","endDate":"2026-05-31"},{"type":"REPORT","reportToken":"70","reportDateMacro":"ALL"}]}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	pinFolioPeriod(req, "2026-06-01", "2026-06-30")
+	fields := req["dynamicFields"].(map[string]any)
+	if fields["{ReportEndDate}"] != "30 June 2026" || fields["{CompanyName}"] != "Company" {
+		t.Fatalf("cover fields = %v", fields)
+	}
+	pages := req["pages"].([]any)
+	for _, i := range []int{2, 3, 4} {
+		p := pages[i].(map[string]any)
+		if p["reportDateMacro"] != "custom" || p["startDate"] != "2026-06-01" || p["endDate"] != "2026-06-30" {
+			t.Fatalf("segment %d not pinned: %v", i, p)
+		}
+	}
+	for _, i := range []int{0, 1, 5} {
+		p := pages[i].(map[string]any)
+		if p["startDate"] != nil || p["endDate"] != nil {
+			t.Fatalf("non-period segment %d changed: %v", i, p)
+		}
+	}
+	if pages[5].(map[string]any)["reportDateMacro"] != "ALL" {
+		t.Fatal("all-date ledger macro changed")
+	}
+}
+
 func TestFolioUpdateGetsThenPutsFullFolio(t *testing.T) {
 	saveUsableURIHost(t)
 	srv := newFolioServer(t)

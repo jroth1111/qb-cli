@@ -1420,7 +1420,11 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	if entity == "JournalEntry" {
 		copyExisting(out, existing, "Line", "TxnDate", "CurrencyRef")
 		if lines := lineItemsFlag(flags); lines != nil {
-			out["Line"] = lines
+			rows := make([]any, len(lines))
+			for i, line := range lines {
+				rows[i] = line
+			}
+			out["Line"] = rows
 		}
 		from, to := firstFlag(flags, "from-account"), firstFlag(flags, "to-account")
 		if from != "" || to != "" {
@@ -1454,7 +1458,7 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 			if err != nil || amount == 0 {
 				return nil, fmt.Errorf("journal amount must be a non-zero number")
 			}
-			lines, ok := existing["Line"].([]any)
+			lines, ok := out["Line"].([]any)
 			if !ok || len(lines) != 2 {
 				return nil, fmt.Errorf("journal amount updates require a balanced two-line entry")
 			}
@@ -1682,7 +1686,7 @@ func buildUpdateBody(entity string, flags map[string]string, existing map[string
 	if amountSet {
 		if entity == "Transfer" {
 			out["Amount"] = a
-		} else {
+		} else if entity != "JournalEntry" {
 			out["TotalAmt"] = a
 			// Caller-supplied --line-items are authoritative; folding the
 			// total into line[0] corrupts multi-line updates (Deposit

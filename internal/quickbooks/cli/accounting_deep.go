@@ -96,12 +96,14 @@ func newAccountingBudgetListCmd(flags *rootFlags) *cobra.Command {
 func newAccountingJournalBulkCreateCmd(flags *rootFlags) *cobra.Command {
 	var itemsJSON string
 	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "Bulk-create balanced journal entries (v3 /batch)",
+		Use:         "create",
+		Short:       "Bulk-create balanced journal entries (v3 /batch)",
+		Annotations: map[string]string{readbackAnnotation: "true"},
 		Long: "Bulk-create journal entries in one v3 batch request.\n" +
 			"--items-json must decode to [{\"date\":\"yyyy-MM-dd\",\"amount\":N,\"from-account\":\"ID\",\"to-account\":\"ID\",\"memo\":\"...\",\"class\":\"ID\"}].\n" +
 			"Every item books a two-line entry: debit from-account, credit to-account.\n" +
-			"Optional \"class\" applies the QBO class id to both lines; validate first\n" +
+			"Optional \"class\" applies the QBO class id to both lines; \"description\"\n" +
+			"sets both line descriptions while \"memo\" remains the private note. Validate first\n" +
 			"with `qb policy check-journal`.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			items, perr := client.ParseJournalBulkItems(itemsJSON)
@@ -124,14 +126,16 @@ func newAccountingJournalBulkCreateCmd(flags *rootFlags) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
 			res, err := client.ReplayJournalBulkCreate(ctx, items)
+			if res != nil {
+				printAccountingQueryResult(cmd, flags, res)
+			}
 			if err != nil {
 				return feedErr(flags, err)
 			}
-			printAccountingQueryResult(cmd, flags, res)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&itemsJSON, "items-json", "", "JSON array of {date, amount, from-account, to-account, memo}")
+	cmd.Flags().StringVar(&itemsJSON, "items-json", "", "JSON array of {date, amount, from-account, to-account, memo, description, class}")
 	_ = cmd.MarkFlagRequired("items-json")
 	applyCatalogHelp(cmd, "QBO.ACCOUNTING.JOURNAL_CREATE")
 	return cmd

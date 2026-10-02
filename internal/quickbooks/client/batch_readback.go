@@ -83,6 +83,7 @@ func verifyBatchReadback(ctx context.Context, ac *apiClient, items []any, intent
 		failures = append(failures, fmt.Errorf("batch receipt count mismatch"))
 	}
 	seen := map[string]bool{}
+	targets := map[string]bool{}
 	for index, item := range items {
 		obj, _ := item.(map[string]any)
 		bid, _ := obj["bId"].(string)
@@ -108,6 +109,12 @@ func verifyBatchReadback(ctx context.Context, ac *apiClient, items []any, intent
 			failures = append(failures, fmt.Errorf("batch item %s has wrong entity identity", bid))
 			continue
 		}
+		key := in.entity + "/" + id
+		if targets[key] {
+			failures = append(failures, fmt.Errorf("batch items share one entity identity"))
+			continue
+		}
+		targets[key] = true
 		dir := filepath.Join(evidence, strconv.Itoa(index))
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			failures = append(failures, err)
