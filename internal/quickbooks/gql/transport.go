@@ -83,7 +83,7 @@ func Execute(ctx context.Context, req Request) (*Response, error) {
 	if expected != nil {
 		ctx = context.WithValue(ctx, executionSessionKey{}, expected)
 	}
-	resp, err := executeEgoFn(ctx, req)
+	resp, err := executeReadReliably(ctx, req, executeEgoFn)
 	// Browser cookies stay browser-owned. Only an explicitly read-only query
 	// may be repeated after a definite 401; never replay a mutation/unknown op.
 	rejected := resp != nil && resp.Status == 401 || errors.Is(err, auth.ErrRemintNeedsLogin)
@@ -99,7 +99,7 @@ func Execute(ctx context.Context, req Request) (*Response, error) {
 	if err != nil || !auth.SameSession(expected, current) {
 		return nil, auth.ErrSessionChanged
 	}
-	return executeEgoFn(ctx, req)
+	return executeReadReliably(ctx, req, executeEgoFn)
 }
 
 var remintGQL = auth.RemintATS
