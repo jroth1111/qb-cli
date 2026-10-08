@@ -39,6 +39,10 @@ func p(name, typ, help string, req bool, def string) paramDoc {
 // these; blocked stubs register them so --help is complete, then still return
 // ErrMutationNotWired. Stub flags come from AU learn-support extracts when present.
 func paramsFor(id string) []paramDoc {
+	if id == "QBO.FEED.TXN_LOOKUP" {
+		params, _ := wiredParams(id)
+		return params
+	}
 	if ps, ok := salesOrderParamDocs(id); ok {
 		return ps
 	}
@@ -818,7 +822,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		}, true
 	case "QBO.FEED.TXN_LOOKUP":
 		return []paramDoc{
-			p("query", "string", "substring match on id, olbTxnId, or description (hyphens fold to spaces)", true, ""),
+			p("query", "string", "case-insensitive substring match on id, olbTxnId, description or cheque number (hyphens fold to spaces)", true, ""),
 			p("account-id", "string", "banking account id", false, "204"),
 			p("limit", "int", "max matching rows returned after all pages are searched", false, "0"),
 		}, true
@@ -1085,6 +1089,9 @@ func notesFor(e primitiveEntry) string {
 }
 
 func auHelpNote(id string) string {
+	if id == "QBO.FEED.TXN_LOOKUP" {
+		return "Searches feed IDs, bank descriptions and cheque-number labels across Pending, Posted and Excluded. This is text matching, not a structured amount/date filter."
+	}
 	if id == "QBO.EXPENSES.RECEIPT_DELETE" || id == "QBO.EXPENSES.RECEIPT_READ" || id == "QBO.EXPENSES.RECEIPT_SEARCH" {
 		return "OCR receipts use financialdocument/stagetransactions, not v3 Attachable IDs. This alias is blocked until a complete staged-receipt read/delete contract is verified. Use the receipts UI; company attachable commands operate on a different resource."
 	}
