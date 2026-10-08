@@ -864,6 +864,16 @@ func newFeedRuleSaveCmd(flags *rootFlags, use, id string) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
+			if preview := fm["preview"]; preview != "" && preview != "false" {
+				if preview != "true" {
+					return fmt.Errorf("--preview must be true or false")
+				}
+				plan, err := client.ReplayRulePreview(ctx, fm)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(plan)
+			}
 			res, err := client.ReplayRuleSave(ctx, fm)
 			if err != nil {
 				return feedErr(flags, err)

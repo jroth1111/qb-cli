@@ -315,7 +315,9 @@ func TestMutationBuilderDriftGuard(t *testing.T) {
 			"bank-text", "bank-text-exclude", "bank-text-exclude-2",
 			"bank-text-op", "class-id", "description", "description-op",
 			"direction", "disabled", "exclude", "id", "match", "money",
-			"name", "rule-name"},
+			"name", "rule-name", "replace-conditions", "allow-broadened-auto-post"},
+		"rules_patch.go":    {"money", "direction", "match"},
+		"rules_preview.go":  {"id"},
 		"rules_preserve.go": {"class-id"},
 		"bankdisconnect.go": {"account-id", "id"},
 	}

@@ -345,15 +345,22 @@ func paramsFor(id string) []paramDoc {
 func ruleFlagDocs(withID bool) []paramDoc {
 	out := []paramDoc{}
 	if withID {
+		out = append(out, p("preview", "string", "true fetches existing criteria and emits a complete proposed body without saving; matching population remains unverified", false, ""))
+		out = append(out, p("replace-conditions", "string", "true explicitly replaces all conditions; omitted criteria otherwise remain unchanged", false, ""))
+		out = append(out, p("allow-broadened-auto-post", "string", "true acknowledges potentially broader auto-post matching; review population before use", false, ""))
 		out = append(out, p("id", "string", "bank rule id to update (required)", true, ""))
 		out = append(out, p("name", "string", "rule name; omitted keeps the existing name", false, ""))
 	} else {
 		out = append(out, p("name", "string", "display name for the bank rule (required)", true, ""))
 	}
+	moneyHelp, matchHelp, accountHelp := "transaction direction: in or out (default out)", "condition combination: all (default) or any", "comma-separated bank-feed account ids; omit for all accounts"
+	if withID {
+		moneyHelp, matchHelp, accountHelp = "transaction direction: in or out; omitted preserves existing direction", "condition combination: all or any; omitted preserves existing combination", "comma-separated bank-feed account ids; omitted preserves existing scope"
+	}
 	return append(out,
-		p("money", "string", "transaction direction the rule matches: in or out (default out)", false, ""),
-		p("match", "string", "condition combination: all (default) or any", false, ""),
-		p("account-ids", "string", "comma-separated bank-feed account ids the rule applies to; omit for all accounts", false, ""),
+		p("money", "string", moneyHelp, false, ""),
+		p("match", "string", matchHelp, false, ""),
+		p("account-ids", "string", accountHelp, false, ""),
 		p("category-id", "string", "GL account id applied as the transaction category", false, ""),
 		p("payee-id", "string", "vendor or customer id applied as the transaction payee", false, ""),
 		p("customer-id", "string", "customer id applied to matching transactions", false, ""),

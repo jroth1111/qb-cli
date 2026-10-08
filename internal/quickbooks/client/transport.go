@@ -73,6 +73,7 @@ var browserHTTPClient = sync.OnceValues(func() (*http.Client, error) {
 					req.GetRequest().Header[name] = append([]string(nil), values...)
 				}
 			}
+			dropPseudoHeaders(http.Header(req.GetRequest().Header))
 			return nil
 		}, 1000).Build().Result()
 	if err != nil {
@@ -103,6 +104,15 @@ var browserHTTPClient = sync.OnceValues(func() (*http.Client, error) {
 	}
 	return client, nil
 })
+
+// HTTP/2 pseudo-fields belong to the transport, not the API header map.
+func dropPseudoHeaders(headers http.Header) {
+	for name := range headers {
+		if strings.HasPrefix(name, ":") {
+			delete(headers, name)
+		}
+	}
+}
 
 // impersonatedDo is the sole HTTP request path for the QBO API client.
 // Keep the complete request intact: verb, body, headers, context and redirects.
