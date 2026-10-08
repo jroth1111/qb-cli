@@ -42,6 +42,9 @@ const headers = JSON.parse(process.env.QB_EGO_HEADERS || '{}');
 const body = process.env.QB_EGO_BODY || '';
 const loginURL = process.env.QB_EGO_LOGIN_URL;
 const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
+const targetKey = process.env.QB_EGO_TARGET || '';
+const expectedRealm = process.env.QB_EGO_REALM || '';
+const expectedEmail = process.env.QB_EGO_EMAIL || '';
 function isQBOApp(value) {
  try { const u = new URL(value); return u.protocol === 'https:' && u.hostname === 'qbo.intuit.com' && !u.username && !u.password && u.pathname.startsWith('/app/') && !value.includes('UNAUTHENTICATED'); }
  catch (_) { return false; }
@@ -51,7 +54,9 @@ function fail(msg, code) { try { done({ok:false,error:msg}); } catch (_) {} proc
 if (!outPath || !endpoint) fail('missing browser request parameters', 2);
 const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKey);
 const tabs = await task.tabs();
-const existing = tabs.find(t => isQBOApp(t.url));
+const candidates = tabs.filter(t => isQBOApp(t.url) && (!targetKey || t.targetId === targetKey || t.label === targetKey));
+if (targetKey && candidates.length !== 1) fail('need-login: pinned app tab unavailable', 3);
+const existing = candidates[0];
 let page;
 if (existing) {
  if (existing.label) page = task.page(existing.label);
@@ -69,12 +74,20 @@ const url = await page.url();
 if (!isQBOApp(url) || url.includes('sign-in')) fail('need-login: no authenticated app tab', 3);
 headers['content-type'] = 'application/json';
 headers['accept'] = 'application/json';
-const options = {method, headers, credentials:'include', timeout:Math.min(30000,Number(process.env.QB_EGO_TIMEOUT_MS || 30000))};
+const verifyIdentity = async () => {
+ if (!expectedRealm) return;
+ const identity = await page.evaluate(process.env.QB_EGO_IDENTITY);
+ if (identity.realm !== expectedRealm || (identity.email || '').toLowerCase() !== expectedEmail.toLowerCase()) fail('browser identity differs from captured session', 3);
+};
+await verifyIdentity();
+const options = {method, headers, credentials:'include', saveAs:outPath+'.body',timeout:Math.min(30000,Number(process.env.QB_EGO_TIMEOUT_MS || 30000))};
 if (method !== 'GET' && method !== 'HEAD' && body) options.body = body;
 let result;
 try { result = await page.fetch(endpoint, options); }
 catch (_) { fail('browser fetch failed', 2); }
-const responseBody = typeof result.body === 'string' ? result.body : JSON.stringify(result.body);
+await verifyIdentity();
+fs.chmodSync(outPath+'.body',0o600);
+const responseBody = fs.readFileSync(outPath+'.body','utf8');
 done({ok:true,status:result.status,body:responseBody || ''});
 `
 
@@ -137,6 +150,7 @@ func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]s
 	outPath := outFile.Name()
 	_ = outFile.Close()
 	defer func() { _ = os.Remove(outPath) }()
+	defer func() { _ = os.Remove(outPath + ".body") }()
 	_ = os.Chmod(outPath, 0o600)
 
 	timeoutMs := int64(120 * time.Second / time.Millisecond)
@@ -146,6 +160,16 @@ func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]s
 		}
 	}
 	space := selectedEgoSpace()
+	target, realm, email := "", "", ""
+	if tok.Source == "ego-existing" && tok.EgoSpace != "" && tok.EgoTargetID != "" {
+		if explicit := os.Getenv("QB_EGO_SPACE_ID"); explicit != "" && explicit != tok.EgoSpace {
+			return nil, fmt.Errorf("explicit Ego space differs from captured session")
+		}
+		if explicit := os.Getenv("QB_EGO_SPACE"); explicit != "" && explicit != tok.EgoSpace {
+			return nil, fmt.Errorf("explicit Ego space differs from captured session")
+		}
+		space, target, realm, email = tok.EgoSpace, tok.EgoTargetID, tok.RealmID, tok.Email
+	}
 	preamble := "process.env.QB_EGO_OUT = " + strconv.Quote(outPath) + ";\n" +
 		"process.env.QB_EGO_ENDPOINT = " + strconv.Quote(endpoint) + ";\n" +
 		"process.env.QB_EGO_HEADERS = " + strconv.Quote(string(hdrJSON)) + ";\n" +
@@ -153,6 +177,10 @@ func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]s
 		"process.env.QB_EGO_LOGIN_URL = " + strconv.Quote(egoLoginURL) + ";\n" +
 		"process.env.QB_EGO_METHOD = " + strconv.Quote(method) + ";\n" +
 		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
+		"process.env.QB_EGO_TARGET = " + strconv.Quote(target) + ";\n" +
+		"process.env.QB_EGO_REALM = " + strconv.Quote(realm) + ";\n" +
+		"process.env.QB_EGO_EMAIL = " + strconv.Quote(email) + ";\n" +
+		"process.env.QB_EGO_IDENTITY = " + strconv.Quote(auth.IdentityJS) + ";\n" +
 		"process.env.QB_EGO_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), []byte(egoExecuteScript)...))
