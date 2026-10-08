@@ -79,6 +79,12 @@ func installMutationGates(root *cobra.Command, flags *rootFlags) {
 					if flags.dryRun {
 						return run(c, args)
 					}
+					if e.ID == "QBO.FEED.RULE_EDIT" {
+						preview, _ := c.Flags().GetString("preview")
+						if preview == "true" {
+							return run(c, args)
+						}
+					}
 					if e.ID == "QBO.SALES.INVOICE_REMIND" {
 						send, _ := c.Flags().GetBool("send")
 						if !send {
