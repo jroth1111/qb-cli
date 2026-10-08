@@ -63,6 +63,7 @@ AGENTS.override.md
 # One-off sweep binaries
 /qb
 /qb-*
+/qb.pre-*
 
 # Editor/test cruft
 *.orig
