@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,9 @@ var browserHTTPClient = sync.OnceValues(func() (*http.Client, error) {
 					req.GetRequest().Header[name] = append([]string(nil), values...)
 				}
 			}
+			// Chrome defaults include pseudo-header placeholders, but the
+			// HTTP transport generates these from the URL and method.
+			dropPseudoHeaders(req.GetRequest().Header)
 			return nil
 		}, 1000).Build().Result()
 	if err != nil {
@@ -104,6 +108,14 @@ var browserHTTPClient = sync.OnceValues(func() (*http.Client, error) {
 	return client, nil
 })
 
+func dropPseudoHeaders(headers map[string][]string) {
+	for name := range headers {
+		if strings.HasPrefix(name, ":") {
+			delete(headers, name)
+		}
+	}
+}
+
 // impersonatedDo is the sole HTTP request path for the QBO API client.
 // Keep the complete request intact: verb, body, headers, context and redirects.
 // Reuse the client so paginated requests can reuse connections. There is no
@@ -114,7 +126,7 @@ func sessionDo(req *http.Request, dial func(*http.Request) (*http.Response, erro
 	if err != nil {
 		return nil, err
 	}
-	resp, err := dial(req)
+	resp, err := readReliably(req, dial)
 	if err == nil {
 		if perr := auth.ObserveSessionResponse(req, resp); perr != nil && !errors.Is(perr, auth.ErrSessionChanged) {
 			log.Print("qb: could not persist session rotation; request outcome is unchanged")
@@ -125,6 +137,12 @@ func sessionDo(req *http.Request, dial func(*http.Request) (*http.Response, erro
 
 func impersonatedDo(req *http.Request) (*http.Response, error) {
 	return sessionDo(req, func(req *http.Request) (*http.Response, error) {
+		if mode := os.Getenv("QB_HTTP_TRANSPORT"); mode != "" {
+			if mode != "ego" {
+				return nil, fmt.Errorf("unsupported QB_HTTP_TRANSPORT; use ego or leave unset")
+			}
+			return egoSessionDo(req)
+		}
 		if impersonatedTransport != nil {
 			return (&http.Client{Transport: impersonatedTransport, Timeout: httpTimeout}).Do(req)
 		}

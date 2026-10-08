@@ -83,3 +83,45 @@ func TestRegisterMissingReferencesRemainUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterAllUsesBoundedRangesAndEmptyTerminalPage(t *testing.T) {
+	saveUsable(t)
+	var ranges []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rangeValue := r.Header.Get("X-Range")
+		ranges = append(ranges, rangeValue)
+		switch rangeValue {
+		case "items=0-299":
+			_, _ = w.Write([]byte(`[{"txnId":123,"sequence":0}]`))
+		case "items=1-300":
+			_, _ = w.Write([]byte(`[{"txnId":124,"sequence":0}]`))
+		case "items=2-301":
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			t.Errorf("unexpected range %s", rangeValue)
+			_, _ = w.Write([]byte(`[]`))
+		}
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	res, err := ReplayRegisterPage(context.Background(), "204", 1, 0)
+	if err != nil || res == nil || len(res.Transactions) != 1 || res.Transactions[0].ID != "124" {
+		t.Fatalf("all-row walk failed: result=%v error=%v", res, err)
+	}
+	if len(ranges) != 3 {
+		t.Fatalf("short page incorrectly ended walk: %v", ranges)
+	}
+}
+
+func TestRegisterAllRejectsRepeatedPages(t *testing.T) {
+	saveUsable(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"txnId":123,"sequence":0}]`))
+	}))
+	defer srv.Close()
+	interceptHTTP(t, srv.URL)
+	res, err := ReplayRegister(context.Background(), "204", 0)
+	if res != nil || err == nil || !strings.Contains(err.Error(), "repeated") {
+		t.Fatalf("repeated page accepted: result=%v error=%v", res, err)
+	}
+}

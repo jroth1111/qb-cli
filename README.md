@@ -21,6 +21,12 @@ Catalog entries, GraphQL operations, and CLI commands are different inventories�
 
 Requirements: Go **1.26.6 or newer**, QuickBooks Online access, and Chrome/Chromium for the managed-session path. Browser-session workflows depend on the permissions, subscription and regional features available to the signed-in user. The banking and tax surfaces are AU-oriented.
 
+For an existing, captured Ego session, `QB_HTTP_TRANSPORT=ego qb ...` sends first-party, company-scoped REST requests through that exact browser space and page. This is an explicit alternative to direct HTTP, not a fallback or retry after a failed write. The page's company and principal are checked before and after each request; user control stops execution. Uncertain writes still require read-only recovery, and posting retains independent feed/ledger verification. Other hosts and unpinned sessions fail closed.
+
+Browser-backed reads save complete response bytes privately before parsing. Native response parsing supports pages larger than 1 MiB and reports an explicit error above its 32 MiB safety budget instead of silently truncating them. GET/HEAD requests and known GraphQL queries retry transient transport failures and HTTP 408/429/502/503/504 with a bounded, cancellation-aware budget. Incomplete JSON pages are rejected before pagination can accumulate their rows; financial writes and unknown operations are never transport-retried. Match safety censuses advance by the number of rows actually returned and require an empty terminal page to prove absence.
+
+`QB_CENSUS_PAGE_SIZE` tunes match/register safety-census request capacity (1–999; default 300). It does not change the evidence requirements or treat short pages as exhaustion. Larger pages reduce browser round trips; any server-imposed cap is handled using observed row counts.
+
 ```bash
 git clone https://github.com/jroth1111/qb-cli.git
 cd qb-cli
@@ -91,6 +97,10 @@ Catalog mode, readback support and company entitlements remain the authority for
 - CSV import planning, account checks and session diagnostics.
 
 Feed IDs, accounting entity IDs and audit-event IDs are separate namespaces. Posting/matching uses native banking IDs, not display identifiers. Account IDs are company-scoped: select the intended account explicitly instead of relying on defaults.
+
+For distinct one-to-one links, `qb feed txn update match --account-id <account-id> --mapping-file mappings.json` accepts up to 25 mappings in one submission. The JSON array uses string `olb_txn_id` and `match_id` fields; optional `expected_amount`, `expected_date` (`YYYY-MM-DD`, checked against both feed and ledger), `expected_category_id` and `expected_class_id` (`none` for blank) make stale plans fail before submission. Duplicate feed IDs, reused ledger targets, existing accepted-feed allocations, ambiguous ledger lines and failed eligibility/version checks are refused. `--dry-run` validates and prints the plan without network access. Shared before/after censuses still verify every individual link, original feed fields, ledger attribution and permitted clearing-state transition.
+
+Mapped matches retain private before-state, request, response and verification evidence. If a response is lost or verification fails, do not repeat the write: `qb feed txn update match --verify-evidence <evidence-directory>` performs read-only recovery against the captured company. The mapping-file, evidence-recovery and ordinary `--ids`/`--match-id` modes are mutually exclusive.
 
 See [feed lookup completeness](docs/FEED_LOOKUP.md) and [mutation verification](docs/MUTATION_READBACK.md).
 
@@ -169,7 +179,7 @@ Every command exposes its own `--help`; use it for exact supported parameters an
 **Preserve the existing session → extend its native ticket → recover from the same source → use enrolled credentials only when signed out.**
 
 1. Login starts a profile-bound background keeper by default. Banking health probes run every five minutes and retain server-issued cookie rotation.
-2. For managed profiles, due maintenance invokes QuickBooks' own TicketManager/authorization SDK. It observes the native session-extension success callback, verifies the same principal/company, captures fresh banking authorization and performs an independent CompanyInfo read.
+2. For managed profiles and numerically pinned, agent-owned Ego tabs, due maintenance invokes QuickBooks' own TicketManager/authorization SDK. It observes the native session-extension success callback, verifies the same principal/company, captures fresh banking authorization and performs an independent CompanyInfo read. A failed extension is not reported as healthy maintenance; user-controlled or unavailable tabs are not reclaimed or replaced.
 3. The schedule comes from the plugin's runtime extension time—not a fixed assumed ticket lifetime. The keeper wakes one minute early if the normal health interval would overshoot it.
 4. Authentication rejection first permits source-pinned warm recovery, including restoration of the same session's usable exported cookies. Healthy sessions do not decrypt login credentials.
 5. Only a confirmed sign-in wall and an enabled enrollment permit headless password/TOTP login. The logical session and identity stay bound; a new credential generation fences stale headers and late responses.
@@ -187,7 +197,7 @@ qb auth keepalive start --interval 5m --managed-refresh
 
 ### Optional autonomous login recovery
 
-After logging in with the managed profile:
+After a verified managed login or capture of an existing, numerically pinned Ego space/tab:
 
 ```bash
 qb auth enroll --launch --enable-recovery
@@ -196,6 +206,8 @@ qb auth recovery status --json
 
 The prompts hide username, password and an existing authenticator BASE32 seed or `otpauth://totp/` URI. Automation can provide a single JSON object through `--credentials-stdin`; `--bootstrap` supports first login in a fresh profile, including headless setup. Never put secret values in command arguments, environment variables, shell history or committed files.
 
+If an existing encrypted enrollment becomes unbound after an explicit login, `qb auth recovery rebind --launch` verifies the same company and principal before re-encrypting the binding for the current session. It never submits credentials during that verification or silently enables a disabled enrollment.
+
 | Key backend | Use |
 |---|---|
 | macOS Keychain | Already-accessible key; no runtime approval/unlock prompt |
@@ -203,7 +215,7 @@ The prompts hide username, password and an existing authenticator BASE32 seed or
 | GPG | Cross-platform; a service-accessible private key or unlocked agent, with runtime pinentry disabled |
 | External private key file | Unattended macOS/Linux services, including environments without a desktop keyring |
 
-Passwords/TOTP seeds are encrypted in `login-recovery.json`. Browser/session tokens live in the private profile and mode-0600 `credentials.json`; they are not all encrypted by the recovery vault. No plaintext password fallback is provided. A same-user compromise can access a usable key and credentials; storing a password and TOTP seed gives that machine full login capability.
+Passwords/TOTP seeds are encrypted in `login-recovery.json`; principal/company/session binding metadata is not secret-encrypted. Browser/session tokens live in the private profile and mode-0600 `credentials.json`; they are not all encrypted by the recovery vault. No plaintext password fallback is provided. A same-user compromise can access a usable key and credentials; storing a password and TOTP seed gives that machine full login capability.
 
 CAPTCHA, device/push approval, mandatory passkeys and unsupported MFA remain provider-controlled. Optional passkey prompts are cancelled through their AbortSignal only when the offered password method is selected. Account security settings are not changed.
 
@@ -294,3 +306,5 @@ The module requires Go 1.26.6; set `GOTOOLCHAIN=go1.26.6` when validating agains
 | `internal/quickbooks/doctor` | Session/channel diagnostics |
 
 The repository also provides **`cli-printing-press`**, a separate developer tool for API discovery, spec-driven Go CLI generation, MCP generation/bundling, runtime verification, workflow tests, capability audits and local library management. It is not the `qb` runtime or a claim that `qb` itself exposes a standalone MCP server. Discover its complete surface with `./cli-printing-press --help`; see [pipeline](docs/PIPELINE.md), [artifact layout](docs/ARTIFACTS.md) and [development conventions](AGENTS.md).
+
+That developer tool uses `~/printing-press/.runstate/<scope>/runs/<run-id>/working/<api>-pp-cli` for working prints, `~/printing-press/library/<api>` for accepted local CLIs, and `~/printing-press/manuscripts/<api>/<run-id>/` for retained `research/`, `proofs/`, `discovery/`, and `pipeline/` evidence. These are Printing Press artifacts, not financial backups or `qb` mutation evidence.

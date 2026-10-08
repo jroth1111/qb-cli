@@ -34,6 +34,7 @@ func newGqlCmd(flags *rootFlags) *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newGqlOpsCmd(flags))
+	cmd.AddCommand(newGqlInspectTransactionCmd(flags))
 	cmd.AddCommand(newGqlRunCmd(flags, gql.KindQuery))
 	mutate := newGqlMutateCmd(flags)
 	for _, sub := range newGqlMutationFlagCmds(flags) {

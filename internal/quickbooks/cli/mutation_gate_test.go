@@ -83,6 +83,35 @@ func TestMutationGateRejectsResponseClaimWithoutProof(t *testing.T) {
 	}
 }
 
+func TestRulePreviewDoesNotClaimMutationProof(t *testing.T) {
+	for _, preview := range []string{"true", "false", "invalid"} {
+		flags := &rootFlags{asJSON: true}
+		root := &cobra.Command{Use: "qb", SilenceUsage: true, SilenceErrors: true}
+		feed := &cobra.Command{Use: "feed"}
+		rule := &cobra.Command{Use: "rule"}
+		leaf := &cobra.Command{Use: "update", RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := cmd.OutOrStdout().Write([]byte(`{"matchingPopulationVerified":false}`))
+			return err
+		}}
+		leaf.Flags().String("preview", "", "")
+		rule.AddCommand(leaf)
+		feed.AddCommand(rule)
+		root.AddCommand(feed)
+		installMutationGates(root, flags)
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(new(bytes.Buffer))
+		root.SetArgs([]string{"feed", "rule", "update", "--preview", preview})
+		err := root.ExecuteContext(context.Background())
+		if (err == nil) != (preview == "true") {
+			t.Fatalf("preview=%s err=%v", preview, err)
+		}
+		if preview == "true" && strings.Contains(out.String(), `"verified":true`) {
+			t.Fatal("preview falsely claimed a verified mutation")
+		}
+	}
+}
+
 func TestUnsupportedMutationNeverCallsHandler(t *testing.T) {
 	root := &cobra.Command{Use: "qb"}
 	g := &cobra.Command{Use: "accounting"}

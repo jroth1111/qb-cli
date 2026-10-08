@@ -557,13 +557,54 @@ func newFeedCategoriseCmd(flags *rootFlags) *cobra.Command {
 func newFeedMatchCmd(flags *rootFlags) *cobra.Command {
 	ff := &feedFlags{}
 	var (
-		matchIDs []string
-		txnType  string
+		matchIDs       []string
+		txnType        string
+		mappingFile    string
+		verifyEvidence string
 	)
 	cmd := &cobra.Command{
 		Use:   "match",
 		Short: "Match pending feed rows to existing QBO records (POST acceptTransactions)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if mappingFile != "" || verifyEvidence != "" {
+				if len(ff.ids) != 0 || len(matchIDs) != 0 || mappingFile != "" && verifyEvidence != "" {
+					return feedErr(flags, fmt.Errorf("mapping-file and verify-evidence are exclusive alternatives to ids/match-id"))
+				}
+				if verifyEvidence != "" {
+					if flags.dryRun {
+						return feedErr(flags, fmt.Errorf("verify-evidence performs read-only recovery; omit dry-run"))
+					}
+					ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+					defer cancel()
+					res, err := client.VerifyMappedMatchEvidence(ctx, verifyEvidence)
+					if err != nil {
+						return feedErr(flags, err)
+					}
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				}
+				mappings, err := client.LoadMatchMappings(mappingFile)
+				if err != nil {
+					return &ExitError{Code: ExitInputError, Err: err, Silent: flags.asJSON}
+				}
+				if flags.dryRun {
+					plan, err := client.PlanMappedMatch(ff.accountID, mappings)
+					if err != nil {
+						return feedErr(flags, err)
+					}
+					return writePlan(cmd, flags, planFromClient(cmd, "feed txn update match", "QBO.FEED.TXN_MATCH", modeWired, plan))
+				}
+				ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
+				defer cancel()
+				res, err := client.ReplayMappedMatch(ctx, ff.accountID, mappings)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				if flags.asJSON {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "verified %d one-to-one matches; evidence %s\n", res.Matched, res.Evidence)
+				return nil
+			}
 			matchTxns := make([]client.MatchTxn, 0, len(matchIDs))
 			for _, id := range matchIDs {
 				id = strings.TrimSpace(id)
@@ -600,6 +641,8 @@ func newFeedMatchCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringSliceVar(&ff.ids, "ids", nil, "olbTxnIds to match (not :ofx display ids)")
 	cmd.Flags().StringSliceVar(&matchIDs, "match-id", nil, "existing QBO record ids to match against")
 	cmd.Flags().StringVar(&txnType, "txn-type", "", "advisory record type hint (the register's recorded type is sent)")
+	cmd.Flags().StringVar(&mappingFile, "mapping-file", "", "JSON array of one-to-one olb_txn_id/match_id mappings; expected_date pins feed and ledger dates unless expected_ledger_date explicitly pins a different recorded date; optional expected amount/category/Class")
+	cmd.Flags().StringVar(&verifyEvidence, "verify-evidence", "", "read-only recovery of a previously submitted mapped match evidence directory; never resubmits")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_MATCH")
 	return cmd
 }
@@ -864,6 +907,16 @@ func newFeedRuleSaveCmd(flags *rootFlags, use, id string) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), feedTimeout(flags))
 			defer cancel()
+			if preview := fm["preview"]; preview != "" && preview != "false" {
+				if preview != "true" {
+					return fmt.Errorf("--preview must be true or false")
+				}
+				plan, err := client.ReplayRulePreview(ctx, fm)
+				if err != nil {
+					return feedErr(flags, err)
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(plan)
+			}
 			res, err := client.ReplayRuleSave(ctx, fm)
 			if err != nil {
 				return feedErr(flags, err)

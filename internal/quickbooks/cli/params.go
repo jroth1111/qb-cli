@@ -349,15 +349,18 @@ func paramsFor(id string) []paramDoc {
 func ruleFlagDocs(withID bool) []paramDoc {
 	out := []paramDoc{}
 	if withID {
+		out = append(out, p("preview", "string", "true emits a hydrated read-only before/proposed-body comparison; native matching population remains unverified", false, ""))
+		out = append(out, p("replace-conditions", "string", "true explicitly replaces all criteria; omitted criteria otherwise remain unchanged", false, ""))
+		out = append(out, p("allow-broadened-auto-post", "string", "true acknowledges potentially broader auto-post matching; review population before use", false, ""))
 		out = append(out, p("id", "string", "bank rule id to update (required)", true, ""))
 		out = append(out, p("name", "string", "rule name; omitted keeps the existing name", false, ""))
 	} else {
 		out = append(out, p("name", "string", "display name for the bank rule (required)", true, ""))
 	}
 	return append(out,
-		p("money", "string", "transaction direction the rule matches: in or out (default out)", false, ""),
-		p("match", "string", "condition combination: all (default) or any", false, ""),
-		p("account-ids", "string", "comma-separated bank-feed account ids the rule applies to; omit for all accounts", false, ""),
+		p("money", "string", "transaction direction: in or out; omitted preserves existing direction on update (default out on create)", false, ""),
+		p("match", "string", "condition combination: all or any; omitted preserves existing combination on update (default all on create)", false, ""),
+		p("account-ids", "string", "comma-separated bank-feed account ids; omitted preserves existing scope on update (all accounts on create)", false, ""),
 		p("category-id", "string", "GL account id applied as the transaction category", false, ""),
 		p("payee-id", "string", "vendor or customer id applied as the transaction payee", false, ""),
 		p("customer-id", "string", "customer id applied to matching transactions", false, ""),
@@ -842,8 +845,10 @@ func wiredParams(id string) ([]paramDoc, bool) {
 		}, true
 	case "QBO.FEED.TXN_MATCH":
 		return []paramDoc{
-			p("ids", "strings", "pending downloaded olbTxnIds to match — never display ids like 32371:ofx", true, ""),
-			p("match-id", "strings", "existing QuickBooks record ids to match against (repeatable or comma-separated)", true, ""),
+			p("ids", "strings", "pending olbTxnIds; required with match-id unless mapping-file or verify-evidence is used", false, ""),
+			p("match-id", "strings", "existing record ids; required with ids unless mapping-file or verify-evidence is used", false, ""),
+			p("mapping-file", "string", "JSON array of 1–25 unique olb_txn_id/match_id pairs; optional expected_amount, expected_date (YYYY-MM-DD; pins feed and ledger dates), expected_ledger_date (YYYY-MM-DD; requires expected_date and separately pins the recorded ledger date), expected_category_id, expected_class_id (none for blank); exclusive with ids/match-id", false, ""),
+			p("verify-evidence", "string", "read-only recovery from mapped-match evidence; never resubmits a write; exclusive with mapping-file and ids/match-id", false, ""),
 			p("txn-type", "string", "QBO record type of the match targets (Bill, Expense, Deposit, Cheque)", false, "Bill"),
 			p("account-id", "string", "connected bank/credit-card account that owns the feed row", false, "204"),
 		}, true

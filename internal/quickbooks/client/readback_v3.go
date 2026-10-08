@@ -56,6 +56,11 @@ func expectedFields(want, got any, path string) error {
 				if w[k] == nil || w[k] == "" {
 					continue
 				}
+				// The native service may omit an empty extension collection when
+				// converting a payment type. Nonempty extensions remain mandatory.
+				if extensions, ok := w[k].([]any); k == "CustomExtensions" && ok && len(extensions) == 0 {
+					continue
+				}
 				return fmt.Errorf("%s.%s missing", path, k)
 			}
 			if err := expectedFields(w[k], actual, path+"."+k); err != nil {
@@ -76,6 +81,22 @@ func expectedFields(want, got any, path string) error {
 					if am, ok := a.(map[string]any); ok && am["Id"] == m["Id"] {
 						if index != -1 {
 							return fmt.Errorf("%s duplicate line identity", path)
+						}
+						index = j
+					}
+				}
+			} else if m, ok := v.(map[string]any); ok && strings.HasSuffix(path, ".AttachableRef") {
+				ref, ok := m["EntityRef"].(map[string]any)
+				if !ok || ref["type"] == nil || ref["value"] == nil {
+					return fmt.Errorf("%s incomplete attachment link identity", path)
+				}
+				index = -1
+				for j, a := range g {
+					am, _ := a.(map[string]any)
+					actual, _ := am["EntityRef"].(map[string]any)
+					if actual["type"] == ref["type"] && actual["value"] == ref["value"] {
+						if index != -1 {
+							return fmt.Errorf("%s duplicate attachment link identity", path)
 						}
 						index = j
 					}
@@ -144,7 +165,16 @@ func verifyV3Readback(ctx context.Context, ac *apiClient, entity, op, id string,
 	if path == "" {
 		return fail(ErrReadbackUnavailable)
 	}
-	after, err := fetchV3(ctx, ac, path, id)
+	var after map[string]any
+	var err error
+	if bulk, ok := ctx.Value(entityReadCacheKey{}).(map[string]map[string]any); ok {
+		after = bulk[entity+"/"+id]
+		if after == nil {
+			return fail(fmt.Errorf("independent batch entity query omitted target"))
+		}
+	} else {
+		after, err = fetchV3(ctx, ac, path, id)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -180,6 +210,12 @@ func verifyV3Readback(ctx context.Context, ac *apiClient, entity, op, id string,
 	if op != "create" && before != nil {
 		old := normalizedJSON(before).(map[string]any)
 		for k, v := range old {
+			// This is a newly signed download capability, not persisted file
+			// identity. Document ID, filename, size, type, note and links below
+			// still require exact preservation.
+			if entity == "Attachable" && k == "TempDownloadUri" {
+				continue
+			}
 			if _, changed := want[k]; changed {
 				oldMap, oldOK := v.(map[string]any)
 				wantMap, wantOK := want[k].(map[string]any)

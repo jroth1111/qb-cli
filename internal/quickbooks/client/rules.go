@@ -304,10 +304,14 @@ func ruleActionSet(flags map[string]string) ([]olbRuleAction, error) {
 
 // buildRuleBody assembles the save body. id=-1 creates; a fetched rule
 // supplies editSequence/ruleOrder (and the name fallback) on edit. On edit,
-// the stored conditionList/actionList carry forward unless the caller passed
-// any condition or action flag — a rename-only update must not strip the
-// rule's matching criteria.
+// unspecified conditions/actions carry forward. Complete condition replacement
+// requires an explicit flag; a partial update never removes omitted selectors.
 func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, existing *rawBankRule) (*olbRuleBody, error) {
+	for _, key := range []string{"replace-conditions", "allow-broadened-auto-post"} {
+		if v := firstFlag(flags, key); v != "" && v != "true" && v != "false" {
+			return nil, fmt.Errorf("--%s must be true or false", key)
+		}
+	}
 	fallbackName := ""
 	if existing != nil {
 		fallbackName = existing.RuleName
@@ -323,7 +327,14 @@ func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, exi
 		return nil, fmt.Errorf("rule requires --name")
 	}
 	body := &olbRuleBody{ID: id, RuleName: name, RuleOrder: ruleOrder, EditSequence: editSequence}
-	if existing != nil && onlyNewBankTextExclusion(flags) {
+	if existing != nil && hasConditionFlags(flags) && firstFlag(flags, "replace-conditions") != "true" {
+		isAnd, conditions, err := patchRuleConditions(existing, flags)
+		if err != nil {
+			return nil, err
+		}
+		body.ConditionList.IsAndRule = isAnd
+		body.ConditionList.RuleConditions = conditions
+	} else if existing != nil && onlyNewBankTextExclusion(flags) && firstFlag(flags, "replace-conditions") != "true" {
 		body.ConditionList.IsAndRule = existing.ConditionList.IsAndRule
 		if !body.ConditionList.IsAndRule {
 			return nil, fmt.Errorf("--bank-text-exclude requires an ALL rule")
@@ -351,7 +362,7 @@ func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, exi
 		if len(body.ConditionList.RuleConditions) > 5 {
 			return nil, fmt.Errorf("a rule should have a maximum of 5 conditions")
 		}
-	} else if existing != nil && !hasConditionFlags(flags) {
+	} else if existing != nil && !hasConditionFlags(flags) && firstFlag(flags, "replace-conditions") != "true" {
 		body.ConditionList.IsAndRule = existing.ConditionList.IsAndRule
 		body.ConditionList.RuleConditions = existing.ConditionList.RuleConditions
 	} else {
@@ -373,6 +384,17 @@ func buildRuleBody(id, editSequence, ruleOrder int, flags map[string]string, exi
 			return nil, err
 		}
 		body.ActionList.RuleActions = mergeRuleActions(existing, acts, flags)
+	}
+	if existing != nil {
+		effective := *existing
+		if firstFlag(flags, "auto-add") != "" {
+			effective.AutoAdd = nil
+		}
+		effective.ActionList.RuleActions = body.ActionList.RuleActions
+		auto := projectedRuleAutoAdd(effective)
+		if auto != nil && *auto && !ruleConditionsNarrowed(existing, body) && firstFlag(flags, "allow-broadened-auto-post") != "true" {
+			return nil, fmt.Errorf("criteria may broaden an auto-post rule; inspect complete criteria and matching population before --allow-broadened-auto-post true")
+		}
 	}
 	return body, nil
 }

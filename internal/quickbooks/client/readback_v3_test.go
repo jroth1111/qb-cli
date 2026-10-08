@@ -51,7 +51,11 @@ func TestV3MutationRequiresIndependentIntendedState(t *testing.T) {
 			} else if !errors.Is(err, ErrMutationUnverified) {
 				t.Fatalf("false verified success: %v", err)
 			}
-			if posts != 1 || gets != 2 {
+			wantGets := 2
+			if mode == "read failure" {
+				wantGets = 4 // one before-state plus three bounded readback attempts
+			}
+			if posts != 1 || gets != wantGets {
 				t.Fatalf("writes=%d reads=%d; must not replay mutation", posts, gets)
 			}
 		})
@@ -77,5 +81,74 @@ func TestReadbackPreservesUnrequestedNestedFields(t *testing.T) {
 	good := map[string]any{"BillAddr": map[string]any{"Line1": "new", "City": "Melbourne"}}
 	if err := preservedMapFields(before, request, good, "Customer"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReadbackAllowsOnlyOmittedEmptyCustomExtensions(t *testing.T) {
+	if err := expectedFields(map[string]any{"CustomExtensions": []any{}}, map[string]any{}, "Purchase.Line[0]"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []map[string]any{
+		{"CustomExtensions": []any{map[string]any{"value": "retain"}}},
+		{"Line": []any{}},
+		{"ClassRef": map[string]any{"value": "parent"}},
+	} {
+		if expectedFields(want, map[string]any{}, "Purchase.Line[0]") == nil {
+			t.Fatal("accepted missing nonempty extensions or accounting fields")
+		}
+	}
+}
+
+func TestAttachableReadbackAllowsSignedURLRotationButPreservesDocument(t *testing.T) {
+	for _, changed := range []string{"url", "documentId", "FileName", "Size", "ContentType", "Note"} {
+		t.Run(changed, func(t *testing.T) {
+			saveUsable(t)
+			before := map[string]any{"Id": "7", "SyncToken": "1", "TempDownloadUri": "https://download.example/old-signature", "documentId": "doc1", "FileName": "evidence.pdf", "Size": 10.0, "ContentType": "application/pdf", "Note": "retain", "AttachableRef": []any{map[string]any{"EntityRef": map[string]any{"type": "Deposit", "value": "8"}}}}
+			want := map[string]any{"Id": "7", "SyncToken": "1", "sparse": true, "AttachableRef": []any{map[string]any{"EntityRef": map[string]any{"type": "Purchase", "value": "9"}}}}
+			after := maps.Clone(before)
+			after["TempDownloadUri"] = "https://download.example/new-signature"
+			after["AttachableRef"] = want["AttachableRef"]
+			if changed != "url" {
+				if changed == "Size" {
+					after[changed] = 11.0
+				} else {
+					after[changed] = "changed"
+				}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"Attachable": after})
+			}))
+			defer server.Close()
+			interceptHTTP(t, server.URL)
+			ac, err := newAPIClient()
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = verifyV3Readback(context.Background(), ac, "Attachable", "update", "7", before, want, t.TempDir())
+			if changed == "url" && err != nil {
+				t.Fatal(err)
+			}
+			if changed != "url" && !errors.Is(err, ErrMutationUnverified) {
+				t.Fatal("lost document metadata accepted")
+			}
+		})
+	}
+}
+
+func TestAttachableReadbackMatchesLinksByEntityIdentity(t *testing.T) {
+	old := map[string]any{"EntityRef": map[string]any{"type": "Deposit", "value": "8"}, "IncludeOnSend": false}
+	new := map[string]any{"EntityRef": map[string]any{"type": "Purchase", "value": "9"}, "IncludeOnSend": false}
+	want := map[string]any{"AttachableRef": []any{old, new}}
+	if err := expectedFields(want, map[string]any{"AttachableRef": []any{new, old}}, "Attachable"); err != nil {
+		t.Fatal(err)
+	}
+	for _, rows := range [][]any{
+		{new, new}, {old}, {old, new, new},
+		{old, map[string]any{"EntityRef": map[string]any{"type": "Purchase", "value": "10"}, "IncludeOnSend": false}},
+		{old, map[string]any{"EntityRef": map[string]any{"type": "Purchase", "value": "9"}, "IncludeOnSend": true}},
+	} {
+		if expectedFields(want, map[string]any{"AttachableRef": rows}, "Attachable") == nil {
+			t.Fatal("accepted missing/duplicate/wrong attachment link or changed send flag")
+		}
 	}
 }

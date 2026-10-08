@@ -70,8 +70,10 @@ func reconciliationRegisterRows(ctx context.Context, ac *apiClient, account stri
 	}
 	var rows []map[string]any
 	seen := map[[32]byte]bool{}
-	for page := range 100 {
-		resp, err := ac.get(ctx, fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, account), fmt.Sprintf("items=%d-%d", page*300, page*300+299))
+	start := 0
+	size := ac.censusSize
+	for range 100 {
+		resp, err := ac.get(ctx, fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, account), fmt.Sprintf("items=%d-%d", start, start+size-1))
 		if err != nil {
 			return nil, err
 		}
@@ -100,6 +102,7 @@ func reconciliationRegisterRows(ctx context.Context, ac *apiClient, account stri
 		}
 		seen[hash] = true
 		rows = append(rows, items...)
+		start += len(items)
 	}
 	return nil, fmt.Errorf("register pagination ceiling reached")
 }

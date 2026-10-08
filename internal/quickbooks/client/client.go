@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
@@ -181,7 +182,24 @@ func ReplayFeed(ctx context.Context, accountID, reviewState string, limit int) (
 	// bounded reads — and all unbounded reads (limit<=0) — instead of
 	// presenting a partial or undecodable response.
 	if limit < 1 || limit > 999 {
-		return replayFeedPagedLimit(ctx, accountID, reviewState, limit)
+		attempts := 1
+		if limit < 1 {
+			attempts = 3
+		}
+		var res *PendingResult
+		var err error
+		for range attempts {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			res, err = replayFeedPagedLimit(ctx, accountID, reviewState, limit)
+			if !errors.Is(err, ErrIncomplete) {
+				return res, err
+			}
+			// A moving census must restart from zero with fresh dedup state;
+			// combining failed walks can falsely satisfy the server count.
+		}
+		return res, err
 	}
 	res, err := replayFeedOnce(ctx, accountID, reviewState, limit)
 	if err == nil || !allowInactiveFallback(accountID) || !isInactiveAccount(err) {
@@ -211,11 +229,11 @@ func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, li
 		return nil, err
 	}
 	out := make([]Transaction, 0, min(max(limit, 0), pageSize))
-	seen := make(map[string]struct{})
+	seen := make(map[string]Transaction)
 	expected := -1
 	terminalPageSeen := false
 	// limit <= 0 is unbounded: walk until a short page ends the population.
-	for start := 0; limit < 1 || start < limit; start += pageSize {
+	for start := 0; limit < 1 || start < limit; {
 		size := pageSize
 		if limit > 0 {
 			size = min(pageSize, limit-start)
@@ -230,15 +248,23 @@ func replayFeedPagedLimit(ctx context.Context, accountID, reviewState string, li
 			expected = *page.TotalTransactionsCount
 		}
 		for _, t := range page.Items {
-			if _, exists := seen[t.ID]; !exists {
-				seen[t.ID] = struct{}{}
-				out = append(out, projectTxn(t))
+			projected := projectTxn(t)
+			if previous, exists := seen[t.ID]; exists {
+				if !reflect.DeepEqual(previous, projected) {
+					return nil, fmt.Errorf("%w: repeated feed ID changed during pagination", ErrIncomplete)
+				}
+			} else {
+				seen[t.ID] = projected
+				out = append(out, projected)
 			}
 		}
 		if len(page.Items) == 0 {
 			terminalPageSeen = true
 			break
 		}
+		// The endpoint can cap a response below the requested chunk size.
+		// Advance by wire rows, not projected unique rows or requested size.
+		start += len(page.Items)
 	}
 	complete := terminalPageSeen && expected >= 0 && len(out) == expected
 	res := &PendingResult{Status: http.StatusOK, Counts: map[string]int{"transactions": len(out)}, Transactions: out,
@@ -693,14 +719,27 @@ func projectPending(data *pendingData) *PendingResult {
 
 // --- helpers --------------------------------------------------------------
 
-// readBody reads the full response body, capped at 1 MiB so a runaway
-// response cannot exhaust memory.
+const maxResponseBytes = 32 << 20
+
+// readBody never returns a silently truncated body. Large native pages may
+// exceed 1 MiB; exceeding the bounded budget is an explicit query failure.
 func readBody(resp *http.Response) ([]byte, error) {
 	if resp.Body == nil {
 		return nil, nil
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return readBoundedBody(resp.Body)
+}
+
+func readBoundedBody(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, maxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxResponseBytes {
+		return nil, fmt.Errorf("response exceeds %d-byte safety limit; use smaller pages", maxResponseBytes)
+	}
+	return raw, nil
 }
 
 // errorMessage extracts a human-readable message from a JSON error body

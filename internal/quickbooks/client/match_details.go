@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"math"
 	"net/http"
 	"net/url"
@@ -14,6 +15,20 @@ import (
 // advancedMatchDetails is the UI's source of match eligibility and version.
 // Register editSequence is not the transaction's match SyncToken.
 func buildLiveMatchBody(ctx context.Context, ac *apiClient, accountID string, rows []map[string]any, targets []MatchTxn) ([]byte, error) {
+	return buildLiveMatchBodyWithLedgerDate(ctx, ac, accountID, rows, targets, "")
+}
+
+// Only a separately verified ledger-date precondition can widen the default
+// candidate window; eligibility and SyncToken still come from the live API.
+func buildLiveMatchBodyWithLedgerDate(ctx context.Context, ac *apiClient, accountID string, rows []map[string]any, targets []MatchTxn, ledgerDate string) ([]byte, error) {
+	var pinned time.Time
+	if ledgerDate != "" {
+		var err error
+		pinned, err = time.Parse(time.DateOnly, ledgerDate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pinned ledger date for matching")
+		}
+	}
 	entries := make([]any, 0, len(rows))
 	for _, row := range rows {
 		dateText := mapStr(row, "olbTxnDate")
@@ -21,7 +36,16 @@ func buildLiveMatchBody(ctx context.Context, ac *apiClient, accountID string, ro
 		if err != nil {
 			return nil, fmt.Errorf("invalid feed date for matching")
 		}
-		query := url.Values{"initial": {"true"}, "id": {mapStr(row, "id")}, "lowDate": {date.AddDate(0, 0, -90).Format(time.DateOnly)}, "highDate": {date.AddDate(0, 0, 30).Format(time.DateOnly)}}
+		lowDate, highDate := date.AddDate(0, 0, -90).Format(time.DateOnly), date.AddDate(0, 0, 30).Format(time.DateOnly)
+		if !pinned.IsZero() {
+			if ledgerDate < lowDate {
+				lowDate = ledgerDate
+			}
+			if ledgerDate > highDate {
+				highDate = ledgerDate
+			}
+		}
+		query := url.Values{"initial": {"true"}, "id": {mapStr(row, "id")}, "lowDate": {lowDate}, "highDate": {highDate}}
 		resp, err := ac.get(ctx, ac.neoFeedURL()+"/advancedMatchDetails?"+query.Encode(), "")
 		if err != nil {
 			return nil, err
@@ -46,7 +70,7 @@ func buildLiveMatchBody(ctx context.Context, ac *apiClient, accountID string, ro
 		}
 		oldAmount, oldOK := mapNum(row, "amount")
 		liveAmount, liveOK := mapNum(details.Row, "amount")
-		if !oldOK || !liveOK || oldAmount != liveAmount || mapStr(details.Row, "olbTxnDate") != dateText {
+		if !oldOK || !liveOK || oldAmount != liveAmount || mapStr(details.Row, "olbTxnDate") != dateText || html.UnescapeString(mapStr(details.Row, "origDescription")) != html.UnescapeString(mapStr(row, "origDescription")) {
 			return nil, fmt.Errorf("feed changed during match lookup")
 		}
 		selected := make([]any, 0, len(targets))

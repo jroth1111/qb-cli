@@ -17,6 +17,10 @@ func TestApplyHeadersUsesAllCapturedTokens(t *testing.T) {
 	c := &apiClient{
 		tok: &auth.TokenSet{
 			RequestHeaders: map[string]string{
+				":authority":                  "qbo.intuit.com",
+				":method":                     "POST",
+				":path":                       "/captured/path",
+				":scheme":                     "https",
 				"Authorization":               "Intuit_APIKey intuit_apikey=x,intuit_apikey_version=1.0",
 				"authtype":                    "browser_auth",
 				"apikey":                      "apikey-value",
@@ -39,6 +43,11 @@ func TestApplyHeadersUsesAllCapturedTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.applyHeaders(req, "items=0-19")
+	for _, name := range []string{":authority", ":method", ":path", ":scheme"} {
+		if req.Header.Get(name) != "" {
+			t.Fatalf("transport pseudo-header %s must not be replayed", name)
+		}
+	}
 
 	if got, want := req.Header.Get("x-csrf-token"), "xcsrf-long-different"; got != want {
 		t.Fatalf("x-csrf-token = %q, want distinct captured value", got)

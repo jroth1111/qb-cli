@@ -17,6 +17,14 @@ type batchIntent struct {
 }
 
 func prepareBatchReadback(ctx context.Context, ac *apiClient, items []any) (map[string]batchIntent, error) {
+	var bulk map[string]map[string]any
+	if targets := browserBatchTargets(items, false); targets != nil {
+		var err error
+		bulk, err = readBatchEntities(ctx, ac, targets)
+		if err != nil {
+			return nil, err
+		}
+	}
 	intents := map[string]batchIntent{}
 	targets := map[string]bool{}
 	for _, item := range items {
@@ -56,7 +64,11 @@ func prepareBatchReadback(ctx context.Context, ac *apiClient, items []any) (map[
 			}
 			targets[key] = true
 			var err error
-			in.before, err = fetchV3(ctx, ac, v3Path[in.entity], in.id)
+			if bulk != nil {
+				in.before = bulk[in.entity+"/"+in.id]
+			} else {
+				in.before, err = fetchV3(ctx, ac, v3Path[in.entity], in.id)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -78,6 +90,19 @@ func prepareBatchReadback(ctx context.Context, ac *apiClient, items []any) (map[
 }
 
 func verifyBatchReadback(ctx context.Context, ac *apiClient, items []any, intents map[string]batchIntent, requested map[string]bool, evidence string) error {
+	bulkTargets := browserBatchTargets(items, true)
+	for _, intent := range intents {
+		if intent.op != "update" {
+			bulkTargets = nil
+		}
+	}
+	if bulkTargets != nil {
+		bulk, err := readBatchEntities(ctx, ac, bulkTargets)
+		if err != nil {
+			return fmt.Errorf("%w: independent batch entity query: %v (evidence %s)", ErrMutationUnverified, err, evidence)
+		}
+		ctx = context.WithValue(ctx, entityReadCacheKey{}, bulk)
+	}
 	var failures []error
 	if len(items) != len(requested) {
 		failures = append(failures, fmt.Errorf("batch receipt count mismatch"))

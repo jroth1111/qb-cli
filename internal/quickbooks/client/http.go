@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +38,7 @@ type apiClient struct {
 	cookies    string // pre-built Cookie header value (secret)
 	csrf       string // qbo.csrftoken value (secret)
 	skipRemint bool   // set after one 401 remint so we never loop
+	censusSize int    // bounded request capacity; offsets advance by observed rows
 }
 
 // remint recaptures ATS credentials after a 401. Tests replace it.
@@ -70,6 +73,14 @@ func newAPIClient() (*apiClient, error) {
 		realm:   tok.RealmID,
 		company: tok.CompanyName,
 		email:   tok.Email,
+	}
+	c.censusSize = feedMutationPageSize
+	if value := os.Getenv("QB_CENSUS_PAGE_SIZE"); value != "" {
+		size, err := strconv.Atoi(value)
+		if err != nil || size < 1 || size > 999 {
+			return nil, fmt.Errorf("QB_CENSUS_PAGE_SIZE must be between 1 and 999")
+		}
+		c.censusSize = size
 	}
 	c.cookies = cookieHeader(tok.Cookies)
 	c.csrf = csrfToken(tok.Cookies)

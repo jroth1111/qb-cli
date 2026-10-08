@@ -330,6 +330,7 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 	paged := limit < 1 || limit > queryPageSize || query != ""
 	responseEntity := queryResponseEntity(entity)
 	var items []QueryItem
+	var detail map[string]any
 	status := http.StatusOK
 	// Page until the caller's limit is satisfied or the server reports a
 	// short page — both conditions are terminal, so no page ceiling. A
@@ -375,6 +376,19 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		if len(page) == 0 {
 			break
 		}
+		// Payment allocations and invoice lines cannot be reconstructed from
+		// the compact list projection. Preserve the real single-record query
+		// object, while refusing an unexpected or ambiguous identity.
+		if id != "" && (entity == "Payment" || entity == "Invoice") {
+			var envelope struct {
+				Query map[string]json.RawMessage `json:"QueryResponse"`
+			}
+			var objects []map[string]any
+			if json.Unmarshal(body, &envelope) != nil || json.Unmarshal(envelope.Query[responseEntity], &objects) != nil || len(objects) != 1 || jsonNumberString(objects[0]["Id"]) != id {
+				return nil, fmt.Errorf("single %s query returned an unexpected identity", entity)
+			}
+			detail = objects[0]
+		}
 		if sum := sha256.Sum256(body); seenPage[sum] {
 			return nil, fmt.Errorf("v3 query %s: pagination repeated; result is incomplete", entity)
 		} else {
@@ -414,6 +428,7 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		Entity: entity,
 		Counts: map[string]int{"items": len(items)},
 		Items:  items,
+		Detail: detail,
 	}, nil
 }
 

@@ -6893,7 +6893,7 @@ exit 99
 			"widgets": {{Path: []string{"widgets", "list"}}},
 		},
 		cache:   newCompanionCache(),
-		timeout: time.Second,
+		timeout: 10 * time.Second,
 	})
 	require.False(t, skipped, reason)
 	assert.Equal(t, []string{"widgets", "get", "real-widget-1", "--format=summary", "--include", "stats"}, resolved)

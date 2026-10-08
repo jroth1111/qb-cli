@@ -63,7 +63,7 @@ func ReplayRegister(ctx context.Context, accountID string, limit int) (*Register
 }
 
 // ReplayRegisterPage preserves the register's explicit X-Range pagination.
-// Returned rows are a bounded page, never a completeness assertion.
+// Positive limits return one bounded page; zero walks until an empty page.
 func ReplayRegisterPage(ctx context.Context, accountID string, offset, limit int) (*RegisterResult, error) {
 	if offset < 0 || (limit > 0 && offset > int(^uint(0)>>1)-limit) {
 		return nil, fmt.Errorf("invalid register offset/limit")
@@ -93,13 +93,30 @@ func replayRegisterOnce(ctx context.Context, accountID string, offset, limit int
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, accountID)
-	// limit <= 0 asks for the open-ended range (items=offset-) — the server
-	// decides how much it returns rather than a client-imposed window.
-	xRange := fmt.Sprintf("items=%d-%d", offset, offset+limit-1)
-	if limit < 1 {
-		xRange = fmt.Sprintf("items=%d-", offset)
+	if limit <= 0 {
+		// Open-ended X-Range requests are rejected by the live register.
+		// Reuse the empty-terminal-page walk and its repeated-page guard.
+		rows, err := reconciliationRegisterRows(ctx, ac, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("register transactions: %w", err)
+		}
+		if offset >= len(rows) {
+			rows = []map[string]any{}
+		} else {
+			rows = rows[offset:]
+		}
+		raw, err := json.Marshal(rows)
+		if err != nil {
+			return nil, err
+		}
+		txns, ok := extractRegisterTxns(raw)
+		if !ok {
+			return nil, fmt.Errorf("register response is not a transaction list")
+		}
+		return projectRegister(txns), nil
 	}
+	url := fmt.Sprintf(registerBaseURL+"?accountId=%s", ac.realm, accountID)
+	xRange := fmt.Sprintf("items=%d-%d", offset, offset+limit-1)
 
 	resp, err := ac.get(ctx, url, xRange)
 	if err != nil {

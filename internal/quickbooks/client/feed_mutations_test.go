@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"io"
 	"math"
@@ -97,11 +98,13 @@ func (ms *mutationServer) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"homeCurrencyMatchingTxns": candidates, "olbTxn": row})
 	case strings.HasSuffix(r.URL.Path, "/register/transactions/"):
-		if r.Header.Get("X-Range") == "items=300-599" {
+		var start, end int
+		_, _ = fmt.Sscanf(r.Header.Get("X-Range"), "items=%d-%d", &start, &end)
+		if start >= len(ms.regRows) {
 			_, _ = w.Write([]byte(`[]`))
 			return
 		}
-		_ = json.NewEncoder(w).Encode(ms.regRows)
+		_ = json.NewEncoder(w).Encode(ms.regRows[start:min(end+1, len(ms.regRows))])
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/query"):
 		rows := []map[string]any{}
 		for id, record := range ms.bookRecords {

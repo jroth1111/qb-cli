@@ -74,10 +74,11 @@ func stateRows(ctx context.Context, ac *apiClient, account, state string, ids []
 	found := map[string]map[string]any{}
 	seen := map[string]bool{}
 	exhausted := false
-	for page := range 100 {
-		start := page * 300
-		q := url.Values{"accountId": {account}, "reviewState": {state}, "sort": {"-txnDate"}, "ignoreMatching": {"false"}, "startIndex": {fmt.Sprint(start)}, "chunkSize": {"300"}}
-		resp, err := ac.get(ctx, ac.neoFeedURL()+"/getTransactions?"+q.Encode(), fmt.Sprintf("items=%d-%d", start, start+299))
+	start := 0
+	size := ac.censusSize
+	for range 100 {
+		q := url.Values{"accountId": {account}, "reviewState": {state}, "sort": {"-txnDate"}, "ignoreMatching": {"false"}, "startIndex": {fmt.Sprint(start)}, "chunkSize": {fmt.Sprint(size)}}
+		resp, err := ac.get(ctx, ac.neoFeedURL()+"/getTransactions?"+q.Encode(), fmt.Sprintf("items=%d-%d", start, start+size-1))
 		if err != nil {
 			return nil, err
 		}
@@ -127,6 +128,7 @@ func stateRows(ctx context.Context, ac *apiClient, account, state string, ids []
 		if fresh == 0 {
 			return nil, fmt.Errorf("state pagination repeated before exhaustion")
 		}
+		start += len(env.Items) // advance by observed rows, not requested capacity
 	}
 	if requireAll && len(found) != len(ids) {
 		return nil, fmt.Errorf("%w: %s state did not contain requested rows", ErrFeedRowsNotFound, state)

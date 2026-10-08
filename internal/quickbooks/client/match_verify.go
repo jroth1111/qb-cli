@@ -15,6 +15,14 @@ import (
 var ErrMatchVerification = errors.New("match outcome unverified; inspect current state before retrying")
 
 func verifyMatchResponse(body []byte, accountID string, rows []map[string]any, targets []MatchTxn) error {
+	byRow := map[string][]MatchTxn{}
+	for _, row := range rows {
+		byRow[mapStr(row, "id")] = targets
+	}
+	return verifyMatchResponseMapped(body, accountID, rows, byRow)
+}
+
+func verifyMatchResponseMapped(body []byte, accountID string, rows []map[string]any, targets map[string][]MatchTxn) error {
 	var result struct {
 		Success []map[string]any `json:"success"`
 	}
@@ -36,7 +44,7 @@ func verifyMatchResponse(body []byte, accountID string, rows []map[string]any, t
 		}
 		seen[id] = true
 		account, _ := found["qboAccount"].(map[string]any)
-		if jsonNumberString(account["accountId"]) != accountID || !matchTargetsEqual(found, targets) {
+		if len(targets[id]) == 0 || jsonNumberString(account["accountId"]) != accountID || !matchTargetsEqual(found, targets[id]) {
 			return fmt.Errorf("%w: result account or targets differ for %s", ErrMatchVerification, id)
 		}
 	}
@@ -85,10 +93,18 @@ func matchRegisterPreserved(before, after map[string]any) bool {
 }
 
 func verifyMatchReadback(ctx context.Context, ac *apiClient, accountID string, before []map[string]any, registers []map[string]any, targets []MatchTxn) error {
+	byRow := map[string][]MatchTxn{}
+	for _, row := range before {
+		byRow[mapStr(row, "id")] = targets
+	}
+	return verifyMatchReadbackMapped(ctx, ac, accountID, before, registers, byRow)
+}
+
+func verifyMatchReadbackMapped(ctx context.Context, ac *apiClient, accountID string, before []map[string]any, registers []map[string]any, targets map[string][]MatchTxn) error {
 	// Retry reads only: an eventually consistent read must never repeat the write.
 	var last error
 	for attempt := range 3 {
-		last = verifyMatchReadbackOnce(ctx, ac, accountID, before, registers, targets)
+		last = verifyMatchReadbackMappedOnce(ctx, ac, accountID, before, registers, targets)
 		if last == nil {
 			confirmMutation(ctx)
 			return nil
@@ -105,16 +121,25 @@ func verifyMatchReadback(ctx context.Context, ac *apiClient, accountID string, b
 }
 
 func verifyMatchReadbackOnce(ctx context.Context, ac *apiClient, accountID string, before []map[string]any, registers []map[string]any, targets []MatchTxn) error {
+	byRow := map[string][]MatchTxn{}
+	for _, row := range before {
+		byRow[mapStr(row, "id")] = targets
+	}
+	return verifyMatchReadbackMappedOnce(ctx, ac, accountID, before, registers, byRow)
+}
+
+func verifyMatchReadbackMappedOnce(ctx context.Context, ac *apiClient, accountID string, before []map[string]any, registers []map[string]any, targets map[string][]MatchTxn) error {
 	wanted := map[string]map[string]any{}
 	for _, row := range before {
 		wanted[mapStr(row, "id")] = row
 	}
 	found := map[string]bool{}
 	seen := map[string]bool{}
+	start := 0
+	size := ac.censusSize
 	for page := 0; page < 100 && len(found) < len(wanted); page++ {
-		start := page * feedMutationPageSize
-		url := fmt.Sprintf("%s/getTransactions?sort=-txnDate&reviewState=ACCEPTED&ignoreMatching=false&accountId=%s&startIndex=%d&chunkSize=%d", ac.neoFeedURL(), accountID, start, feedMutationPageSize)
-		resp, err := ac.get(ctx, url, fmt.Sprintf("items=%d-%d", start, start+feedMutationPageSize-1))
+		url := fmt.Sprintf("%s/getTransactions?sort=-txnDate&reviewState=ACCEPTED&ignoreMatching=false&accountId=%s&startIndex=%d&chunkSize=%d", ac.neoFeedURL(), accountID, start, size)
+		resp, err := ac.get(ctx, url, fmt.Sprintf("items=%d-%d", start, start+size-1))
 		if err != nil {
 			return err
 		}
@@ -143,7 +168,7 @@ func verifyMatchReadbackOnce(ctx context.Context, ac *apiClient, accountID strin
 			if !ok {
 				continue
 			}
-			if jsonNumberString(row["qboAccountId"]) != accountID || !matchTargetsEqual(row, targets) {
+			if len(targets[id]) == 0 || jsonNumberString(row["qboAccountId"]) != accountID || !matchTargetsEqual(row, targets[id]) {
 				return fmt.Errorf("accepted row %s has different account or target", id)
 			}
 			for _, key := range []string{"amount", "olbTxnDate", "origDescription"} {
@@ -151,11 +176,24 @@ func verifyMatchReadbackOnce(ctx context.Context, ac *apiClient, accountID strin
 					return fmt.Errorf("accepted row %s changed %s", id, key)
 				}
 			}
+			if len(targets[id]) == 1 {
+				book := findRegisterRow(registers, targets[id][0].TxnID)
+				links := sliceObjects(row["matchedQboTxns"])
+				if book != nil && jsonNumberString(book["txnTypeId"]) != "" {
+					if len(links) != 1 || jsonNumberString(links[0]["txnTypeId"]) != jsonNumberString(book["txnTypeId"]) || jsonNumberString(links[0]["qboTxnSeqId"]) != jsonNumberString(book["sequence"]) || !reflect.DeepEqual(links[0]["amount"], old["amount"]) {
+						return fmt.Errorf("accepted link type, sequence or amount differs for %s", id)
+					}
+				}
+			}
 			found[id] = true
 		}
-		if len(env.Items) < feedMutationPageSize || fresh == 0 {
+		if len(env.Items) == 0 {
 			break
 		}
+		if fresh == 0 {
+			return fmt.Errorf("accepted pagination repeated before requested rows were found")
+		}
+		start += len(env.Items)
 	}
 	if len(found) != len(wanted) {
 		return fmt.Errorf("accepted population did not contain every requested row")
@@ -164,11 +202,24 @@ func verifyMatchReadbackOnce(ctx context.Context, ac *apiClient, accountID strin
 	if err != nil {
 		return err
 	}
-	for _, t := range targets {
-		old := findRegisterRow(registers, t.TxnID)
-		now := findRegisterRow(after, t.TxnID)
-		if !matchRegisterPreserved(old, now) {
-			return fmt.Errorf("register amount, attribution or clearing status changed unexpectedly for %s", t.TxnID)
+	checked := map[string]bool{}
+	for _, list := range targets {
+		for _, t := range list {
+			if checked[t.TxnID] {
+				continue
+			}
+			checked[t.TxnID] = true
+			old, err := uniqueMatchRegister(registers, t.TxnID)
+			if err != nil {
+				return err
+			}
+			now, err := uniqueMatchRegister(after, t.TxnID)
+			if err != nil {
+				return err
+			}
+			if !matchRegisterPreserved(old, now) {
+				return fmt.Errorf("register amount, attribution or clearing status changed unexpectedly for %s", t.TxnID)
+			}
 		}
 	}
 	ids := make([]string, 0, len(before))
