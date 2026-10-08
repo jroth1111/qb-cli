@@ -823,7 +823,7 @@ func wiredParams(id string) ([]paramDoc, bool) {
 	case "QBO.FEED.TXN_LOOKUP":
 		return []paramDoc{
 			p("query", "string", "case-insensitive substring match on id, olbTxnId, description or cheque number (hyphens fold to spaces)", true, ""),
-			p("account-id", "string", "banking account id", false, "204"),
+			p("account-id", "string", "connected bank or credit-card account whose feed is searched", false, "204"),
 			p("limit", "int", "max matching rows returned after all pages are searched", false, "0"),
 		}, true
 	case "QBO.FEED.TXN_EXCLUDE", "QBO.FEED.TXN_UNDO_EXCLUDED":
