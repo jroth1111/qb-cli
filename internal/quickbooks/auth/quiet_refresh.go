@@ -35,6 +35,11 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 		return remintManagedLocked(ctx)
 	}
 	if current.EgoSpace != "" || current.Source == "ego-existing" {
+		if allowManaged && SupportsNativeTicket(current) {
+			if record, err := loadRecovery(); err == nil && record.Enabled && recoveryBound(record, current) {
+				return recoverManagedLocked(ctx, current)
+			}
+		}
 		space := current.EgoSpace
 		if space == "" {
 			space = "qb-gql" // legacy existing-Ego capture

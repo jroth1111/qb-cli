@@ -34,7 +34,7 @@ func VerifyLoginRecovery(ctx context.Context, localLoss bool) (*RecoveryVerifica
 	if err != nil || !r.Enabled || !recoveryBound(r, before) {
 		return nil, ErrSessionChanged
 	}
-	if localLoss && !r.TestProfile {
+	if localLoss && (!r.TestProfile || before.Source != "managed-profile") {
 		return nil, errors.New("local auth loss is allowed only on a bootstrapped --test-profile")
 	}
 	ctx = withManagedHeaded(ctx, r.Headed)
@@ -47,7 +47,7 @@ func VerifyLoginRecovery(ctx context.Context, localLoss bool) (*RecoveryVerifica
 		unlock()
 		return nil, err
 	}
-	if err = SaveRenewedCapture(before, cap, "managed-profile"); err != nil {
+	if err = SaveRenewedCapture(before, cap, before.Source); err != nil {
 		unlock()
 		return nil, err
 	}
@@ -59,7 +59,13 @@ func VerifyLoginRecovery(ctx context.Context, localLoss bool) (*RecoveryVerifica
 	result := &RecoveryVerification{BaselineVerified: true, WarmSessionPreserved: SameSession(before, baseline) && baseline.CredentialGeneration == before.CredentialGeneration}
 	if !localLoss {
 		unlock()
-		result.OK = result.BaselineVerified && result.WarmSessionPreserved
+		result.LogicalSessionPreserved = SameSession(before, baseline)
+		result.IdentityPreserved = before.RealmID == baseline.RealmID && before.Email == baseline.Email
+		result.IndependentReadback = cap.Evidence != nil && cap.Evidence.APIProof && cap.Evidence.IdentityVerified && len(cap.Evidence.CredentialPurposes) == 0
+		result.OK = result.BaselineVerified && result.WarmSessionPreserved && result.LogicalSessionPreserved && result.IdentityPreserved && result.IndependentReadback
+		if !result.OK {
+			return result, errors.New("warm recovery verification lacked independent identity/API proof")
+		}
 		return result, nil
 	}
 	err = withManagedBrowser(ctx, func(page context.Context) error {

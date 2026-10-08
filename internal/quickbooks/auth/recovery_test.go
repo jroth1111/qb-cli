@@ -45,7 +45,7 @@ func recoveryFixture(t *testing.T) (*TokenSet, RecoverySecrets) {
 		info, _ := os.Stat(dir)
 		t.Fatalf("key-create: %v (mode %v, owner type %T, accepted %v)", err, info.Mode(), info.Sys(), recoveryFileOwned(info))
 	}
-	secrets := RecoverySecrets{Username: "fixture-user", Password: "fixture-password-not-for-logs", TOTP: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"}
+	secrets := RecoverySecrets{Username: tok.Email, Password: "fixture-password-not-for-logs", TOTP: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"}
 	if err = EnrollLoginRecovery(context.Background(), secrets, RecoveryOptions{KeyFile: key}); err != nil {
 		t.Fatalf("enroll: %v", err)
 	}
@@ -126,7 +126,9 @@ func TestRecoveryVaultEncryptionAndBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range []string{secrets.Username, secrets.Password, secrets.TOTP} {
+	// The principal email is intentional binding metadata; login password and
+	// authenticator seed must never appear outside the encrypted payload.
+	for _, v := range []string{secrets.Password, secrets.TOTP} {
 		if bytes.Contains(b, []byte(v)) {
 			t.Fatal("vault leaked secret plaintext")
 		}

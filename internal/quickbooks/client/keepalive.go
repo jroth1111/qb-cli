@@ -11,7 +11,7 @@ var refreshQuiet = auth.RefreshQuiet
 var extendNativeTicket = auth.ExtendNativeTicket
 
 func maintainNativeTicket(ctx context.Context, tok *auth.TokenSet, allowManaged bool) error {
-	if !allowManaged || tok.Source != "managed-profile" {
+	if !allowManaged || !auth.SupportsNativeTicket(tok) {
 		return nil
 	}
 	return extendNativeTicket(ctx, tok, false)
@@ -52,8 +52,8 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 	ac.skipRemint = true
 	ok, status, rejected := maintenanceProbe(ctx, ac)
 	if ok {
-		if err = maintainNativeTicket(ctx, ac.tok, allowManaged); errors.Is(err, auth.ErrSessionChanged) {
-			return false, status, "session_changed"
+		if err = maintainNativeTicket(ctx, ac.tok, allowManaged); err != nil {
+			return false, status, nativeMaintenanceFailure(err)
 		}
 		return true, status, "live"
 	}
@@ -82,8 +82,8 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 	fresh.skipRemint = true
 	ok, status, rejected = maintenanceProbe(ctx, fresh)
 	if ok {
-		if err = maintainNativeTicket(ctx, fresh.tok, allowManaged); errors.Is(err, auth.ErrSessionChanged) {
-			return false, status, "session_changed"
+		if err = maintainNativeTicket(ctx, fresh.tok, allowManaged); err != nil {
+			return false, status, nativeMaintenanceFailure(err)
 		}
 		return true, status, "live"
 	}
@@ -91,4 +91,19 @@ func MaintainSession(ctx context.Context, expected *auth.TokenSet, allowManaged 
 		return false, status, "needs_login"
 	}
 	return false, status, "temporarily_unavailable"
+}
+
+func nativeMaintenanceFailure(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrSessionChanged):
+		return "session_changed"
+	case errors.Is(err, auth.ErrEgoUserControl):
+		return "user_control"
+	case errors.Is(err, auth.ErrRemintNeedsLogin):
+		return "needs_login"
+	case errors.Is(err, auth.ErrRecoveryAttention):
+		return "needs_attention"
+	default:
+		return "native_extension_pending"
+	}
 }

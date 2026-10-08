@@ -74,6 +74,9 @@ func RemintATS(ctx context.Context) error {
 	// an unrelated managed profile first exhausts the deadline and never reaches
 	// the authenticated browser. Never open login or claim a user-controlled tab.
 	if current.EgoSpace != "" || current.Source == "ego-existing" {
+		if record, err := loadRecovery(); err == nil && record.Enabled && recoveryBound(record, current) {
+			return recoverManagedLocked(ctx, current)
+		}
 		ectx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		space := current.EgoSpace

@@ -20,6 +20,7 @@ const egoCaptureScript = "ego_capture.js"
 var existingEgoScript []byte
 
 type existingEgoKey struct{}
+type egoAPIProofKey struct{}
 type existingEgoOptions struct{ space, target string }
 
 // WithExistingEgo selects an already authenticated tab. It never claims a
@@ -108,6 +109,8 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	if existingOnly {
 		preamble += "const captureTarget = " + strconv.Quote(existing.target) + ";\n" +
 			"const identityExpression = " + strconv.Quote(IdentityJS) + ";\n"
+		requireProof, _ := ctx.Value(egoAPIProofKey{}).(bool)
+		preamble += "const requireAPIProof = " + strconv.FormatBool(requireProof) + ";\n"
 	}
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), script...))
@@ -142,11 +145,18 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		AuditAuthorization string                       `json:"audit_authorization"`
 		Cookies            []Cookie                     `json:"cookies"`
 		Identity           Identity                     `json:"identity"`
+		APIProof           bool                         `json:"api_proof"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("parsing ego capture: %w", err)
 	}
 	cap := &ATSCapture{Headers: file.Headers, SecondaryHeaders: file.APIHeaders, HostHeaders: file.HostHeaders, AuditAuthorization: file.AuditAuthorization, Cookies: file.Cookies, Identity: file.Identity}
+	if required, _ := ctx.Value(egoAPIProofKey{}).(bool); required {
+		if !file.APIProof {
+			return nil, ErrSessionIdentityUnverified
+		}
+		cap.Evidence = &LoginEvidence{APIProof: true, IdentityVerified: true}
+	}
 	if !isIntuitAPIKey(headerGet(cap.Headers, "authorization")) {
 		return nil, ErrNoATSAuthorization
 	}

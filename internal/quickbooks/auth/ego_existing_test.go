@@ -12,7 +12,7 @@ func TestExistingEgoCaptureContract(t *testing.T) {
 	if err != nil {
 		t.Skip("node unavailable")
 	}
-	for _, scenario := range []string{"success", "audit-capture", "tracked-no-label", "untracked", "numeric-space", "homepage", "redirect-other-origin", "dialog", "ambiguous", "identity-drift", "user-control"} {
+	for _, scenario := range []string{"success", "api-proof", "bad-api-proof", "audit-capture", "tracked-no-label", "untracked", "numeric-space", "homepage", "redirect-other-origin", "dialog", "ambiguous", "identity-drift", "user-control"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "capture.mjs")
@@ -64,16 +64,20 @@ const ego={helpers:{
 const fakeProcess={env:{QB_CAPTURE_OUT:out,QB_TIMEOUT_MS:'90000',QB_EGO_SPACE:scenario==='numeric-space'?'3':'qb-login',QB_CAPTURE_AUDIT:scenario==='audit-capture'?'true':'false'}};
 const logs=[];
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const run=new AsyncFunction('ego','taskSpace','process','captureTarget','identityExpression','Date','setTimeout','console',await fs.readFile(script,'utf8'));
-const taskSpace=async key=>{assert.equal(key,scenario==='numeric-space'?3:'qb-login');return {tabs:async()=>scenario==='ambiguous'?[tab,tab]:[tab]};};
+const run=new AsyncFunction('ego','taskSpace','process','captureTarget','identityExpression','Date','setTimeout','console','requireAPIProof',await fs.readFile(script,'utf8'));
+const taskSpace=async key=>{assert.equal(key,scenario==='numeric-space'?3:'qb-login');return {tabs:async()=>scenario==='ambiguous'?[tab,tab]:[tab],page:label=>{assert.equal(label,'p5');return {fetch:async(url,opts)=>{
+ assert.ok(url.includes('/api/v3/company/123/query'));assert.equal(opts.method,'GET');assert.equal(opts.headers.Authorization,'Intuit_APIKey test');
+ return {status:200,body:JSON.stringify({QueryResponse:scenario==='bad-api-proof'?{}:{CompanyInfo:[{CompanyName:'Fixture company'}]}})};
+}};}};};
 let failure;
-try { await run(ego,taskSpace,fakeProcess,scenario==='success'?'p5':'target','identity',{now:()=>ticks+=5000},f=>f(),{log:x=>logs.push(x)}); } catch(e) { failure=e; }
-if(['success','audit-capture','tracked-no-label','untracked','numeric-space','homepage'].includes(scenario)) {
+try { await run(ego,taskSpace,fakeProcess,scenario==='success'?'p5':'target','identity',{now:()=>ticks+=5000},f=>f(),{log:x=>logs.push(x)},scenario.includes('api-proof')); } catch(e) { failure=e; }
+if(['success','api-proof','audit-capture','tracked-no-label','untracked','numeric-space','homepage'].includes(scenario)) {
  assert.equal(failure,undefined);
  const result=JSON.parse(await fs.readFile(out,'utf8'));
  assert.equal(result.cookies.length,1); assert.equal(result.identity.realm,'123');
  assert.equal(JSON.stringify(logs).includes('secret'),false);
  assert.equal(result.audit_authorization,scenario==='audit-capture'?'Intuit_APIKey audit-token':'');
+ assert.equal(result.api_proof,scenario==='api-proof');
  assert.equal(navigations,scenario==='homepage'?1:(scenario==='audit-capture'?2:0));
 } else {
  assert.ok(failure); await assert.rejects(fs.access(out));

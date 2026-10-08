@@ -24,6 +24,7 @@ type loginStep string
 const (
 	stepApp            loginStep = "app"
 	stepUsername       loginStep = "username"
+	stepAccountChoice  loginStep = "account-choice"
 	stepPassword       loginStep = "password"
 	stepPasswordChoice loginStep = "password-choice"
 	stepCompanyChoice  loginStep = "company-choice"
@@ -315,7 +316,7 @@ func authenticateManaged(ctx context.Context, driver loginDriver, secrets *Recov
 				return nil
 			}
 		}
-		if s.Step == stepUsername || s.Step == stepPassword || s.Step == stepPasswordChoice || s.Step == stepTOTP || s.Step == stepAuthenticator {
+		if s.Step == stepUsername || s.Step == stepAccountChoice || s.Step == stepPassword || s.Step == stepPasswordChoice || s.Step == stepTOTP || s.Step == stepAuthenticator {
 			return ErrRemintNeedsLogin
 		}
 		return ErrRecoveryAttention
@@ -325,7 +326,7 @@ func authenticateManaged(ctx context.Context, driver loginDriver, secrets *Recov
 		return err
 	}
 	used := map[loginStep]bool{}
-	for range 7 {
+	for range 8 {
 		if s.Step == stepApp {
 			return nil
 		}
@@ -334,6 +335,14 @@ func authenticateManaged(ctx context.Context, driver loginDriver, secrets *Recov
 		}
 		used[s.Step] = true
 		switch s.Step {
+		case stepAccountChoice:
+			chooser, ok := driver.(interface {
+				chooseAccount(context.Context, string) error
+			})
+			if !ok {
+				return ErrRecoveryAttention
+			}
+			err = chooser.chooseAccount(ctx, secrets.Username)
 		case stepUsername:
 			err = driver.submit(ctx, s.Step, secrets.Username)
 		case stepPassword:
@@ -373,7 +382,7 @@ func authenticateManaged(ctx context.Context, driver loginDriver, secrets *Recov
 		if err != nil {
 			return err
 		}
-		if evidence := loginEvidence(ctx); evidence != nil && s.Step != stepAuthenticator && s.Step != stepPasswordChoice && s.Step != stepCompanyChoice {
+		if evidence := loginEvidence(ctx); evidence != nil && s.Step != stepAuthenticator && s.Step != stepPasswordChoice && s.Step != stepCompanyChoice && s.Step != stepAccountChoice {
 			evidence.CredentialPurposes = append(evidence.CredentialPurposes, string(s.Step))
 		}
 		s, err = waitLoginStep(ctx, driver, s.Step)

@@ -110,7 +110,27 @@ const cookies = (jar.cookies || []).filter(c => ['intuit.com', 'qbo.intuit.com']
   expires: c.expires > 0 ? new Date(c.expires * 1000).toISOString() : '0001-01-01T00:00:00Z'
 }));
 if (!cookies.length) throw new Error('Empty QBO cookie jar');
+let apiProof = false;
+if (typeof requireAPIProof !== 'undefined' && requireAPIProof) {
+  try {
+    if (!tab.label) throw new Error('Unmanaged capture target');
+    const response = await task.page(tab.label).fetch(
+      'https://qbo.intuit.com/api/v3/company/' + encodeURIComponent(after.realm) +
+      '/query?minorversion=73&query=select%20*%20from%20CompanyInfo%20maxresults%201',
+      {method: 'GET', headers: {Authorization: header(primary, 'authorization'),
+       'intuit-company-id': after.realm, Accept: 'application/json'},
+       credentials: 'include', redirect: 'error', cache: 'no-store', timeout: 30000});
+    const body = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
+    const rows = body?.QueryResponse?.CompanyInfo;
+    apiProof = response.status === 200 && Array.isArray(rows) && rows.length === 1 &&
+      typeof rows[0]?.CompanyName === 'string' && rows[0].CompanyName.length > 0;
+    const verified = await h.js(identityExpression);
+    apiProof = apiProof && verified.realm === after.realm &&
+      (verified.email || '').trim().toLowerCase() === after.email.trim().toLowerCase();
+  } catch (_) { apiProof = false; }
+  if (!apiProof) throw new Error('Independent CompanyInfo proof failed; credentials unchanged');
+}
 await fs.writeFile(process.env.QB_CAPTURE_OUT, JSON.stringify({headers: primary,
   api_headers: secondary, host_headers: hosts, audit_authorization: auditAuthorization,
-  cookies, identity: after}), {mode: 0o600});
+  cookies, identity: after, api_proof: apiProof}), {mode: 0o600});
 console.log(JSON.stringify({captured: true, cookie_count: cookies.length, secondary: !!secondary, audit_captured: !!auditAuthorization}));

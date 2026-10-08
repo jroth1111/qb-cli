@@ -182,6 +182,18 @@ func newAuthRecoveryCmd(flags *rootFlags) *cobra.Command {
 		status, err := auth.LoginRecoveryStatus()
 		return recoveryResult(cmd, flags, status, err)
 	}})
+	var rebindLaunch bool
+	rebind := &cobra.Command{Use: "rebind", Short: "Rebind encrypted enrollment to a verified same-company/principal session", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if !rebindLaunch || flags.dryRun {
+			return recoveryResult(cmd, flags, map[string]any{"rebound": false, "requires": "--launch; current source must be signed in as the enrolled company and principal"}, nil)
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), flags.timeout)
+		defer cancel()
+		err := auth.RebindLoginRecovery(ctx)
+		return recoveryResult(cmd, flags, map[string]any{"rebound": err == nil}, err)
+	}}
+	rebind.Flags().BoolVar(&rebindLaunch, "launch", false, "permit owned-source verification and encrypted re-binding; never changes company or principal")
+	parent.AddCommand(rebind)
 	for _, forget := range []bool{false, true} {
 		name := "disable"
 		description := "Disable autonomous sign-in without deleting stored login secrets"

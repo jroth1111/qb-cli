@@ -34,6 +34,13 @@ type nativeTicketResult struct {
 }
 
 var nativeTicketCapture = captureNativeTicket
+var ErrNativeTicketPending = errors.New("native ticket maintenance has not been verified; retry after cooldown")
+
+// An Ego source must pin an existing space and tab; maintenance never creates
+// a browser context or substitutes another source for a stopped profile.
+func SupportsNativeTicket(tok *TokenSet) bool {
+	return tok != nil && (tok.Source == "managed-profile" || tok.Source == "ego-existing" && tok.EgoSpace != "" && tok.EgoTargetID != "")
+}
 
 // This is the deployed TicketManager's own SDK path, not an invented response
 // or a replay of captured bearer headers. pingServer checks a real PERMIT for
@@ -84,7 +91,7 @@ func ExtendNativeTicket(ctx context.Context, expected *TokenSet, force bool) err
 	if IsHarness() {
 		return ErrRecoveryDisabled
 	}
-	if expected == nil || expected.Source != "managed-profile" {
+	if !SupportsNativeTicket(expected) {
 		return ErrRemintNeedsLogin
 	}
 	unlock, err := LockProfile(ctx, HomeDir(), "renewal")
@@ -93,11 +100,14 @@ func ExtendNativeTicket(ctx context.Context, expected *TokenSet, force bool) err
 	}
 	defer unlock()
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || current.Source != "managed-profile" {
+	if err != nil || !SameSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || !SupportsNativeTicket(current) {
 		return ErrSessionChanged
 	}
 	now := time.Now().UTC()
 	if !force && !nativeTicketDue(current.NativeTicket, now) {
+		if current.NativeTicket != nil && current.NativeTicket.State == NativeTicketFailed {
+			return ErrNativeTicketPending
+		}
 		return nil
 	}
 	result, err := nativeTicketCapture(ctx, current)
@@ -113,7 +123,7 @@ func ExtendNativeTicket(ctx context.Context, expected *TokenSet, force bool) err
 		expiry := time.UnixMilli(result.NextExpiry).UTC()
 		if !result.Extended || result.Capture == nil || !expiry.After(now.Add(time.Minute)) || expiry.After(now.Add(24*time.Hour)) {
 			err = errors.New("native ticket extension was not independently verified")
-		} else if err = SaveRenewedCapture(current, result.Capture, "managed-profile"); err == nil {
+		} else if err = SaveRenewedCapture(current, result.Capture, current.Source); err == nil {
 			state.State = NativeTicketExtended
 			state.LastExtended = time.Now().UTC()
 			state.NextDue = expiry
@@ -136,6 +146,9 @@ func ExtendNativeTicket(ctx context.Context, expected *TokenSet, force bool) err
 }
 
 func captureNativeTicket(ctx context.Context, expected *TokenSet) (*nativeTicketResult, error) {
+	if expected.Source == "ego-existing" {
+		return captureEgoNativeTicket(ctx, expected)
+	}
 	var result nativeTicketResult
 	err := withManagedBrowser(ctx, func(page context.Context) error {
 		if err := authenticateManaged(page, managedLoginDriver{ctx: page, company: expected.CompanyName}, nil); err != nil {

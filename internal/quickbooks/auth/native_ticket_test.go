@@ -70,8 +70,36 @@ func TestNativeTicketFailuresNeverResolveCredentials(t *testing.T) {
 		t.Fatal("backoff invoked browser")
 		return nil, nil
 	}
-	if err := ExtendNativeTicket(context.Background(), after, false); err != nil {
+	if err := ExtendNativeTicket(context.Background(), after, false); !errors.Is(err, ErrNativeTicketPending) {
 		t.Fatal(err)
+	}
+}
+
+func TestPinnedEgoNativeTicketPreservesSourceAndNeverReadsVault(t *testing.T) {
+	tok, _ := recoveryFixture(t)
+	tok.Source, tok.EgoSpace, tok.EgoTargetID = "ego-existing", "52", "p1"
+	if err := Save(tok); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ = Load()
+	old := nativeTicketCapture
+	t.Cleanup(func() { nativeTicketCapture = old })
+	nativeTicketCapture = func(_ context.Context, expected *TokenSet) (*nativeTicketResult, error) {
+		if expected.Source != "ego-existing" || expected.EgoSpace != "52" || expected.EgoTargetID != "p1" {
+			t.Fatal("Ego source not preserved")
+		}
+		return &nativeTicketResult{Extended: true, NextExpiry: time.Now().Add(26 * time.Minute).UnixMilli(), Capture: fixtureRecoveryCapture(expected)}, nil
+	}
+	if err := ExtendNativeTicket(context.Background(), tok, true); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := Load()
+	if after.Source != tok.Source || after.EgoSpace != tok.EgoSpace || after.EgoTargetID != tok.EgoTargetID || !SameSession(tok, after) || after.NativeTicket.State != NativeTicketExtended {
+		t.Fatal("native extension replaced the pinned source")
+	}
+	r, _ := loadRecovery()
+	if !r.LastAttempt.IsZero() {
+		t.Fatal("Ego native extension read recovery credentials")
 	}
 }
 

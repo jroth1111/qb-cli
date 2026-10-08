@@ -249,7 +249,7 @@ func (r *recoveryRecord) decrypt(ctx context.Context) (*RecoverySecrets, error) 
 }
 
 func recoveryBound(r *recoveryRecord, tok *TokenSet) bool {
-	return tok != nil && tok.Source == "managed-profile" && tok.SessionID == r.SessionID && tok.RealmID == r.Realm && strings.EqualFold(tok.Email, r.Email)
+	return SupportsNativeTicket(tok) && tok.SessionID == r.SessionID && tok.RealmID == r.Realm && strings.EqualFold(tok.Email, r.Email)
 }
 
 func LoginRecoveryStatus() (RecoveryStatus, error) {
@@ -289,8 +289,11 @@ func EnrollLoginRecovery(ctx context.Context, secrets RecoverySecrets, opts Reco
 	if err != nil {
 		return err
 	}
-	if tok.Source != "managed-profile" || tok.Email == "" || tok.RealmID == "" {
-		return errors.New("enrollment requires qb login --source managed with a verified account/company")
+	if !SupportsNativeTicket(tok) || tok.Email == "" || tok.RealmID == "" {
+		return errors.New("enrollment requires a verified managed login or pinned existing Ego source")
+	}
+	if !strings.EqualFold(secrets.Username, tok.Email) {
+		return ErrSessionChanged
 	}
 	unlock, err := LockProfile(ctx, HomeDir(), "renewal")
 	if err != nil {

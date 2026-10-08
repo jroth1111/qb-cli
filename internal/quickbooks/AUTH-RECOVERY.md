@@ -5,14 +5,14 @@ banking GETs at five-minute intervals and persists server-issued cookie rotation
 Healthy sessions do not resolve passwords, TOTP seeds or vault keys. Network
 errors, rate limits and permission denials do not initiate re-login.
 
-Managed sessions also use the site's native TicketManager/authorization SDK.
+Managed sessions and numerically pinned, agent-owned Ego tabs also use the site's native TicketManager/authorization SDK.
 When due, it makes the real sessionextender permission read (a POST authorization
 batch, not a financial write). A native PERMIT success callback, unchanged
 principal/company, fresh banking authorization and an independent CompanyInfo
 GET are required before saving renewed state. The keeper uses the plugin's
 runtime next-extension time and wakes one minute early if the ordinary banking
 interval would overshoot it; it does not hard-code a ticket lifetime or send an
-extension request every minute. Failed extensions back off and never resolve
+extension request every minute. Failed extensions remain visibly unverified and never resolve
 login credentials while the banking probe is healthy.
 
 Inspect timing with `qb auth ticket status --json` or the `native_ticket` field
@@ -83,8 +83,20 @@ not the correctness of credentials that have not yet been used for a fresh login
 
 The encrypted `login-recovery.json` is profile/account/company/login bound.
 A new explicit login or logout invalidates that binding; enroll again for the
-new session. This is not a global company allowlist: the initial explicit login
+new session, or use `qb auth recovery rebind --launch` to re-encrypt the existing
+enrollment after independent warm verification of the same home, company and
+principal. Rebinding never submits credentials or silently enables a disabled
+enrollment. This is not a global company allowlist: the initial explicit login
 still selects the company. Automatic recovery cannot switch it.
+
+Existing Ego enrollment requires a saved numeric space ID and exact tab target.
+The tab must remain agent-owned; recovery never claims user-controlled/inactive
+spaces, opens a replacement tab, or falls back to another browser. Healthy warm
+capture does not decrypt the vault. Confirmed sign-in permits only the enrolled
+username/password and offered authenticator flow, with values sent in a private
+process stdin pipe—not arguments, environment variables or plaintext files.
+Managed bootstrap remains the first-login path; local-cookie-loss verification
+is restricted to its isolated test profile, never a user's daily Ego profile.
 
 ## Key storage on macOS and Linux
 

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var recoveryCapture = captureManagedRecovery
+var recoveryCapture = captureSourceRecovery
 
 type recoveryGrantKey struct{}
 
@@ -27,7 +27,7 @@ func verifyRecoveryIdentity(expected *TokenSet, cap *ATSCapture) error {
 // recoverManagedLocked is called while the renewal lease is held. Only a
 // confirmed sign-in wall after warm capture permits resolving login secrets.
 func recoverManagedLocked(ctx context.Context, expected *TokenSet) error {
-	if IsHarness() || expected.Source != "managed-profile" {
+	if IsHarness() || !SupportsNativeTicket(expected) {
 		return ErrRecoveryDisabled
 	}
 	r, err := loadRecovery()
@@ -76,6 +76,10 @@ func recoverManagedLocked(ctx context.Context, expected *TokenSet) error {
 	if err != nil {
 		recoveryOutcome(fresh, recoveryKeyUnavailable)
 		return err
+	}
+	if !strings.EqualFold(secrets.Username, expected.Email) {
+		recoveryOutcome(fresh, recoveryIdentityMismatch)
+		return ErrSessionChanged
 	}
 	cap, err = recoveryCapture(context.WithValue(ctx, recoveryGrantKey{}, fresh.ID), expected, secrets)
 	secrets.Username, secrets.Password, secrets.TOTP = "", "", ""
@@ -126,7 +130,7 @@ func saveRecoveredCapture(expected *TokenSet, record *recoveryRecord, cap *ATSCa
 	}
 	// Full login starts a new browser credential generation. Old cookie/audit/
 	// service credentials must not survive or merge from late HTTP responses.
-	next := &TokenSet{Version: CurrentVersion, SessionID: current.SessionID, CredentialGeneration: current.CredentialGeneration + 1, RealmID: current.RealmID, Email: current.Email, CompanyName: current.CompanyName, Source: "managed-profile", CapturedAt: time.Now().UTC(), LoginURL: DefaultLoginURL, FinalURL: BankingCaptureURL}
+	next := &TokenSet{Version: CurrentVersion, SessionID: current.SessionID, CredentialGeneration: current.CredentialGeneration + 1, RealmID: current.RealmID, Email: current.Email, CompanyName: current.CompanyName, Source: current.Source, EgoSpace: current.EgoSpace, EgoTargetID: current.EgoTargetID, CapturedAt: time.Now().UTC(), LoginURL: DefaultLoginURL, FinalURL: BankingCaptureURL}
 	if err = next.ApplyATSCapture(cap); err != nil {
 		return err
 	}

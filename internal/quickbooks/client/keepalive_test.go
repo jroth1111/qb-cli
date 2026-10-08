@@ -104,11 +104,43 @@ func TestKeeperNativeExtensionRunsOnlyAfterHealthyManagedProbe(t *testing.T) {
 			extendNativeTicket = func(context.Context, *auth.TokenSet, bool) error { calls++; return context.DeadlineExceeded }
 			refreshQuiet = func(context.Context, *auth.TokenSet, bool) error { return context.DeadlineExceeded }
 			ok, _, _ := MaintainSession(context.Background(), tok, true)
-			if code == 200 && (!ok || calls != 1) {
-				t.Fatal("healthy probe did not attempt native maintenance")
+			if code == 200 && (ok || calls != 1) {
+				t.Fatal("native failure must not report successful maintenance")
 			}
 			if code != 200 && calls != 0 {
 				t.Fatal("native maintenance ran on a rejected/transient banking response")
+			}
+		})
+	}
+}
+
+func TestHealthyEgoBankProbeCannotHideNativeStop(t *testing.T) {
+	for _, tc := range []struct {
+		err   error
+		state string
+	}{
+		{auth.ErrEgoUserControl, "user_control"},
+		{auth.ErrRemintNeedsLogin, "needs_login"},
+		{auth.ErrRecoveryAttention, "needs_attention"},
+		{auth.ErrNativeTicketPending, "native_extension_pending"},
+		{auth.ErrSessionChanged, "session_changed"},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			saveUsable(t)
+			tok, _ := auth.Load()
+			tok.Source, tok.EgoSpace, tok.EgoTargetID = "ego-existing", "52", "p1"
+			if err := auth.Save(tok); err != nil {
+				t.Fatal(err)
+			}
+			tok, _ = auth.Load()
+			srv := newDomServer(t, 200, `{"accounts":[]}`)
+			interceptHTTP(t, srv.URL)
+			old := extendNativeTicket
+			t.Cleanup(func() { extendNativeTicket = old })
+			extendNativeTicket = func(context.Context, *auth.TokenSet, bool) error { return tc.err }
+			ok, status, state := MaintainSession(context.Background(), tok, true)
+			if ok || status != 200 || state != tc.state {
+				t.Fatalf("ok=%v status=%d state=%s", ok, status, state)
 			}
 		})
 	}

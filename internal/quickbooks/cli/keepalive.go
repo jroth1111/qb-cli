@@ -38,7 +38,7 @@ var maintainSession = client.MaintainSession
 var launchKeeper = launchKeeperProcess
 
 func nativeKeeperDelay(interval time.Duration, tok *auth.TokenSet, now time.Time) time.Duration {
-	if tok == nil || tok.Source != "managed-profile" || tok.NativeTicket == nil || tok.NativeTicket.State != auth.NativeTicketExtended {
+	if !auth.SupportsNativeTicket(tok) || tok.NativeTicket == nil || tok.NativeTicket.State != auth.NativeTicketExtended {
 		return interval
 	}
 	until := tok.NativeTicket.NextDue.Add(-time.Minute).Sub(now)
@@ -253,6 +253,8 @@ func runKeeper(ctx context.Context, id string) error {
 					delay = nativeKeeperDelay(delay, tok, time.Now())
 				}
 			}
+		} else if state == "native_extension_pending" {
+			delay = policy.Interval
 		} else {
 			delay = min(max(delay, policy.Interval)*2, 30*time.Minute)
 		}

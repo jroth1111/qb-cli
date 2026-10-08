@@ -9,7 +9,7 @@ import (
 )
 
 func newAuthTicketCmd(flags *rootFlags) *cobra.Command {
-	cmd := &cobra.Command{Use: "ticket", Short: "Inspect or extend the current managed browser ticket"}
+	cmd := &cobra.Command{Use: "ticket", Short: "Inspect or extend the current owned browser ticket"}
 	cmd.AddCommand(&cobra.Command{Use: "status", Short: "Show native ticket-extension timing", Args: cobra.NoArgs, Annotations: map[string]string{"mcp:read-only": "true"}, RunE: func(cmd *cobra.Command, _ []string) error {
 		tok, err := auth.Load()
 		if err != nil {
@@ -46,7 +46,7 @@ func newAuthTicketCmd(flags *rootFlags) *cobra.Command {
 		performed := tok.NativeTicket != nil && tok.NativeTicket.LastAttempt.After(previousAttempt)
 		return recoveryResult(cmd, flags, map[string]any{"ok": true, "extended": performed && tok.NativeTicket.State == auth.NativeTicketExtended, "native_ticket": tok.NativeTicket}, nil)
 	}}
-	extend.Flags().BoolVar(&launch, "launch", false, "allow headless managed browser maintenance")
+	extend.Flags().BoolVar(&launch, "launch", false, "allow maintenance in the managed browser or pinned existing Ego tab")
 	extend.Flags().BoolVar(&force, "force", false, "perform a bounded extension even when not due")
 	cmd.AddCommand(extend)
 	return cmd
