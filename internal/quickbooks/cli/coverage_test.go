@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,41 +18,35 @@ func TestREADMECountsMatchCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots := regexp.MustCompile("`qb ([a-z]+)`")
+	labels := map[string]string{"Accounting": "accounting", "Expenses": "expenses", "Sales": "sales", "Company": "company", "Banking feeds": "feed", "Customers": "customers", "Inventory": "inventory", "Payroll": "payroll", "Tax": "tax", "Reports": "reports", "GraphQL wrappers": "gql", "Advanced": "advanced", "Cost groups": "costgroups", "Integrations": "integrations", "Custom objects": "customobjects", "Accountant": "accountant"}
 	seen := map[string]bool{}
 	for line := range strings.SplitSeq(string(readme), "\n") {
 		if !strings.HasPrefix(line, "|") {
 			continue
 		}
 		columns := strings.Split(line, "|")
-		if len(columns) != 6 {
+		if len(columns) != 7 {
 			continue
 		}
-		matches := roots.FindAllStringSubmatch(columns[4], -1)
-		if len(matches) == 0 {
+		domain, ok := labels[strings.TrimSpace(columns[1])]
+		if !ok {
 			continue
 		}
-		wired, read := 0, 0
-		for _, match := range matches {
-			domain := match[1]
-			if seen[domain] {
-				t.Errorf("duplicate README domain %s", domain)
-			}
-			seen[domain] = true
-			for _, row := range catalogPrimitives {
-				if row.Domain != domain {
-					continue
-				}
-				switch row.Mode {
-				case modeWired:
-					wired++
-				case modeRead:
-					read++
-				}
-			}
+		if seen[domain] {
+			t.Errorf("duplicate README domain %s", domain)
 		}
-		if strings.TrimSpace(columns[2]) != fmt.Sprint(wired) || strings.TrimSpace(columns[3]) != fmt.Sprint(read) {
-			t.Errorf("README coverage drift: %s; catalog has %d wired, %d read", line, wired, read)
+		seen[domain] = true
+		counts := map[primitiveMode]int{}
+		for _, row := range catalogPrimitives {
+			if row.Domain != domain {
+				continue
+			}
+			counts[row.Mode]++
+		}
+		for i, mode := range []primitiveMode{modeRead, modeWired, modeBlocked, modeExcluded} {
+			if strings.TrimSpace(columns[i+2]) != fmt.Sprint(counts[mode]) {
+				t.Errorf("README coverage drift for %s %s: %s; catalog has %d", domain, mode, line, counts[mode])
+			}
 		}
 	}
 	for _, row := range catalogPrimitives {
