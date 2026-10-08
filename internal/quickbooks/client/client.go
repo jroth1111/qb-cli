@@ -51,6 +51,7 @@ type Transaction struct {
 	Date                string             `json:"date"`
 	Amount              float64            `json:"amount"`
 	Description         string             `json:"description"`
+	CheckNum            string             `json:"checkNum,omitempty"`
 	AcceptType          string             `json:"acceptType"`
 }
 
@@ -477,6 +478,7 @@ func projectTxn(t rawTxn) Transaction {
 		Date:                t.OlbTxnDate,
 		Amount:              orZero(t.Amount),
 		Description:         desc,
+		CheckNum:            t.CheckNum,
 		AcceptType:          t.AcceptType,
 	}
 }
@@ -489,7 +491,7 @@ var ErrEmptyQuery = errors.New("replay lookup: query must not be empty")
 
 // ReplayLookup walks all review states (PENDING, ACCEPTED, EXCLUDED)
 // to empty terminal pages and filters to those whose id,
-// olbTxnId, or description contains query (case-insensitive). Hyphens
+// olbTxnId, description, or cheque number contains query (case-insensitive). Hyphens
 // and underscores fold to spaces so "QB-CLI-TEST" matches
 // "Qb Cli Test Do Not" (the title-case truncation QBO stores on import).
 // An empty query returns ErrEmptyQuery before any network activity.
@@ -507,14 +509,14 @@ func ReplayLookup(ctx context.Context, accountID, query string, limit int) (*Pen
 	return replayLookupComplete(ctx, accountID, query, limit)
 }
 
-// txnMatches reports whether a projected transaction matches query.
+// txnMatches includes the cheque-number field shown in the bank-feed UI.
 // Needle and haystacks are lowercased and have '-' / '_' folded to spaces.
 func txnMatches(t Transaction, query string) bool {
 	needle := normalizeLookup(query)
 	if needle == "" {
 		return false
 	}
-	for _, field := range []string{t.ID, t.OLBTxnID, t.Description, t.DisplayDescription} {
+	for _, field := range []string{t.ID, t.OLBTxnID, t.Description, t.DisplayDescription, t.CheckNum} {
 		if strings.Contains(normalizeLookup(field), needle) {
 			return true
 		}
@@ -616,6 +618,7 @@ type rawTxn struct {
 	Amount               *float64                   `json:"amount"`
 	Description          string                     `json:"description"`
 	OrigDescription      string                     `json:"origDescription"`
+	CheckNum             string                     `json:"checkNum"`
 	AcceptType           string                     `json:"acceptType"`
 	MatchedQboTxns       []rawMatchedTxn            `json:"matchedQboTxns"`
 	AddAsQboTxn          *rawSuggestedTxn           `json:"addAsQboTxn"`

@@ -245,7 +245,7 @@ func newFeedLookupCmd(flags *rootFlags) *cobra.Command {
 	var query string
 	cmd := &cobra.Command{
 		Use:   "get",
-		Short: "Search pending/posted/excluded transactions by id or description",
+		Short: "Search pending/posted/excluded transactions by id, description or cheque number",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if query == "" {
 				return &ExitError{
@@ -270,7 +270,7 @@ func newFeedLookupCmd(flags *rootFlags) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&ff.accountID, "account-id", client.DefaultAccountID,
 		"banking account id (defaults to "+client.DefaultAccountID+")")
-	cmd.Flags().StringVar(&query, "query", "", "search query (matches id or description, case-insensitive)")
+	cmd.Flags().StringVar(&query, "query", "", "search query (matches id, description or cheque number, case-insensitive)")
 	cmd.Flags().IntVar(&ff.limit, "limit", 0, "max matching rows returned; all three review states are fully searched (0 = all)")
 	applyCatalogHelp(cmd, "QBO.FEED.TXN_LOOKUP")
 	return cmd
