@@ -335,12 +335,12 @@ func ReplayFeedComplete(ctx context.Context, accountID, reviewState string, maxP
 	const pageSize = 300
 	seen := make(map[string]struct{})
 	out := make([]Transaction, 0)
-	for pageNum := 0; maxPages < 1 || pageNum < maxPages; pageNum++ {
-		start := pageNum * pageSize
+	for pageNum, start := 0, 0; maxPages < 1 || pageNum < maxPages; pageNum++ {
 		page, err := fetchFeedPage(ctx, ac, accountID, state, start, pageSize)
 		if err != nil {
 			return nil, err
 		}
+		before := len(out)
 		for _, t := range page.Items {
 			if _, dup := seen[t.ID]; !dup {
 				seen[t.ID] = struct{}{}
@@ -352,9 +352,11 @@ func ReplayFeedComplete(ctx context.Context, accountID, reviewState string, maxP
 		if expected > 0 && len(out) >= expected {
 			break
 		}
-		if len(page.Items) < pageSize {
-			break // short page: end of population
+		if len(out) == before || (len(page.Items) < pageSize && expected < 0) {
+			break
 		}
+		// A response may be capped below the requested capacity.
+		start += len(page.Items)
 	}
 
 	res := &PendingResult{

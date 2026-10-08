@@ -26,17 +26,19 @@ func VerifyFeed(ctx context.Context, accountID string) (*VerifyResult, error) {
 
 	const pageSize = 300
 	seen := make(map[string]struct{})
-	for page := range 40 {
-		p, err := fetchFeedPage(ctx, ac, accountID, "PENDING", page*pageSize, pageSize)
+	for start := 0; ; {
+		p, err := fetchFeedPage(ctx, ac, accountID, "PENDING", start, pageSize)
 		if err != nil {
 			return nil, err
 		}
+		before := len(seen)
 		for _, t := range p.Items {
 			seen[t.ID] = struct{}{}
 		}
-		if len(p.Items) < pageSize {
+		if len(seen) == before || (len(p.Items) < pageSize && expected < 0) {
 			break
 		}
+		start += len(p.Items)
 	}
 
 	// expected==0 means the server reports an empty population — that is
