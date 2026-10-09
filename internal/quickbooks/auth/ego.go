@@ -138,6 +138,11 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	if err != nil {
 		return nil, fmt.Errorf("reading ego capture: %w", err)
 	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		// A successful helper exit is not capture evidence. Do not include its
+		// raw output: capture diagnostics can contain browser credentials.
+		return nil, errors.New("ego-browser returned an empty capture despite a successful exit; saved credentials unchanged; verify control of the existing QBO tab and retry with its numeric --ego-space ID and --target-id")
+	}
 	var file struct {
 		Headers            map[string]string            `json:"headers"`
 		APIHeaders         map[string]string            `json:"api_headers"`

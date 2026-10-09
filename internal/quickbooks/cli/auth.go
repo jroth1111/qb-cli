@@ -192,27 +192,55 @@ func newAuthStatusCmd(flags *rootFlags) *cobra.Command {
 // non-zero exit so scripts can branch to `qb login`; transport failures
 // are reported distinctly from proof-of-death.
 func runStatusLive(cmd *cobra.Command, flags *rootFlags, tok *auth.TokenSet, status auth.Status) error {
-	stdout := cmd.OutOrStdout()
 	if err := auth.PingV3(cmd.Context(), tok); err != nil {
-		printStatus(stdout, cmd.ErrOrStderr(), flags, status)
 		if errors.Is(err, auth.ErrSessionStale) {
-			fmt.Fprintln(stdout, "  liveness: STALE — run `qb login` to sign in again")
+			printStatusLiveness(cmd, flags, status, authLivenessStale)
 			return &ExitError{
 				Code:   ExitAuthError,
 				Err:    err,
 				Silent: flags.asJSON,
 			}
 		}
-		fmt.Fprintln(stdout, "  liveness: unknown (could not reach QBO)")
+		printStatusLiveness(cmd, flags, status, authLivenessUnknown)
 		return &ExitError{
 			Code:   ExitAuthError,
 			Err:    fmt.Errorf("liveness check failed: %w", err),
 			Silent: flags.asJSON,
 		}
 	}
-	printStatus(stdout, cmd.ErrOrStderr(), flags, status)
-	fmt.Fprintln(stdout, "  liveness: live (verified against QBO)")
+	printStatusLiveness(cmd, flags, status, authLivenessLive)
 	return nil
+}
+
+type authLiveness string
+
+const (
+	authLivenessLive    authLiveness = "live"
+	authLivenessStale   authLiveness = "stale"
+	authLivenessUnknown authLiveness = "unknown"
+)
+
+func printStatusLiveness(cmd *cobra.Command, flags *rootFlags, status auth.Status, liveness authLiveness) {
+	if flags.asJSON {
+		status.OK = liveness == authLivenessLive
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(struct {
+			auth.Status
+			Liveness authLiveness `json:"liveness"`
+			Verified bool         `json:"verified"`
+		}{Status: status, Liveness: liveness, Verified: status.OK})
+		return
+	}
+	printStatus(cmd.OutOrStdout(), cmd.ErrOrStderr(), flags, status)
+	switch liveness {
+	case authLivenessLive:
+		fmt.Fprintln(cmd.OutOrStdout(), "  liveness: live (verified against QBO)")
+	case authLivenessStale:
+		fmt.Fprintln(cmd.OutOrStdout(), "  liveness: STALE — run `qb login` to sign in again")
+	case authLivenessUnknown:
+		fmt.Fprintln(cmd.OutOrStdout(), "  liveness: unknown (could not reach QBO)")
+	}
 }
 
 // newAuthLogoutCmd implements `qb auth logout`: delete the persisted

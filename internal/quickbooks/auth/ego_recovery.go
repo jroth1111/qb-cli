@@ -36,7 +36,7 @@ try {
    else {
     const choice=await page.evaluate(({email})=>{
      const visible=e=>e&&!e.disabled&&e.getClientRects().length>0;
-     const cards=[...document.querySelectorAll('li button')].filter(e=>visible(e)&&
+     const cards=[...document.querySelectorAll('button')].filter(e=>visible(e)&&
       (e.innerText.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/ig)||[]).some(v=>v.toLowerCase()===email.toLowerCase()));
      const alerts=[...document.querySelectorAll('[role="alert"]')].filter(e=>visible(e)&&e.innerText.trim());
      return cards.length===1&&alerts.every(e=>/^your session timed out\.?\s*sign in again to continue$/i.test(e.innerText.trim()));
@@ -74,7 +74,7 @@ try {
      let selected=[];
      if(arg.action==='password')selected=buttons.filter(e=>/^enter password(?:[\s,]|$)/i.test(e.innerText.trim()));
      if(arg.action==='authenticator')selected=buttons.filter(e=>/^(use )?(an? )?authenticator app(?:[\s,]|$)/i.test(e.innerText.trim()));
-     if(arg.action==='account')selected=[...document.querySelectorAll('li button')].filter(e=>visible(e)&&(e.innerText.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/ig)||[]).some(v=>v.toLowerCase()===arg.email.toLowerCase()));
+     if(arg.action==='account')selected=buttons.filter(e=>(e.innerText.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/ig)||[]).some(v=>v.toLowerCase()===arg.email.toLowerCase()));
      if(arg.action==='company')selected=[...document.querySelectorAll('li button')].filter(e=>visible(e)&&e.name!=='buttonToOpen'&&(!arg.company||e.innerText.trim()===arg.company));
      if(selected.length!==1)return false;
      document.querySelectorAll('[data-qb-ego-choice]').forEach(e=>e.removeAttribute('data-qb-ego-choice'));

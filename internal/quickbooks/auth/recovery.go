@@ -11,6 +11,43 @@ var recoveryCapture = captureSourceRecovery
 
 type recoveryGrantKey struct{}
 
+// An operator may request one new attempt without overriding disabled recovery,
+// identity fences, the existing cooldown, or provider verification challenges.
+func RetryLoginRecovery(ctx context.Context) error {
+	if IsHarness() {
+		return ErrRecoveryDisabled
+	}
+	unlock, err := LockProfile(ctx, HomeDir(), "renewal")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	tok, err := Load()
+	if err != nil {
+		return err
+	}
+	lock, err := credentialLock(HomeDir())
+	if err != nil {
+		return err
+	}
+	r, err := loadRecovery()
+	if err == nil && !r.Enabled {
+		err = ErrRecoveryDisabled
+	}
+	if err == nil && (!recoveryBound(r, tok) || r.State == recoveryIdentityMismatch) {
+		err = ErrSessionChanged
+	}
+	if err == nil {
+		r.State = recoveryEnrolled
+		err = writeRecovery(r)
+	}
+	lock()
+	if err != nil {
+		return err
+	}
+	return recoverManagedLocked(ctx, tok)
+}
+
 func verifyRecoveryIdentity(expected *TokenSet, cap *ATSCapture) error {
 	if expected == nil || expected.RealmID == "" || expected.Email == "" || cap == nil || !cap.HasKey() || cap.Identity.Realm != expected.RealmID || cap.Identity.Email == "" || !strings.EqualFold(cap.Identity.Email, expected.Email) {
 		return ErrSessionChanged
@@ -43,7 +80,7 @@ func recoverManagedLocked(ctx context.Context, expected *TokenSet) error {
 	ctx = withManagedHeaded(ctx, r.Headed)
 	cap, err := recoveryCapture(ctx, expected, nil)
 	if err == nil {
-		return SaveRenewedCapture(expected, cap, "managed-profile")
+		return SaveRenewedCapture(expected, cap, expected.Source)
 	}
 	if !errors.Is(err, ErrRemintNeedsLogin) {
 		return err

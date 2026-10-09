@@ -29,14 +29,21 @@ await h.switchTab(tab.targetId || tab.id);
 const info = await h.pageInfo();
 if (!qboURL(info.url)) throw new Error('Selected tab is no longer QBO banking');
 if (info.dialog) throw new Error('Dismiss the browser dialog before capturing');
-const before = await h.js(identityExpression);
-if (!before.realm || !before.email) throw new Error('Existing tab lacks a verifiable company and principal');
+let before = await h.js(identityExpression);
 if (new URL(info.url).pathname !== '/app/banking') {
   await h.gotoAndWait('https://qbo.intuit.com/app/banking', {timeout: 30});
   const reached = (await h.pageInfo()).url;
   if (!qboURL(reached) || new URL(reached).pathname !== '/app/banking') {
     throw new Error('Existing authenticated tab did not reach QBO banking');
   }
+}
+const identityDeadline = Date.now() + 30000;
+while (!before.realm || !before.email) {
+  if (Date.now() >= identityDeadline) throw new Error('Existing tab lacks a verifiable company and principal');
+  const current = await h.pageInfo();
+  if (!qboURL(current.url) || current.dialog) throw new Error('Existing tab stopped before identity verification');
+  before = await h.js(identityExpression);
+  if (!before.realm || !before.email) await new Promise(resolve => setTimeout(resolve, 250));
 }
 const header = (h, name) => String(Object.entries(h || {}).find(([k]) => k.toLowerCase() === name)?.[1] || '');
 let primary, secondary, auditAuthorization = '';

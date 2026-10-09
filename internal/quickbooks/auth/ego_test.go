@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,34 @@ func TestCaptureATSFromEgoMissingBinary(t *testing.T) {
 	_, err := CaptureATSFromEgo(context.Background(), "", "")
 	if !errors.Is(err, ErrEgoMissing) {
 		t.Fatalf("got %v, want ErrEgoMissing", err)
+	}
+}
+
+func TestCaptureATSFromEgoEmptySuccessfulExitIsNotCaptureEvidence(t *testing.T) {
+	for _, whitespace := range []bool{false, true} {
+		t.Run(fmt.Sprint(whitespace), func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "ego-browser")
+			script := "#!/bin/sh\ncat >/dev/null\nprintf 'private-capture-diagnostic-secret' >&2\n"
+			if whitespace {
+				script += "printf '  \\n' > \"$QB_CAPTURE_OUT\"\n"
+			}
+			script += "exit 0\n"
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+":/usr/bin:/bin")
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cap, err := CaptureATSFromEgo(ctx, "", "")
+			if cap != nil || err == nil || !strings.Contains(err.Error(), "empty capture") ||
+				!strings.Contains(err.Error(), "numeric --ego-space ID") {
+				t.Fatalf("empty capture accepted or not actionable: %v", err)
+			}
+			if strings.Contains(err.Error(), "private-capture-diagnostic-secret") {
+				t.Fatal("raw capture diagnostic leaked")
+			}
+		})
 	}
 }
 

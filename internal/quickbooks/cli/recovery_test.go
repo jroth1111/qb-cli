@@ -23,6 +23,19 @@ func runRecoveryCLI(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
+func TestRecoveryRetryRequiresLaunchAndRefusesHarness(t *testing.T) {
+	t.Setenv("QB_HOME", t.TempDir())
+	t.Setenv("PRINTING_PRESS_VERIFY", "1")
+	output, err := runRecoveryCLI(t, "--json", "auth", "recovery", "retry")
+	if err != nil || !strings.Contains(output, `"retried":false`) || !strings.Contains(output, "--launch") {
+		t.Fatal("default retry did not print an actionable plan", output, err)
+	}
+	output, err = runRecoveryCLI(t, "--json", "auth", "recovery", "retry", "--launch")
+	if err == nil || !strings.Contains(output, `"ok":false`) {
+		t.Fatal("harness permitted recovery", output, err)
+	}
+}
+
 func TestRecoveryCredentialsStdinSupportsAutomationAndRedactsErrors(t *testing.T) {
 	t.Setenv("QB_HOME", t.TempDir())
 	t.Setenv("PRINTING_PRESS_VERIFY", "")

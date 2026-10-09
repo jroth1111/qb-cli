@@ -100,6 +100,15 @@ is restricted to its isolated test profile, never a user's daily Ego profile.
 
 ## Key storage on macOS and Linux
 
+`qb auth status --live --json` emits exactly one JSON document. Its `liveness`
+is `live`, `stale`, or `unknown`; `ok` and `verified` are true only for a
+successful live check. Transport failures are unknown, not proof of expiry.
+
+After addressing a recoverable attention stop, `qb auth recovery retry --launch`
+requests one explicit attempt on the enabled, bound source. It does not re-enable
+disabled recovery, override identity mismatches or cooldowns, unlock keys, or
+bypass provider challenges. The default invocation prints requirements only.
+
 | Backend | Availability | Autonomous behavior |
 | --- | --- | --- |
 | Default native | macOS Keychain; Linux Secret Service | Reads only already-accessible secrets; no runtime unlock/approval prompt |

@@ -194,6 +194,21 @@ func newAuthRecoveryCmd(flags *rootFlags) *cobra.Command {
 	}}
 	rebind.Flags().BoolVar(&rebindLaunch, "launch", false, "permit owned-source verification and encrypted re-binding; never changes company or principal")
 	parent.AddCommand(rebind)
+	var retryLaunch bool
+	retry := &cobra.Command{Use: "retry", Short: "Request one bound recovery attempt after operator attention", Args: cobra.NoArgs, Annotations: map[string]string{"mcp:hidden": "true"}, RunE: func(cmd *cobra.Command, _ []string) error {
+		if !retryLaunch || flags.dryRun {
+			return recoveryResult(cmd, flags, map[string]any{"retried": false, "requires": "--launch; recovery must remain enabled and bound; cooldown and provider challenges remain enforced"}, nil)
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), flags.timeout)
+		defer cancel()
+		if err := auth.RetryLoginRecovery(ctx); err != nil {
+			return recoveryResult(cmd, flags, nil, err)
+		}
+		status, err := auth.LoginRecoveryStatus()
+		return recoveryResult(cmd, flags, status, err)
+	}}
+	retry.Flags().BoolVar(&retryLaunch, "launch", false, "permit one owned-source recovery attempt without changing disabled policy or identity")
+	parent.AddCommand(retry)
 	for _, forget := range []bool{false, true} {
 		name := "disable"
 		description := "Disable autonomous sign-in without deleting stored login secrets"
