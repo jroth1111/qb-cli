@@ -19,7 +19,7 @@ Catalog entries, GraphQL operations, and CLI commands are different inventoriesâ
 
 ## Quickstart
 
-Requirements: Go **1.26.6 or newer**, QuickBooks Online access, and Chrome/Chromium for the managed-session path. Browser-session workflows depend on the permissions, subscription and regional features available to the signed-in user. The banking and tax surfaces are AU-oriented.
+Requirements: Go **1.26.9 or newer**, QuickBooks Online access, and Chrome/Chromium for the managed-session path. Browser-session workflows depend on the permissions, subscription and regional features available to the signed-in user. The banking and tax surfaces are AU-oriented.
 
 For an existing, captured Ego session, `QB_HTTP_TRANSPORT=ego qb ...` sends first-party, company-scoped REST requests through that exact browser space and page. This is an explicit alternative to direct HTTP, not a fallback or retry after a failed write. The page's company and principal are checked before and after each request; user control stops execution. Uncertain writes still require read-only recovery, and posting retains independent feed/ledger verification. Other hosts and unpinned sessions fail closed.
 
@@ -293,7 +293,7 @@ golangci-lint run ./...
 bash scripts/golden.sh verify
 ```
 
-The module requires Go 1.26.6; set `GOTOOLCHAIN=go1.26.6` when validating against that toolchain. Opt-in isolated Chrome regressions use `QB_BROWSER_TEST=1`. Linux cross-builds check compilation, not a live Linux/Intuit session.
+The module requires Go 1.26.9; set `GOTOOLCHAIN=go1.26.9` when validating against that toolchain. Opt-in isolated Chrome regressions use `QB_BROWSER_TEST=1`. Linux cross-builds check compilation, not a live Linux/Intuit session.
 
 | Location | Responsibility |
 |---|---|

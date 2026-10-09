@@ -44,4 +44,5 @@ func TestGeneratedGoModUsesPatchGoDirective(t *testing.T) {
 	assert.Contains(t, goMod, "\ngo "+currentGoDirectiveVersion()+"\n")
 	assert.Contains(t, goMod, "\ntoolchain "+currentGoToolchainVersion()+"\n")
 	assert.NotContains(t, goMod, "\ngo 1.26\n")
+	requireGeneratedCompiles(t, outputDir)
 }
