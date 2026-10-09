@@ -10,9 +10,16 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
 
 func transientReadError(err error) bool {
+	// net/url.Error implements net.Error even when its wrapped cause is a
+	// definite authentication/control stop, not a transient network failure.
+	if errors.Is(err, auth.ErrRemintNeedsLogin) || errors.Is(err, auth.ErrSessionChanged) || errors.Is(err, auth.ErrEgoUserControl) || errors.Is(err, auth.ErrRecoveryAttention) || errors.Is(err, auth.ErrRecoveryKeyUnavailable) {
+		return false
+	}
 	var network net.Error
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errEgoReadTransient) || errors.As(err, &network)
 }

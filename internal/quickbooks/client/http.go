@@ -5,6 +5,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -188,10 +189,10 @@ func skipReplayHeader(name string) bool {
 func (c *apiClient) get(ctx context.Context, url, xRange string) (*http.Response, error) {
 	resp, err := c.doStdlib(ctx, http.MethodGet, url, nil, xRange)
 
-	if err != nil {
+	if err != nil && !errors.Is(err, auth.ErrRemintNeedsLogin) {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusUnauthorized && !c.skipRemint {
+	if (errors.Is(err, auth.ErrRemintNeedsLogin) || resp != nil && resp.StatusCode == http.StatusUnauthorized) && !c.skipRemint {
 		_ = drainAndClose(resp)
 		rctx, cancel := context.WithTimeout(ctx, remintTimeout)
 		rerr := remint(rctx)
@@ -207,16 +208,16 @@ func (c *apiClient) get(ctx context.Context, url, xRange string) (*http.Response
 		next.skipRemint = true
 		return next.get(ctx, url, xRange)
 	}
-	return resp, nil
+	return resp, err
 }
 
 // getJSON is get with Accept: application/json overlaid after captured headers.
 func (c *apiClient) getJSON(ctx context.Context, url, xRange string) (*http.Response, error) {
 	resp, err := c.doStdlibJSON(ctx, http.MethodGet, url, nil, xRange)
-	if err != nil {
+	if err != nil && !errors.Is(err, auth.ErrRemintNeedsLogin) {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusUnauthorized && !c.skipRemint {
+	if (errors.Is(err, auth.ErrRemintNeedsLogin) || resp != nil && resp.StatusCode == http.StatusUnauthorized) && !c.skipRemint {
 		_ = drainAndClose(resp)
 		rctx, cancel := context.WithTimeout(ctx, remintTimeout)
 		rerr := remint(rctx)
@@ -231,7 +232,7 @@ func (c *apiClient) getJSON(ctx context.Context, url, xRange string) (*http.Resp
 		next.skipRemint = true
 		return next.getJSON(ctx, url, xRange)
 	}
-	return resp, nil
+	return resp, err
 }
 
 func (c *apiClient) postJSON(ctx context.Context, rawURL string, body []byte) (*http.Response, error) {

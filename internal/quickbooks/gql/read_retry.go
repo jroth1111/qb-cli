@@ -19,12 +19,15 @@ var nonQueryToken = regexp.MustCompile(`(?i)\b(mutation|subscription)\b`)
 // Only known query-kind documents can replay. Ambiguous documents and writes
 // execute once; retries never commit data to a pagination accumulator.
 func executeReadReliably(ctx context.Context, req Request, execute func(context.Context, Request) (*Response, error)) (*Response, error) {
+	return retryReadResponse(ctx, readQuery(req), true, func() (*Response, error) { return execute(ctx, req) })
+}
+
+func readQuery(req Request) bool {
 	doc := ""
 	if req.Op != nil {
 		doc = strings.TrimSpace(req.Op.Document)
 	}
-	read := req.Op != nil && req.Op.Kind == "query" && doc != "" && !nonQueryToken.MatchString(doc)
-	return retryReadResponse(ctx, read, true, func() (*Response, error) { return execute(ctx, req) })
+	return req.Op != nil && req.Op.Kind == "query" && doc != "" && !nonQueryToken.MatchString(doc)
 }
 
 func retryReadResponse(ctx context.Context, read, jsonBody bool, execute func() (*Response, error)) (*Response, error) {
@@ -41,7 +44,7 @@ func retryReadResponse(ctx context.Context, read, jsonBody bool, execute func() 
 			return resp, err
 		}
 		var network net.Error
-		retry := errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errBrowserQueryTransport) || errors.As(err, &network)
+		retry := errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errBrowserQueryTransport) || errors.Is(err, auth.ErrBrowserRequestUncertain) || errors.As(err, &network)
 		if err == nil && resp != nil {
 			retry = resp.Status == 408 || resp.Status == 429 || resp.Status == 502 || resp.Status == 503 || resp.Status == 504 || jsonBody && resp.Status == 200 && !json.Valid(resp.Body)
 		}

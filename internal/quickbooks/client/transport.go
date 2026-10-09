@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -21,6 +22,30 @@ import (
 var impersonatedTransport http.RoundTripper
 
 type originalHeadersKey struct{}
+
+// URL errors can contain service API keys or signed download URLs. Preserve
+// their typed cause for retry decisions without formatting the private request.
+type privateRequestError struct{ cause error }
+
+func (e privateRequestError) Error() string {
+	if errors.Is(e.cause, context.DeadlineExceeded) {
+		return "QBO request deadline exceeded; private request details withheld"
+	}
+	if errors.Is(e.cause, context.Canceled) {
+		return "QBO request cancelled; private request details withheld"
+	}
+	return "QBO transport failed; private request details withheld"
+}
+
+func (e privateRequestError) Unwrap() error { return e.cause }
+
+func privateTransportError(err error) error {
+	var request *url.Error
+	if errors.As(err, &request) {
+		return privateRequestError{cause: err}
+	}
+	return err
+}
 
 type requestHeaderTransport struct{ base http.RoundTripper }
 
@@ -91,6 +116,9 @@ var browserHTTPClient = sync.OnceValues(func() (*http.Client, error) {
 		if len(via) >= 10 {
 			return fmt.Errorf("stopped after 10 redirects")
 		}
+		if err := auth.ValidateSessionRedirect(req, via); err != nil {
+			return err
+		}
 		if previousRedirect != nil {
 			if err := previousRedirect(req, via); err != nil {
 				return err
@@ -126,9 +154,18 @@ func sessionDo(req *http.Request, dial func(*http.Request) (*http.Response, erro
 	if err != nil {
 		return nil, err
 	}
-	resp, err := readReliably(req, dial)
+	observedReq := req
+	resp, err := readReliably(req, func(attempt *http.Request) (*http.Response, error) {
+		prepared, err := auth.PrepareSessionRequest(attempt)
+		if err != nil {
+			return nil, err
+		}
+		observedReq = prepared
+		response, err := dial(prepared)
+		return response, privateTransportError(err)
+	})
 	if err == nil {
-		if perr := auth.ObserveSessionResponse(req, resp); perr != nil && !errors.Is(perr, auth.ErrSessionChanged) {
+		if perr := auth.ObserveSessionResponse(observedReq, resp); perr != nil && !errors.Is(perr, auth.ErrSessionChanged) {
 			log.Print("qb: could not persist session rotation; request outcome is unchanged")
 		}
 	}

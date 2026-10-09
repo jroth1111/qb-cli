@@ -3,16 +3,89 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
+
+func TestTransportErrorsDoNotExposeSignedURLsOrAPIKeys(t *testing.T) {
+	for _, secret := range []string{"intuit_apikey=fixture-private-key", "signature=fixture-private-signature"} {
+		original := &url.Error{Op: "Get", URL: "https://service.api.intuit.com/download?" + secret, Err: context.DeadlineExceeded}
+		redacted := privateTransportError(original)
+		if strings.Contains(redacted.Error(), secret) || !errors.Is(redacted, context.DeadlineExceeded) {
+			t.Fatal("private URL leaked or deadline identity lost")
+		}
+		var typed *url.Error
+		if !errors.As(redacted, &typed) || typed != original {
+			t.Fatal("transport failure cause was replaced")
+		}
+	}
+}
+
+func TestWrappedAuthenticationAndControlStopsAreNotNetworkRetries(t *testing.T) {
+	for _, stop := range []error{auth.ErrRemintNeedsLogin, auth.ErrSessionChanged, auth.ErrEgoUserControl, auth.ErrRecoveryAttention, auth.ErrRecoveryKeyUnavailable} {
+		request, _ := http.NewRequest("GET", "https://qbo.intuit.com/api/fixture", nil)
+		calls := 0
+		_, err := readReliably(request, func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, privateTransportError(&url.Error{Op: "Get", URL: request.URL.String(), Err: stop})
+		})
+		if calls != 1 || !errors.Is(err, stop) {
+			t.Fatal("a wrapped stop was classified as a network retry", calls, err)
+		}
+	}
+}
+
+func TestReadRetriesReloadCredentialsButNeverSwitchBrowser(t *testing.T) {
+	for _, changeSource := range []bool{false, true} {
+		t.Run(fmt.Sprintf("source-change-%t", changeSource), func(t *testing.T) {
+			saveUsable(t)
+			tok, _ := auth.Load()
+			request, _ := http.NewRequest("GET", "https://qbo.intuit.com/api/fixture", nil)
+			request.Header.Set("Authorization", tok.Authorization)
+			auth.BindRequest(request, tok, "")
+			calls := 0
+			response, err := sessionDo(request, func(attempt *http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					fresh, _ := auth.Load()
+					fresh.CredentialGeneration++
+					fresh.Authorization = "Intuit_APIKey fresh-fixture"
+					if changeSource {
+						fresh.Source = "another-browser"
+					}
+					if err := auth.Save(fresh); err != nil {
+						t.Fatal(err)
+					}
+					return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+				}
+				if attempt.Header.Get("Authorization") != "Intuit_APIKey fresh-fixture" {
+					t.Fatal("retry used stale credentials")
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{}")), Request: attempt}, nil
+			})
+			if changeSource {
+				if calls != 1 || !errors.Is(err, auth.ErrSessionChanged) {
+					t.Fatal("retry switched browser", calls, err)
+				}
+			} else if calls != 2 || err != nil || response.StatusCode != 200 {
+				t.Fatal("same-session rotation failed", calls, err)
+			}
+			if response != nil {
+				drainAndClose(response)
+			}
+		})
+	}
+}
 
 func TestImpersonatedTransportSendsChromeHelloAndVerifiesTLS(t *testing.T) {
 	hellos := make(chan []uint16, 1)

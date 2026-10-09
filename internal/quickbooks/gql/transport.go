@@ -87,7 +87,7 @@ func Execute(ctx context.Context, req Request) (*Response, error) {
 	// Browser cookies stay browser-owned. Only an explicitly read-only query
 	// may be repeated after a definite 401; never replay a mutation/unknown op.
 	rejected := resp != nil && resp.Status == 401 || errors.Is(err, auth.ErrRemintNeedsLogin)
-	if !rejected || req.Op == nil || req.Op.Kind != "query" || expected == nil {
+	if !rejected || !readQuery(req) || expected == nil {
 		return resp, err
 	}
 	rctx, cancel := context.WithTimeout(ctx, 100*time.Second)
@@ -96,7 +96,7 @@ func Execute(ctx context.Context, req Request) (*Response, error) {
 		return nil, err
 	}
 	current, err := auth.Load()
-	if err != nil || !auth.SameSession(expected, current) {
+	if err != nil || !auth.SameBrowserSession(expected, current) {
 		return nil, auth.ErrSessionChanged
 	}
 	return executeReadReliably(ctx, req, executeEgoFn)
@@ -112,7 +112,7 @@ func executeSession(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if expected, ok := ctx.Value(executionSessionKey{}).(*auth.TokenSet); ok && !auth.SameSession(expected, tok) {
+	if expected, ok := ctx.Value(executionSessionKey{}).(*auth.TokenSet); ok && !auth.SameBrowserSession(expected, tok) {
 		return nil, auth.ErrSessionChanged
 	}
 	if tok.Source == "managed-profile" {

@@ -2,6 +2,7 @@ package gql
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"testing"
@@ -22,10 +23,10 @@ func TestOnlyReadQueriesRetryAfterAuthenticationRenewal(t *testing.T) {
 				if calls == 1 {
 					return &Response{Status: 401}, nil
 				}
-				return &Response{Status: 200}, nil
+				return &Response{Status: 200, Body: json.RawMessage(`{"data":{}}`)}, nil
 			}
 			remintGQL = func(context.Context) error { refreshes++; return nil }
-			_, err := Execute(context.Background(), Request{Op: &Op{Name: "Test", Kind: kind}})
+			_, err := Execute(context.Background(), Request{Op: &Op{Name: "Test", Kind: kind, Document: "query Test { fixture }"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,7 +53,7 @@ func TestQueryRenewalRefusesNewLogin(t *testing.T) {
 	remintGQL = func(context.Context) error {
 		return auth.Save(&auth.TokenSet{RealmID: "2", Authorization: "Intuit_APIKey intuit_apikey=other"})
 	}
-	if _, err := Execute(context.Background(), Request{Op: &Op{Name: "Test", Kind: "query"}}); !errors.Is(err, auth.ErrSessionChanged) {
+	if _, err := Execute(context.Background(), Request{Op: &Op{Name: "Test", Kind: "query", Document: "query Test { fixture }"}}); !errors.Is(err, auth.ErrSessionChanged) {
 		t.Fatalf("err=%v", err)
 	}
 	if calls != 1 {

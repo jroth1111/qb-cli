@@ -3,6 +3,7 @@ package gql
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
@@ -22,9 +23,6 @@ var ErrEgoMissing = errors.New("ego-browser not found on PATH: install ego lite 
 // egoSpaceName is the isolated ego-browser task space gql execution drives.
 // It inherits the user's QBO login state; the space persists across calls.
 const egoSpaceName = "qb-gql"
-
-// egoLoginURL is opened when the space has no authenticated app tab yet.
-const egoLoginURL = "https://qbo.intuit.com/app/banking"
 
 func selectedEgoSpace() string {
 	if space := os.Getenv("QB_EGO_SPACE_ID"); space != "" {
@@ -37,60 +35,48 @@ func selectedEgoSpace() string {
 }
 
 const egoExecuteScript = `const fs = await import('node:fs');
-const outPath = process.env.QB_EGO_OUT;
-const endpoint = process.env.QB_EGO_ENDPOINT;
-const method = process.env.QB_EGO_METHOD || 'POST';
-const headers = JSON.parse(process.env.QB_EGO_HEADERS || '{}');
-const body = process.env.QB_EGO_BODY || '';
-const loginURL = process.env.QB_EGO_LOGIN_URL;
-const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
-const targetKey = process.env.QB_EGO_TARGET || '';
-const expectedRealm = process.env.QB_EGO_REALM || '';
-const expectedEmail = process.env.QB_EGO_EMAIL || '';
+const {outPath,endpoint,method,headers,body,spaceKey,targetKey,expectedRealm,expectedEmail,identityScript,timeoutMs}=request;
 function isQBOApp(value) {
- try { const u = new URL(value); return u.protocol === 'https:' && u.hostname === 'qbo.intuit.com' && !u.username && !u.password && u.pathname.startsWith('/app/') && !value.includes('UNAUTHENTICATED'); }
+ try { const u = new URL(value); return u.origin === 'https://qbo.intuit.com' && !u.username && !u.password && u.pathname.startsWith('/app/') && !value.includes('UNAUTHENTICATED'); }
  catch (_) { return false; }
 }
 function done(obj) { fs.writeFileSync(outPath, JSON.stringify(obj), {mode:0o600}); }
 function fail(msg, code) { try { done({ok:false,error:msg}); } catch (_) {} process.exit(code || 2); }
 if (!outPath || !endpoint) fail('missing browser request parameters', 2);
-const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKey);
+let task;
+try{task=await ` + auth.ExistingEgoTaskJS + `(spaceKey,taskSpace,typeof listTaskSpaces==='function'?listTaskSpaces:undefined);}
+catch(error){fail(error.qbCode==='user-control'||/user.*control|inactive|unassigned/i.test(String(error))?'user-control':'pinned-page-unavailable',3);}
+if(task.ownership!=='agent')fail('user-control',3);
 const tabs = await task.tabs();
-const candidates = tabs.filter(t => isQBOApp(t.url) && (!targetKey || t.targetId === targetKey || t.label === targetKey));
-if (targetKey && candidates.length !== 1) fail('need-login: pinned app tab unavailable', 3);
-const existing = candidates[0];
-let page;
-if (existing) {
- if (existing.label) page = task.page(existing.label);
- else if (existing.page && typeof existing.page.fetch === 'function') page = existing.page;
- else page = await task.adopt(existing.page);
-}
-else {
- const blank = tabs.find(t => t.label && t.url === 'about:blank');
- page = blank ? task.page(blank.label) : await task.newPage();
- await page.goto(loginURL);
-}
+const candidates = tabs.filter(t => targetKey && (t.targetId === targetKey || t.label === targetKey));
+if(candidates.length!==1||!candidates[0].label)fail('pinned-page-unavailable',3);
+const page=task.page(candidates[0].label);
 const info = await page.info();
-if (info && info.dialog) fail('need-login: dialog open', 3);
+if (info && info.dialog) fail('dialog-open', 3);
 const url = await page.url();
-if (!isQBOApp(url) || url.includes('sign-in')) fail('need-login: no authenticated app tab', 3);
-headers['content-type'] = 'application/json';
-headers['accept'] = 'application/json';
+const location=new URL(url);
+if(location.origin==='https://accounts.intuit.com'&&!location.username&&!location.password)fail('need-login',3);
+if (!isQBOApp(url)) fail('pinned-page-origin-changed', 3);
 const verifyIdentity = async () => {
- if (!expectedRealm) return;
- const identity = await page.evaluate(process.env.QB_EGO_IDENTITY);
- if (identity.realm !== expectedRealm || (identity.email || '').toLowerCase() !== expectedEmail.toLowerCase()) fail('browser identity differs from captured session', 3);
+ const identity = await page.evaluate(identityScript);
+ if (!expectedRealm || !expectedEmail || identity.realm !== expectedRealm || (identity.email || '').toLowerCase() !== expectedEmail.toLowerCase()) fail('identity-mismatch', 3);
+ if(!isQBOApp(await page.url()))fail('pinned-page-origin-changed',3);
 };
 await verifyIdentity();
-const options = {method, headers, credentials:'include', redirect:'error', cache:'no-store', saveAs:outPath+'.body', timeout:Math.min(30000,Number(process.env.QB_EGO_TIMEOUT_MS || 30000))};
-if (method !== 'GET' && method !== 'HEAD' && body) options.body = body;
+const options = {method, headers, credentials:'include', redirect:'error', cache:'no-store', saveAs:outPath+'.body', timeout:Math.min(30000,timeoutMs)};
+if (method !== 'GET' && method !== 'HEAD' && body&&!request.binaryBody) options.body = body;
 let result;
-try { result = await page.fetch(endpoint, options); }
+try {
+ if(request.binaryBody){
+  result=await page.evaluate((0,eval)(request.byteFetchScript),{...request,timeoutMs:Math.min(30000,request.timeoutMs)});
+  fs.writeFileSync(outPath+'.body',Buffer.from(result.bodyBase64,'base64'),{mode:0o600});
+ }else{result = await page.fetch(endpoint, options);}
+}
 catch (_) { fail('browser fetch failed', 2); }
 await verifyIdentity();
 fs.chmodSync(outPath+'.body',0o600);
-const responseBody = fs.readFileSync(outPath+'.body','utf8');
-done({ok:true,status:result.status,body:responseBody || ''});
+const responseBody = fs.readFileSync(outPath+'.body');
+done({ok:true,status:result.status,bodyBase64:responseBody.toString('base64')});
 `
 
 // ExecuteEgo posts req inside the ego-browser QBO space via an in-page
@@ -119,7 +105,12 @@ func ExecuteEgo(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gql: encoding request: %w", err)
 	}
-	return FetchEgo(ctx, endpoint, "POST", authHeadersFor(endpoint, req.Op.Name), payload)
+	headers := authHeadersFor(endpoint, req.Op.Name)
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	headers["content-type"], headers["accept"] = "application/json", "application/json"
+	return FetchEgo(ctx, endpoint, "POST", headers, payload)
 }
 
 // FetchEgo sends an exact request through the selected ego-browser app page.
@@ -132,9 +123,27 @@ func FetchEgo(ctx context.Context, endpoint, method string, headers map[string]s
 		}
 		ctx = context.WithValue(ctx, executionSessionKey{}, tok)
 	}
-	return retryReadResponse(ctx, method == http.MethodGet || method == http.MethodHead, method != http.MethodHead, func() (*Response, error) {
+	read := method == http.MethodGet || method == http.MethodHead
+	jsonBody := method != http.MethodHead && expectsJSONResponse(headers)
+	response, err := retryReadResponse(ctx, read, jsonBody, func() (*Response, error) {
 		return fetchEgoOnce(ctx, endpoint, method, headers, payload)
 	})
+	rejected := response != nil && response.Status == 401 || errors.Is(err, auth.ErrRemintNeedsLogin)
+	if !read || !rejected {
+		return response, err
+	}
+	expected := ctx.Value(executionSessionKey{}).(*auth.TokenSet)
+	rctx, cancel := context.WithTimeout(ctx, 100*time.Second)
+	defer cancel()
+	if err = remintGQL(rctx); err != nil {
+		return nil, err
+	}
+	fresh, err := auth.Load()
+	if err != nil || !auth.SameBrowserSession(expected, fresh) {
+		return nil, auth.ErrSessionChanged
+	}
+	updated := refreshedBrowserHeaders(expected, fresh, endpoint, headers)
+	return retryReadResponse(ctx, true, jsonBody, func() (*Response, error) { return fetchEgoOnce(ctx, endpoint, method, updated, payload) })
 }
 
 func fetchEgoOnce(ctx context.Context, endpoint, method string, headers map[string]string, payload []byte) (*Response, error) {
@@ -142,21 +151,26 @@ func fetchEgoOnce(ctx context.Context, endpoint, method string, headers map[stri
 	if loadErr != nil {
 		return nil, loadErr
 	}
-	if expected, ok := ctx.Value(executionSessionKey{}).(*auth.TokenSet); ok && !auth.SameSession(expected, tok) {
+	if expected, ok := ctx.Value(executionSessionKey{}).(*auth.TokenSet); ok && !auth.SameBrowserSession(expected, tok) {
 		return nil, auth.ErrSessionChanged
 	}
 	if tok.Source == "managed-profile" {
 		return fetchManagedSession(ctx, tok, endpoint, method, headers, payload)
+	}
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	if err := auth.ValidateBrowserDestination(endpoint, tok, headers); err != nil {
+		return nil, err
+	}
+	if tok.Source != "ego-existing" || tok.EgoSpace == "" || tok.EgoTargetID == "" {
+		return nil, errors.New("browser transport requires an explicitly pinned Ego login; run qb login --source ego with --ego-space and --target-id")
 	}
 	if _, err := exec.LookPath("ego-browser"); err != nil {
 		return nil, ErrEgoMissing
 	}
 	if endpoint == "" {
 		return nil, fmt.Errorf("browser request requires an endpoint")
-	}
-	hdrJSON, err := json.Marshal(headers)
-	if err != nil {
-		return nil, fmt.Errorf("gql: encoding headers: %w", err)
 	}
 	dir, err := os.MkdirTemp("", "qb-gql-ego-*")
 	if err != nil {
@@ -171,33 +185,25 @@ func fetchEgoOnce(ctx context.Context, endpoint, method string, headers map[stri
 			timeoutMs = rem.Milliseconds()
 		}
 	}
-	space := selectedEgoSpace()
-	target, realm, email := "", "", ""
-	if tok.Source == "ego-existing" && tok.EgoSpace != "" && tok.EgoTargetID != "" {
-		if explicit := os.Getenv("QB_EGO_SPACE_ID"); explicit != "" && explicit != tok.EgoSpace {
-			return nil, fmt.Errorf("explicit Ego space differs from captured session")
-		}
-		if explicit := os.Getenv("QB_EGO_SPACE"); explicit != "" && explicit != tok.EgoSpace {
-			return nil, fmt.Errorf("explicit Ego space differs from captured session")
-		}
-		space, target, realm, email = tok.EgoSpace, tok.EgoTargetID, tok.RealmID, tok.Email
+	space := tok.EgoSpace
+	if explicit := os.Getenv("QB_EGO_SPACE_ID"); explicit != "" && explicit != tok.EgoSpace {
+		return nil, fmt.Errorf("explicit Ego space differs from captured session")
 	}
-	preamble := "process.env.QB_EGO_OUT = " + strconv.Quote(outPath) + ";\n" +
-		"process.env.QB_EGO_ENDPOINT = " + strconv.Quote(endpoint) + ";\n" +
-		"process.env.QB_EGO_HEADERS = " + strconv.Quote(string(hdrJSON)) + ";\n" +
-		"process.env.QB_EGO_BODY = " + strconv.Quote(string(payload)) + ";\n" +
-		"process.env.QB_EGO_LOGIN_URL = " + strconv.Quote(egoLoginURL) + ";\n" +
-		"process.env.QB_EGO_METHOD = " + strconv.Quote(method) + ";\n" +
-		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
-		"process.env.QB_EGO_TARGET = " + strconv.Quote(target) + ";\n" +
-		"process.env.QB_EGO_REALM = " + strconv.Quote(realm) + ";\n" +
-		"process.env.QB_EGO_EMAIL = " + strconv.Quote(email) + ";\n" +
-		"process.env.QB_EGO_IDENTITY = " + strconv.Quote(auth.IdentityJS) + ";\n" +
-		"process.env.QB_EGO_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
+	if explicit := os.Getenv("QB_EGO_SPACE"); explicit != "" && explicit != tok.EgoSpace {
+		return nil, fmt.Errorf("explicit Ego space differs from captured session")
+	}
+	data, err := json.Marshal(map[string]any{"outPath": outPath, "endpoint": endpoint, "method": method, "headers": headers, "body": string(payload), "bodyBase64": base64.StdEncoding.EncodeToString(payload), "binaryBody": !utf8.Valid(payload), "byteFetchScript": auth.BrowserByteFetchJS, "spaceKey": space, "targetKey": tok.EgoTargetID, "expectedRealm": tok.RealmID, "expectedEmail": tok.Email, "identityScript": auth.IdentityJS, "timeoutMs": timeoutMs})
+	if err != nil {
+		return nil, errors.New("encoding browser request")
+	}
+	preamble := "const request = " + string(data) + ";\n"
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
 	cmd.Stdin = bytes.NewReader(append([]byte(preamble), []byte(egoExecuteScript)...))
 	cmd.Env = append(os.Environ(), "QB_EGO_SPACE="+space, "QB_EGO_OUT="+outPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if bytes.Contains(out, []byte("user has taken control")) || bytes.Contains(out, []byte("space is inactive")) {
+			return nil, auth.ErrEgoUserControl
+		}
 		// The script records its failure reason in the result file before
 		// exiting non-zero; prefer it over the bare process error.
 		if raw, rerr := os.ReadFile(outPath); rerr == nil {
@@ -206,37 +212,39 @@ func fetchEgoOnce(ctx context.Context, endpoint, method string, headers map[stri
 				Error string `json:"error"`
 			}
 			if jerr := json.Unmarshal(raw, &file); jerr == nil && file.Error != "" {
-				if file.Error == "need-login: dialog open" || file.Error == "need-login: no authenticated app tab" {
-					return nil, fmt.Errorf("%w: %s", ErrNeedsLogin, file.Error)
-				}
-				if file.Error == "browser fetch failed" {
-					return nil, errBrowserQueryTransport
-				}
-				return nil, fmt.Errorf("gql: ego execution failed: %s", file.Error)
+				return nil, egoExecutionFailure(file.Error)
 			}
 		}
-		return nil, fmt.Errorf("gql: ego-browser execution failed: %w%s", err, trimEgoOutput(out))
+		return nil, errors.New("ego execution failed; raw provider output withheld; verify state before retrying a write")
 	}
 	raw, err := os.ReadFile(outPath)
 	if err != nil {
 		return nil, fmt.Errorf("gql: reading ego result: %w", err)
 	}
 	var file struct {
-		OK     bool   `json:"ok"`
-		Status int    `json:"status"`
-		Body   string `json:"body"`
-		Error  string `json:"error"`
+		OK         bool    `json:"ok"`
+		Status     int     `json:"status"`
+		Body       string  `json:"body"`
+		BodyBase64 *string `json:"bodyBase64"`
+		Error      string  `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("gql: parsing ego result: %w", err)
 	}
 	if !file.OK {
-		if file.Error == "need-login: dialog open" || file.Error == "need-login: no authenticated app tab" {
-			return nil, fmt.Errorf("%w: %s", ErrNeedsLogin, file.Error)
-		}
-		return nil, fmt.Errorf("gql: ego execution failed: %s", file.Error)
+		return nil, egoExecutionFailure(file.Error)
 	}
-	res := &Response{Status: file.Status, Body: json.RawMessage(file.Body)}
+	if file.Status < 100 || file.Status > 599 {
+		return nil, errors.New("browser returned no valid HTTP response")
+	}
+	body := []byte(file.Body)
+	if file.BodyBase64 != nil {
+		body, err = base64.StdEncoding.DecodeString(*file.BodyBase64)
+		if err != nil {
+			return nil, errors.New("invalid binary browser response")
+		}
+	}
+	res := &Response{Status: file.Status, Body: json.RawMessage(body)}
 	var envelope struct {
 		Errors []GraphQLError `json:"errors"`
 	}
@@ -246,14 +254,19 @@ func fetchEgoOnce(ctx context.Context, endpoint, method string, headers map[stri
 	return res, nil
 }
 
-func trimEgoOutput(out []byte) string {
-	const max = 300
-	s := string(out)
-	if len(s) > max {
-		s = s[len(s)-max:]
+func egoExecutionFailure(code string) error {
+	switch code {
+	case "need-login":
+		return fmt.Errorf("%w: %w", ErrNeedsLogin, auth.ErrRemintNeedsLogin)
+	case "user-control":
+		return auth.ErrEgoUserControl
+	case "dialog-open":
+		return auth.ErrRecoveryAttention
+	case "pinned-page-unavailable", "pinned-page-origin-changed", "identity-mismatch":
+		return auth.ErrSessionChanged
+	case "browser fetch failed":
+		return errBrowserQueryTransport
+	default:
+		return errors.New("ego request failed; raw provider output withheld")
 	}
-	if s == "" {
-		return ""
-	}
-	return ": " + s
 }

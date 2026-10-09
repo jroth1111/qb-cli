@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
@@ -44,6 +42,9 @@ func executeManaged(ctx context.Context, tok *auth.TokenSet, req Request) (*Resp
 	if err != nil {
 		return nil, err
 	}
+	if result == nil || result.Status < 100 || result.Status > 599 {
+		return nil, errors.New("managed browser returned no valid HTTP response")
+	}
 	response := &Response{Status: result.Status, Body: json.RawMessage(result.Body)}
 	var envelope struct {
 		Errors []GraphQLError `json:"errors"`
@@ -56,40 +57,37 @@ func executeManaged(ctx context.Context, tok *auth.TokenSet, req Request) (*Resp
 
 func fetchManagedSession(ctx context.Context, tok *auth.TokenSet, endpoint, method string, headers map[string]string, body []byte) (*Response, error) {
 	result, err := fetchManaged(ctx, tok, endpoint, method, headers, body)
-	rejected := result != nil && result.Status == http.StatusUnauthorized || errors.Is(err, auth.ErrRemintNeedsLogin)
-	if rejected && method == http.MethodGet {
-		rctx, cancel := context.WithTimeout(ctx, 100*time.Second)
-		rerr := remintGQL(rctx)
-		cancel()
-		if rerr != nil {
-			return nil, rerr
-		}
-		fresh, ferr := auth.Load()
-		if ferr != nil || !auth.SameSession(tok, fresh) {
-			return nil, auth.ErrSessionChanged
-		}
-		// Preserve caller-specific headers, replacing only credential fields
-		// whose previous values match the session's captured values.
-		updated := maps.Clone(headers)
-		oldAuth, newAuth := authHeadersForToken(tok, endpoint), authHeadersFor(endpoint)
-		for key, value := range headers {
-			for oldKey, oldValue := range oldAuth {
-				if strings.EqualFold(key, oldKey) && value == oldValue {
-					if n := newAuth[oldKey]; n != "" {
-						updated[key] = n
-					} else {
-						delete(updated, key)
-					}
-				}
-			}
-		}
-		result, err = fetchManaged(ctx, fresh, endpoint, method, updated, body)
-	}
 	if err != nil {
 		return nil, err
 	}
-	if result == nil {
-		return nil, errors.New("managed fetch returned no response")
+	if result == nil || result.Status < 100 || result.Status > 599 {
+		return nil, errors.New("managed fetch returned no valid HTTP response")
 	}
 	return &Response{Status: result.Status, Body: json.RawMessage(result.Body)}, nil
+}
+
+func expectsJSONResponse(headers map[string]string) bool {
+	for key, value := range headers {
+		if strings.EqualFold(key, "accept") && (strings.Contains(strings.ToLower(value), "application/json") || strings.Contains(strings.ToLower(value), "+json")) {
+			return true
+		}
+	}
+	return false
+}
+
+func refreshedBrowserHeaders(old, fresh *auth.TokenSet, endpoint string, headers map[string]string) map[string]string {
+	updated := maps.Clone(headers)
+	oldAuth, newAuth := authHeadersForToken(old, endpoint), authHeadersForToken(fresh, endpoint)
+	for key, value := range headers {
+		for oldKey, oldValue := range oldAuth {
+			if strings.EqualFold(key, oldKey) && value == oldValue {
+				if next := newAuth[oldKey]; next != "" {
+					updated[key] = next
+				} else {
+					delete(updated, key)
+				}
+			}
+		}
+	}
+	return updated
 }

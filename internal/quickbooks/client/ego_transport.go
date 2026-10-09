@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 )
@@ -25,26 +26,48 @@ const egoTransportScript = `const fs = await import('node:fs/promises');
 let fetchStarted = false;
 const refuse = code => { const error = new Error(code); error.qbCode = code; throw error; };
 try {
-const task = await taskSpace(/^[0-9]+$/.test(request.space) ? Number(request.space) : request.space);
+const task = await ` + auth.ExistingEgoTaskJS + `(request.space,taskSpace,typeof listTaskSpaces==='function'?listTaskSpaces:undefined);
+if(task.ownership!=='agent')refuse('user-control');
 const tabs = await task.tabs();
 const selected = tabs.filter(t => t.label === request.target || t.targetId === request.target);
 if (selected.length !== 1 || !selected[0].label) refuse('pinned-page-unavailable');
 const page = task.page(selected[0].label);
+if((await page.info()).dialog)refuse('dialog-open');
 const pageURL = new URL(await page.url());
-if (pageURL.origin !== 'https://qbo.intuit.com' || !pageURL.pathname.startsWith('/app/')) refuse('pinned-page-origin-changed');
-const before = await page.evaluate(identityExpression);
+if(pageURL.origin==='https://accounts.intuit.com'&&!pageURL.username&&!pageURL.password)refuse('need-login');
+if (pageURL.origin !== 'https://qbo.intuit.com' || pageURL.username || pageURL.password || !pageURL.pathname.startsWith('/app/')) refuse('pinned-page-origin-changed');
+async function hydratedIdentity() {
+ let current = await page.evaluate(identityExpression);
+ if (!current?.realm || !current?.email) {
+  // Native ticket maintenance can reload this same pinned SPA. Wait only
+  // for absent bootstrap fields; a populated wrong identity still fails.
+  await page.waitForFunction(expression => {
+   try { const value=(0,eval)(expression); return !!value?.realm && !!value?.email; }
+   catch (_) { return false; }
+  }, identityExpression, {timeout:30000});
+  current=await page.evaluate(identityExpression);
+ }
+ const u=new URL(await page.url());
+ if(u.origin!=='https://qbo.intuit.com'||u.username||u.password||!u.pathname.startsWith('/app/')) refuse('pinned-page-origin-changed');
+ return current;
+}
+const before = await hydratedIdentity();
 if (before.realm !== request.realm || (before.email || '').toLowerCase() !== request.email.toLowerCase()) refuse('identity-before-request');
 const options = {method:request.method,headers:request.headers,credentials:'include',redirect:'error',cache:'no-store',timeout:request.timeout,saveAs:request.out+'.body'};
-if (request.body && request.method !== 'GET' && request.method !== 'HEAD') options.body = Buffer.from(request.body,'base64').toString('utf8');
+if (request.body && !request.binaryBody && request.method !== 'GET' && request.method !== 'HEAD') options.body = Buffer.from(request.body,'base64').toString('utf8');
 fetchStarted = true;
-const result = await page.fetch(request.url,options);
-const after = await page.evaluate(identityExpression);
+let result;
+if(request.binaryBody){
+ result=await page.evaluate((0,eval)(byteFetchExpression),{endpoint:request.url,method:request.method,headers:request.headers,bodyBase64:request.body,timeoutMs:request.timeout});
+ await fs.writeFile(request.out+'.body',Buffer.from(result.bodyBase64,'base64'),{mode:0o600});
+}else{result=await page.fetch(request.url,options);}
+const after = await hydratedIdentity();
 if (after.realm !== before.realm || (after.email || '').toLowerCase() !== before.email.toLowerCase()) refuse('identity-after-request');
 // The inline SDK text response is capped; saveAs preserves the actual bytes.
 // Both files live inside the caller's private 0700 temporary directory.
 await fs.chmod(request.out+'.body',0o600);
-const body = await fs.readFile(request.out+'.body','utf8');
-await fs.writeFile(request.out,JSON.stringify({status:result.status,headers:result.headers,body:body || ''}),{mode:0o600});
+const body = await fs.readFile(request.out+'.body');
+await fs.writeFile(request.out,JSON.stringify({status:result.status,headers:result.headers,bodyBase64:body.toString('base64')}),{mode:0o600});
 } catch (error) {
 const message = String(error?.message || '');
 const code = error.qbCode || (/user has taken control|space is inactive|unassigned/i.test(message) ? 'user-control' : /timeout|timed out|deadline/i.test(message) ? 'timeout' : /network|fetch|connection/i.test(message) ? 'network' : 'browser-runtime');
@@ -55,16 +78,17 @@ process.exitCode = 1;
 `
 
 type egoHTTPRequest struct {
-	Space   string            `json:"space"`
-	Target  string            `json:"target"`
-	Realm   string            `json:"realm"`
-	Email   string            `json:"email"`
-	URL     string            `json:"url"`
-	Method  string            `json:"method"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-	Out     string            `json:"out"`
-	Timeout int64             `json:"timeout"`
+	Space      string            `json:"space"`
+	Target     string            `json:"target"`
+	Realm      string            `json:"realm"`
+	Email      string            `json:"email"`
+	URL        string            `json:"url"`
+	Method     string            `json:"method"`
+	Headers    map[string]string `json:"headers"`
+	Body       string            `json:"body"`
+	Out        string            `json:"out"`
+	Timeout    int64             `json:"timeout"`
+	BinaryBody bool              `json:"binaryBody,omitempty"`
 }
 
 var errEgoReadTransient = errors.New("pinned browser read transport interrupted")
@@ -86,6 +110,9 @@ func buildEgoHTTPRequest(req *http.Request, tok *auth.TokenSet) (egoHTTPRequest,
 	if !strings.Contains(req.URL.Path, "/company/"+tok.RealmID+"/") {
 		return out, fmt.Errorf("ego request does not match captured QBO company")
 	}
+	if err := auth.ValidateBrowserDestination(req.URL.String(), tok, nil); err != nil {
+		return out, err
+	}
 	out = egoHTTPRequest{Space: tok.EgoSpace, Target: tok.EgoTargetID, Realm: tok.RealmID, Email: tok.Email, URL: req.URL.String(), Method: req.Method, Headers: map[string]string{}, Timeout: httpTimeout.Milliseconds()}
 	if req.Method == http.MethodGet || req.Method == http.MethodHead {
 		out.Timeout = (90 * time.Second).Milliseconds()
@@ -104,6 +131,7 @@ func buildEgoHTTPRequest(req *http.Request, tok *auth.TokenSet) (egoHTTPRequest,
 		}
 		_ = req.Body.Close()
 		out.Body = base64.StdEncoding.EncodeToString(body)
+		out.BinaryBody = !utf8.Valid(body)
 	}
 	return out, nil
 }
@@ -133,7 +161,7 @@ func egoSessionDoOnce(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	script := "const request = " + string(payload) + ";\nconst identityExpression = " + strconv.Quote(auth.IdentityJS) + ";\n" + egoTransportScript
+	script := "const request = " + string(payload) + ";\nconst identityExpression = " + strconv.Quote(auth.IdentityJS) + ";\nconst byteFetchExpression = " + strconv.Quote(auth.BrowserByteFetchJS) + ";\n" + egoTransportScript
 	ctx, cancel := context.WithTimeout(req.Context(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
@@ -149,6 +177,15 @@ func egoSessionDoOnce(req *http.Request) (*http.Response, error) {
 		if raw, readErr := os.ReadFile(input.Out); readErr == nil && json.Unmarshal(raw, &failure) == nil && failure.Code != "" {
 			if failure.Code == "user-control" {
 				return nil, auth.ErrEgoUserControl
+			}
+			if failure.Code == "need-login" {
+				return nil, auth.ErrRemintNeedsLogin
+			}
+			if failure.Code == "dialog-open" {
+				return nil, auth.ErrRecoveryAttention
+			}
+			if failure.Code == "pinned-page-unavailable" || failure.Code == "pinned-page-origin-changed" || failure.Code == "identity-before-request" || failure.Code == "identity-after-request" {
+				return nil, auth.ErrSessionChanged
 			}
 			phase := "before request dispatch"
 			if failure.FetchStarted {
@@ -166,9 +203,10 @@ func egoSessionDoOnce(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	var result struct {
-		Status  int               `json:"status"`
-		Headers map[string]string `json:"headers"`
-		Body    string            `json:"body"`
+		Status     int               `json:"status"`
+		Headers    map[string]string `json:"headers"`
+		Body       string            `json:"body"`
+		BodyBase64 *string           `json:"bodyBase64"`
 	}
 	if err = json.Unmarshal(raw, &result); err != nil {
 		return nil, err
@@ -180,5 +218,12 @@ func egoSessionDoOnce(req *http.Request) (*http.Response, error) {
 	for k, v := range result.Headers {
 		headers.Set(k, v)
 	}
-	return &http.Response{StatusCode: result.Status, Status: fmt.Sprintf("%d %s", result.Status, http.StatusText(result.Status)), Header: headers, Body: io.NopCloser(strings.NewReader(result.Body)), ContentLength: int64(len(result.Body)), Request: req}, nil
+	body := []byte(result.Body)
+	if result.BodyBase64 != nil {
+		body, err = base64.StdEncoding.DecodeString(*result.BodyBase64)
+		if err != nil {
+			return nil, errors.New("invalid binary browser response")
+		}
+	}
+	return &http.Response{StatusCode: result.Status, Status: fmt.Sprintf("%d %s", result.Status, http.StatusText(result.Status)), Header: headers, Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(len(body)), Request: req}, nil
 }

@@ -84,21 +84,25 @@ func TestEgoScriptUsesOneFetchAndRejectsIdentityDrift(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node unavailable")
 	}
-	for _, scenario := range []string{"success", "identity-before", "identity-after", "wrong-target", "fetch-error"} {
+	for _, scenario := range []string{"success", "hydrating-before", "hydrating-after", "identity-unavailable", "identity-before", "identity-after", "wrong-target", "fetch-error", "signed-out", "dialog", "user-control", "origin-after", "binary"} {
 		t.Run(scenario, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "result.json")
 			setup := fmt.Sprintf(`
 const scenario=%q;
 const disk=await import('node:fs/promises');
 let calls=0, identities=0;
-const page={url:async()=>"https://qbo.intuit.com/app/banking",evaluate:async()=>({realm:scenario==="identity-before"||scenario==="identity-after"&&identities++>0?"456":"123",email:"fixture@example.test"}),fetch:async(url,options)=>{calls++;if(options.redirect!=="error"||options.body!=="fixture"||!options.saveAs)throw Error("request changed");if(scenario==="fetch-error")throw Error("network");await disk.writeFile(options.saveAs,JSON.stringify({padding:'x'.repeat(2*1024*1024)}));return {status:200,headers:{"content-type":"application/json"},body:'truncated-inline-text'}}};
-const taskSpace=async n=>{if(n!==52)throw Error("wrong space");return {tabs:async()=>[{label:scenario==="wrong-target"?"p2":"p1"}],page:()=>page}};
-const request={space:"52",target:"p1",realm:"123",email:"fixture@example.test",url:"https://qbo.intuit.com/api/v3/company/123/purchase/1",method:"POST",headers:{},body:Buffer.from("fixture").toString("base64"),out:%q,timeout:30000};
+const binaryBytes=Buffer.from(Array.from({length:70000},(_,index)=>index%%256));
+globalThis.fetch=async(url,options)=>{calls++;if(scenario!=='binary'||!Buffer.from(options.body).equals(binaryBytes))throw Error('binary request changed');return new Response(binaryBytes,{status:200});};
+const page={info:async()=>({dialog:scenario==='dialog'}),url:async()=>scenario==='signed-out'?'https://accounts.intuit.com/app/sign-in':scenario==='origin-after'&&calls?'https://evil.invalid/app/banking':"https://qbo.intuit.com/app/banking",evaluate:async(expression,argument)=>{if(typeof expression==='function')return await expression(argument);if(argument!==undefined)throw Error('string expression does not accept an argument');identities++;if(scenario==="identity-unavailable"||scenario==="hydrating-before"&&identities===1||scenario==="hydrating-after"&&identities===2)return {};return {realm:scenario==="identity-before"||scenario==="identity-after"&&identities>1?"456":"123",email:"fixture@example.test"};},waitForFunction:async(fn,expr,opts)=>{if(expr!=="fixture"||opts.timeout!==30000)throw Error("identity wait changed");if(scenario==="identity-unavailable")throw Error("timeout");},fetch:async(url,options)=>{calls++;if(options.redirect!=="error"||options.body!=="fixture"||!options.saveAs)throw Error("request changed");if(scenario==="fetch-error")throw Error("network");await disk.writeFile(options.saveAs,JSON.stringify({padding:'x'.repeat(2*1024*1024)}));return {status:200,headers:{"content-type":"application/json"},body:'truncated-inline-text'}}};
+const taskSpace=async n=>{if(n!==52)throw Error("wrong space");return {ownership:scenario==='user-control'?'user':'agent',tabs:async()=>[{label:scenario==="wrong-target"?"p2":"p1"}],page:()=>page}};
+const request={space:"52",target:"p1",realm:"123",email:"fixture@example.test",url:"https://qbo.intuit.com/api/v3/company/123/purchase/1",method:"POST",headers:{},body:(scenario==='binary'?binaryBytes:Buffer.from("fixture")).toString("base64"),binaryBody:scenario==='binary',out:%q,timeout:30000};
 const identityExpression="fixture";
-try {await (new (Object.getPrototypeOf(async function(){}).constructor)("taskSpace","request","identityExpression",%q))(taskSpace,request,identityExpression);if(scenario!=="success")throw Error("unexpected success");}catch(e){if(scenario==="success")throw e;}
-if(calls!==(scenario==="identity-before"||scenario==="wrong-target"?0:1))throw Error("write replayed or incorrectly sent");
-if((process.exitCode||0)!==(scenario==="success"?0:1))throw Error("incorrect transport exit status");process.exitCode=0;
-`, scenario, out, egoTransportScript)
+const byteFetchExpression=%q;
+const succeeds=["success","hydrating-before","hydrating-after","binary"].includes(scenario);
+try {await (new (Object.getPrototypeOf(async function(){}).constructor)("taskSpace","request","identityExpression","byteFetchExpression",%q))(taskSpace,request,identityExpression,byteFetchExpression);if(!succeeds)throw Error("unexpected success");}catch(e){if(succeeds)throw e;}
+if(calls!==(["identity-before","identity-unavailable","wrong-target","signed-out","dialog","user-control"].includes(scenario)?0:1))throw Error("write replayed or incorrectly sent");
+if((process.exitCode||0)!==(succeeds?0:1))throw Error("incorrect transport exit status");process.exitCode=0;
+`, scenario, out, auth.BrowserByteFetchJS, egoTransportScript)
 			cmd := exec.Command("node", "--input-type=module", "-e", setup)
 			if data, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("%v: %s", err, data)
@@ -115,13 +119,25 @@ if((process.exitCode||0)!==(scenario==="success"?0:1))throw Error("incorrect tra
 			if err := json.Unmarshal(raw, &envelope); err != nil {
 				t.Fatal(err)
 			}
-			if scenario == "success" && envelope["error_code"] != nil || scenario != "success" && envelope["error_code"] == nil {
+			succeeds := scenario == "success" || scenario == "hydrating-before" || scenario == "hydrating-after" || scenario == "binary"
+			if succeeds && envelope["error_code"] != nil || !succeeds && envelope["error_code"] == nil {
 				t.Fatal("response accepted despite failure")
 			}
-			if scenario == "success" {
-				body, _ := envelope["body"].(string)
-				if len(body) < 2*1024*1024 || !json.Valid([]byte(body)) {
+			if succeeds {
+				encoded, _ := envelope["bodyBase64"].(string)
+				body, decodeErr := base64.StdEncoding.DecodeString(encoded)
+				if decodeErr != nil || scenario != "binary" && (len(body) < 2*1024*1024 || !json.Valid(body)) {
 					t.Fatal("full response body was not preserved")
+				}
+				if scenario == "binary" {
+					if len(body) != 70000 {
+						t.Fatal("binary response truncated")
+					}
+					for index, value := range body {
+						if value != byte(index%256) {
+							t.Fatal("binary response changed")
+						}
+					}
 				}
 				info, err := os.Stat(out + ".body")
 				if err != nil || info.Mode().Perm() != 0600 {

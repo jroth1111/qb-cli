@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/mvanhorn/cli-printing-press/v4/internal/quickbooks/auth"
 	"net/http"
@@ -21,7 +22,8 @@ var uriHostTransport func(req *http.Request) (*http.Response, error)
 
 func (c *apiClient) doURIHost(ctx context.Context, method, rawURL, host string, body []byte, overrides ...map[string]string) (*http.Response, error) {
 	resp, err := c.doURIHostOnce(ctx, method, rawURL, host, body, overrides...)
-	if err != nil || resp.StatusCode != http.StatusUnauthorized || c.skipRemint || method != http.MethodGet {
+	rejected := errors.Is(err, auth.ErrRemintNeedsLogin) || resp != nil && resp.StatusCode == http.StatusUnauthorized
+	if err != nil && !errors.Is(err, auth.ErrRemintNeedsLogin) || !rejected || c.skipRemint || (method != http.MethodGet && method != http.MethodHead) {
 		return resp, err
 	}
 	_ = drainAndClose(resp)
