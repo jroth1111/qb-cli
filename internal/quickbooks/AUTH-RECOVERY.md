@@ -1,5 +1,26 @@
 # Session maintenance and autonomous login recovery
 
+## Shared-agent QBO sessions
+
+Give a scoped financial job its own private CLI home with `qb --home PATH login
+--source ego --ego-space NUMERIC_ID --target-id PAGE_LABEL`. This keeps another
+agent's explicit login from replacing the job's source/identity/header binding.
+An isolated CLI home can reuse the existing Ego tab; it does not select or create
+another browser profile. Keep credentials and diagnostic files outside public
+repositories, with owner-only directory/file permissions.
+
+Native warm capture can navigate the pinned tab to Audit Log and back. Serialize
+that capture with financial requests, or pause the applicable keeper during the
+write window using `qb --home PATH auth keepalive stop`; this does not log out.
+The pinned transport waits boundedly for absent SPA identity bootstrap fields,
+but a populated wrong realm/principal is still an immediate stop. Identity is
+checked before and after the request, and financial requests are never replayed.
+
+If a CLI reports an unverified state change, preserve the attempt and inspect the
+target-specific server response plus fresh source/destination states. An Undo
+success receipt does not replace independent Pending presence and Excluded
+absence checks. Complete these with GET-only recovery rather than another Undo.
+
 Keep the same QBO session alive first. The existing keeper sends read-only
 banking GETs at five-minute intervals and persists server-issued cookie rotation.
 Healthy sessions do not resolve passwords, TOTP seeds or vault keys. Network
@@ -27,6 +48,11 @@ headers from the same browser profile. If that profile shows a sign-in wall,
 renewal first tries the same session's unexpired exported cookies (which the
 keeper may have rotated while Chromium was closed); it never restores over a
 live browser identity. Native headers and independent API proof are still required.
+The keeper also uses that recovery path when banking GETs still succeed but
+native maintenance confirms the owned browser is signed out. It performs one
+source-pinned refresh, reloads the rotated credentials, independently rechecks
+banking access and retries native maintenance once. Other native failures do not
+initiate credential submission.
 Only when that owned browser is confirmed
 signed out does an enabled enrollment submit username/password and an authenticator
 code. Routine recovery requires no user approval. CAPTCHA, SMS/email codes, push
@@ -80,6 +106,20 @@ purposes used, never input values, authorization headers or URL query strings.
 Enrollment independently verifies hydrated browser identity and an actual
 CompanyInfo GET before storing secrets. This proves the current browser session,
 not the correctness of credentials that have not yet been used for a fresh login.
+
+The username, password and authenticator seed are persisted in this CLI's own
+encrypted vault; subsequent recovery does not use 1Password, `op`, Wright or a
+separate credential provider. A successful enrollment starts the five-minute
+keeper by default; `--keep-alive=false` prevents startup.
+
+First-time bootstrap automatically selects a single available company. If
+multiple companies are available, interactive macOS setup opens a company-choice
+dialog; other interactive platforms use a numbered terminal choice. Machine mode
+(`--json` or `--no-input`) instead returns `requires_company_selection: true` and
+the available `companies`; the host can show its own dialog and continue with
+`--company "Exact company name"`. Bootstrap never silently picks the first of
+multiple companies. The selected company becomes this profile's default, and
+automatic recovery stays pinned to its realm and principal without prompting.
 
 The encrypted `login-recovery.json` is profile/account/company/login bound.
 A new explicit login or logout invalidates that binding; enroll again for the
@@ -187,6 +227,59 @@ qb auth logout
 Disable keeps encrypted secrets but prohibits re-login. Forget also removes the
 encrypted record and its owned native-keyring item; it does not delete a GPG key
 or an external key file. Logout removes session state and stops its keeper.
+
+Keeper status includes bounded, secret-free `maintenance` phases. They distinguish
+a successful banking probe, a confirmed browser sign-in wall, recovery, banking
+readback and accepted native maintenance; they contain no credential values or
+provider page text. These diagnostics do not change authentication policy.
+
+## Request transports and login sources
+
+The request transport and login source are separate choices. `QB_HOME` holds
+the shared captured session and encrypted recovery enrollment; recovery follows
+the enrolled source, company and principal, not whichever browser happens to be
+available.
+
+| Request path | Session used | Recovery |
+| --- | --- | --- |
+| Default REST HTTP | Saved ATS/API headers and URL-scoped cookies, using Chrome-impersonating TLS | A GET/HEAD rejected with 401 or a confirmed sign-in redirect renews from the saved source and retries once |
+| Managed browser GraphQL/REST | The owned persistent profile and its browser cookies, plus required per-host headers | Classified queries/GETs/HEADs may invoke source-pinned recovery and retry once |
+| Ego browser REST (`QB_HTTP_TRANSPORT=ego`) | The exact saved `ego-existing` space and tab | Requires a matching Ego enrollment for autonomous password/TOTP login; never switches to a managed profile |
+| Ego browser GraphQL | The saved Ego browser backend | Read queries may renew that same source; writes/unknown operations are not replayed |
+
+`QB_HTTP_TRANSPORT=ego` is not compatible with a `managed-profile` login. It is
+an explicit transport selection before a request, not a fallback after failure.
+GraphQL selects managed versus Ego execution from the saved login source.
+Read replay requires an actual query-kind document without mutation or
+subscription operations; an incorrect catalog label alone is not enough.
+Captured service-specific headers remain host-scoped and must not be substituted
+with unrelated banking credentials.
+
+Every retry rechecks the captured company, principal, session and execution
+backend. API destinations and company IDs in paths/headers are checked before
+dispatch. Browser uploads/downloads preserve bytes, and only responses explicitly
+requested as JSON receive JSON completeness validation. Credential-bound HTTP
+writes never follow redirects or replay after uncertain dispatch.
+HTTP URL errors retain their typed causes for retry decisions but never print
+private API-key query parameters or signed download URLs.
+
+New retained Ego captures save the numeric space and managed page label. Existing
+named spaces are resolved from inventory without creating missing spaces, adopting
+unmanaged tabs, or claiming user control. Legacy unpinned captures require a fresh
+explicit login before browser execution or autonomous recovery.
+
+Relay/CDP/Chrome capture sources can supply saved HTTP credentials and warm
+renewal, but they are not enrolled managed/Ego password-recovery profiles. An
+explicit new source requires its own verified login and enrollment. `qb` itself
+does not expose a standalone MCP server. If an MCP wrapper executes the CLI, it
+does not transfer the vault: the executing process still needs the correct
+QB_HOME and access to that profile's key backend.
+
+On macOS, recovery key reads suppress authentication UI and have a 15-second
+ceiling (or the caller's shorter deadline). One blocked native lookup cannot
+accumulate additional native calls; a late returned key is discarded. Keychain
+creation/deletion are serialized with lookups. An unavailable key is an attention
+condition, not proof that login has expired.
 
 ## Verification boundary
 

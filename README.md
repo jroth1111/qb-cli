@@ -206,6 +206,8 @@ qb auth recovery status --json
 
 The prompts hide username, password and an existing authenticator BASE32 seed or `otpauth://totp/` URI. Automation can provide a single JSON object through `--credentials-stdin`; `--bootstrap` supports first login in a fresh profile, including headless setup. Never put secret values in command arguments, environment variables, shell history or committed files.
 
+Credentials remain in qb-cli's own encrypted vault. Recovery needs neither Wright nor `op`. Enrollment starts session maintenance by default (`--keep-alive=false` disables startup). First-time setup selects the sole available company automatically; multiple companies require a choice, using a macOS dialog or terminal selection. Machine mode returns the choices for its host to display, then accepts `--company "Exact company name"`. Recovery always retains the selected company and account.
+
 If an existing encrypted enrollment becomes unbound after an explicit login, `qb auth recovery rebind --launch` verifies the same company and principal before re-encrypting the binding for the current session. It never submits credentials during that verification or silently enables a disabled enrollment.
 
 | Key backend | Use |

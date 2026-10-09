@@ -13,12 +13,15 @@ Module: `github.com/mvanhorn/cli-printing-press/v4`.
   2. managed Chromium on the persistent profile
      (`$QB_HOME/profiles/qbo`), else
   3. isolated ego-browser Space.
+  Explicit `--source managed|ego|relay|chrome` capture never falls back.
+  Renewal of an existing login follows its captured source rather than repeating
+  the new-login ladder. Ego pins its space/page; CDP capture pins its endpoint/tab.
 - You sign in; `qb` mines ATS headers, cookies, and company/email/realm
   from the hydrated tab. Every success leads with the bound company
   (`Logged in as ...`); `--json` output never carries secrets.
 - **Keep the same session first.** The read-only keeper probes every five
   minutes and persists server-issued cookie rotation. A definite 401 allows
-  one source-pinned warm recapture; only reads may be replayed. Managed
+  one source-pinned warm recapture; only verified reads may be replayed. Managed
   sessions never switch to an unrelated relay/Ego profile. `QB_NO_MANAGED=1`
   disables the managed-browser rung. `status --live` proves liveness via the v3 channel
   (ATS headers — never the homepage shell, which redirects even for
@@ -26,12 +29,14 @@ Module: `github.com/mvanhorn/cli-printing-press/v4`.
 - Credentials: `$QB_HOME/credentials.json`, 0600, atomic write.
 - **Autonomous re-login is opt-in.** `auth enroll --launch --enable-recovery`
   binds terminal or explicit `--credentials-stdin` username/password/TOTP input to a verified managed
-  session. Secrets are encrypted; keys use macOS Keychain, Linux Secret
+  session or pinned existing Ego source. Secrets are encrypted; keys use macOS Keychain, Linux Secret
   Service, cross-platform GPG, or an explicitly provisioned external private
   key file. `--bootstrap` supports an initial credential login in a fresh home.
   Only a confirmed sign-in wall after warm recapture permits using
   these credentials. Recovery never requests approval or replays writes;
   unsupported challenges/locked keys stop safely. See [AUTH-RECOVERY.md](AUTH-RECOVERY.md).
+  Legacy relay/CDP captures support warm recapture, not password/TOTP enrollment;
+  they must not silently switch to another browser after logout.
 
 ## CLI conventions
 
