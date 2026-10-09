@@ -229,11 +229,22 @@ func TestLoginRelayFirstPersists(t *testing.T) {
 
 func TestAuthRemintSameLadderAsLogin(t *testing.T) {
 	t.Setenv("QB_HOME", t.TempDir())
+	t.Setenv("QB_NO_MANAGED", "")
+	t.Setenv("QB_NO_KEEPALIVE", "1")
+	stubUnavailableManagedCapture(t)
+	stubManaged := captureManagedFn
+	managedCalls := 0
+	captureManagedFn = func(ctx context.Context, loginURL, bankingURL string) (*auth.ATSCapture, error) {
+		managedCalls++
+		return stubManaged(ctx, loginURL, bankingURL)
+	}
 	origR := tryRelayRemint
 	tryRelayRemint = func(context.Context) error { return auth.ErrRemintNeedsLogin }
 	t.Cleanup(func() { tryRelayRemint = origR })
 	orig := captureATSEgo
+	egoCalls := 0
 	captureATSEgo = func(context.Context, string, string) (*auth.ATSCapture, error) {
+		egoCalls++
 		return &auth.ATSCapture{
 			Headers: map[string]string{
 				"Authorization": "Intuit_APIKey intuit_apikey=x,intuit_apikey_version=1.0",
@@ -257,6 +268,9 @@ func TestAuthRemintSameLadderAsLogin(t *testing.T) {
 	}
 	if !st.HasATSAuthorization || st.Source != "ego-space" {
 		t.Fatalf("status %+v", st)
+	}
+	if managedCalls != 1 || egoCalls != 1 {
+		t.Fatalf("remint ladder calls: managed=%d ego=%d", managedCalls, egoCalls)
 	}
 }
 
