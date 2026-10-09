@@ -32,11 +32,16 @@ func ProbeSession(ctx context.Context) (ok bool, httpStatus int, detail string) 
 }
 
 func probeGetInitialData(ctx context.Context, ac *apiClient, url string) (bool, int, string) {
+	ok, code, detail, _ := probeInitialData(ctx, ac, url)
+	return ok, code, detail
+}
+
+func probeInitialData(ctx context.Context, ac *apiClient, url string) (bool, int, string, error) {
 	// ac.get rides the impersonated transport — the neo endpoint rejects the
 	// plain stdlib client (500/403) even on a healthy session.
 	resp, err := ac.get(ctx, url, "")
 	if err != nil {
-		return false, 0, "transport error: " + err.Error()
+		return false, 0, "transport error: " + err.Error(), err
 	}
 	defer func(r *http.Response) { _ = drainAndClose(r) }(resp)
 	switch resp.StatusCode {
@@ -44,12 +49,12 @@ func probeGetInitialData(ctx context.Context, ac *apiClient, url string) (bool, 
 		body, err := readBody(resp)
 		var initial initialData
 		if err != nil || json.Unmarshal(body, &initial) != nil || initial.Accounts == nil {
-			return false, 200, "unexpected banking response; session not verified"
+			return false, 200, "unexpected banking response; session not verified", nil
 		}
-		return true, 200, "session accepted"
+		return true, 200, "session accepted", nil
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return false, resp.StatusCode, "credentials rejected; run qb auth remint"
+		return false, resp.StatusCode, "credentials rejected; run qb auth remint", nil
 	default:
-		return false, resp.StatusCode, "unexpected status from getInitialData"
+		return false, resp.StatusCode, "unexpected status from getInitialData", nil
 	}
 }

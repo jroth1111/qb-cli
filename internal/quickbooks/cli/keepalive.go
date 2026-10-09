@@ -25,13 +25,14 @@ type keeperPolicy struct {
 	AllowManaged bool          `json:"allow_managed"`
 }
 type keeperStatus struct {
-	SessionID  string    `json:"session_id"`
-	State      string    `json:"state"`
-	PID        int       `json:"pid"`
-	Realm      string    `json:"realm"`
-	LastCheck  time.Time `json:"last_check"`
-	NextCheck  time.Time `json:"next_check"`
-	HTTPStatus int       `json:"http_status,omitempty"`
+	SessionID   string                    `json:"session_id"`
+	State       string                    `json:"state"`
+	PID         int                       `json:"pid"`
+	Realm       string                    `json:"realm"`
+	LastCheck   time.Time                 `json:"last_check"`
+	NextCheck   time.Time                 `json:"next_check"`
+	HTTPStatus  int                       `json:"http_status,omitempty"`
+	Maintenance []client.MaintenanceEvent `json:"maintenance,omitempty"`
 }
 
 var maintainSession = client.MaintainSession
@@ -237,6 +238,13 @@ func runKeeper(ctx context.Context, id string) error {
 			return fmt.Errorf("invalid stored keep-alive interval")
 		}
 		pctx, pcancel := context.WithTimeout(ctx, 2*time.Minute)
+		status.Maintenance = nil
+		pctx = client.WithMaintenanceObserver(pctx, func(event client.MaintenanceEvent) {
+			if len(status.Maintenance) < 8 {
+				status.Maintenance = append(status.Maintenance, event)
+			}
+			_ = writeKeeperFile("keepalive-status.json", status)
+		})
 		ok, httpStatus, state := maintainSession(pctx, expected, policy.AllowManaged)
 		pcancel()
 		status.LastCheck = time.Now().UTC()
@@ -323,6 +331,9 @@ func newAuthKeepaliveCmd(flags *rootFlags) *cobra.Command {
 		_ = readKeeperFile("keepalive-status.json", &s)
 		running := p.Enabled && p.SessionID == s.SessionID && keeperStillWanted(p.SessionID) && s.State != "stopped" && s.State != "needs_login" && s.State != "user_control" && time.Now().Before(s.NextCheck.Add(time.Minute)) && keeperLeaseHeld()
 		out := map[string]any{"enabled": p.Enabled, "running": running, "state": s.State, "realm": s.Realm, "pid": s.PID, "last_check": s.LastCheck, "next_check": s.NextCheck, "http_status": s.HTTPStatus}
+		if len(s.Maintenance) > 0 {
+			out["maintenance"] = s.Maintenance
+		}
 		if tok, err := auth.Load(); err == nil && tok.SessionID == s.SessionID && tok.NativeTicket != nil {
 			out["native_ticket"] = tok.NativeTicket
 		}
