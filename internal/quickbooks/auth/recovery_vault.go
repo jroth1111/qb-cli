@@ -55,11 +55,13 @@ type RecoverySecrets struct {
 }
 
 type RecoveryOptions struct {
-	KeyFile      string
-	GPGRecipient string
-	Bootstrap    bool
-	TestProfile  bool
-	Headed       bool
+	KeyFile       string
+	GPGRecipient  string
+	Bootstrap     bool
+	TestProfile   bool
+	Headed        bool
+	Company       string
+	ChooseCompany func(context.Context, []string) (string, error)
 }
 
 type recoveryRecord struct {
@@ -91,6 +93,7 @@ type RecoveryStatus struct {
 	State        recoveryState    `json:"state"`
 	LastAttempt  time.Time        `json:"last_attempt,omitzero"`
 	LastEvidence *LoginEvidence   `json:"last_evidence,omitempty"`
+	KeepAlive    string           `json:"keep_alive,omitempty"`
 }
 
 func recoveryHome() (string, error) {

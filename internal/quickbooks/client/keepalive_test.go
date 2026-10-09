@@ -61,7 +61,7 @@ func TestRejectedWriteIsNotReplayedAfterRenewal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = ac.postJSON(context.Background(), "https://qbo.intuit.com/api/v3/company/1/purchase", []byte(`{}`)); !errors.Is(err, ErrWriteNotReplayed) {
+	if _, err = ac.postJSON(context.Background(), "https://qbo.intuit.com/api/v3/company/"+ac.realm+"/purchase", []byte(`{}`)); !errors.Is(err, ErrWriteNotReplayed) {
 		t.Fatalf("err=%v", err)
 	}
 	count, _, _, _ := srv.snap()
@@ -80,7 +80,7 @@ func TestReadRenewalCannotSwitchCompany(t *testing.T) {
 	}
 	t.Cleanup(func() { remint = old })
 	ac, _ := newAPIClient()
-	if _, err := ac.get(context.Background(), "https://qbo.intuit.com/api/neo/v1/company/1/olb/ng/getInitialData", ""); !errors.Is(err, auth.ErrSessionChanged) {
+	if _, err := ac.get(context.Background(), "https://qbo.intuit.com/api/neo/v1/company/"+ac.realm+"/olb/ng/getInitialData", ""); !errors.Is(err, auth.ErrSessionChanged) {
 		t.Fatalf("err=%v", err)
 	}
 	count, _, _, _ := srv.snap()

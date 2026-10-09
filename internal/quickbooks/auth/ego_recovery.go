@@ -65,7 +65,9 @@ try {
     },{selector,email:arg.email,step:arg.step});
     if(!marked)throw Error('controls');
     await page.fill('[data-qb-ego-input="true"]',arg.value);
-    await page.click('[data-qb-ego-submit="true"]');
+    // Keyboard activation avoids visual SVG overlays intercepting the mouse.
+    // Never fall back to another submission after an uncertain key dispatch.
+    await page.press('[data-qb-ego-submit="true"]','Enter');
    } else {
     if(arg.action==='password')await page.evaluate('(async()=>{await window.__qbPasskeyCancellation?.cancel()})()');
     const marked=await page.evaluate(arg=>{
@@ -80,7 +82,7 @@ try {
      document.querySelectorAll('[data-qb-ego-choice]').forEach(e=>e.removeAttribute('data-qb-ego-choice'));
      selected[0].setAttribute('data-qb-ego-choice','true');return true;
     },{action:arg.action,email:arg.email,company:arg.company});
-    if(!marked)throw Error('choice');await page.click('[data-qb-ego-choice="true"]');
+    if(!marked)throw Error('choice');await page.press('[data-qb-ego-choice="true"]','Enter');
    }
    await finish({ok:true});
   }
@@ -192,7 +194,7 @@ func captureSourceRecovery(ctx context.Context, expected *TokenSet, secrets *Rec
 	driver.purposes = &purposes
 	driver.authorize = func() error {
 		current, err := Load()
-		if err != nil || !SameSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || current.Source != expected.Source || current.EgoSpace != expected.EgoSpace || current.EgoTargetID != expected.EgoTargetID {
+		if err != nil || !SameBrowserSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration {
 			return ErrSessionChanged
 		}
 		if secrets != nil {

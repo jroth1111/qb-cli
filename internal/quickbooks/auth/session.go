@@ -27,6 +27,12 @@ func SameSession(a, b *TokenSet) bool {
 	return a.CapturedAt.Equal(b.CapturedAt) && a.Authorization == b.Authorization
 }
 
+// Transport selection is part of the captured session, not a fallback choice.
+// Credential rotation may change generations but never the owning browser.
+func SameBrowserSession(a, b *TokenSet) bool {
+	return SameSession(a, b) && a.Source == b.Source && a.EgoSpace == b.EgoSpace && a.EgoTargetID == b.EgoTargetID && a.CDPTargetID == b.CDPTargetID && a.RelayURL == b.RelayURL
+}
+
 type sessionRequestKey struct{}
 
 type retainBrowserKey struct{}
@@ -48,10 +54,28 @@ type sessionRequest struct {
 
 // BindRequest records the profile and capture that authorized this request.
 func BindRequest(req *http.Request, tok *TokenSet, host string) {
-	if req.URL == nil || !intuitHost(strings.ToLower(req.URL.Hostname())) {
+	if req.URL == nil || tok == nil || !tok.HasUsableCredential() {
 		return
 	}
 	*req = *req.WithContext(context.WithValue(req.Context(), sessionRequestKey{}, sessionRequest{HomeDir(), host, tok}))
+}
+
+// A redirected bound write may already have taken effect. Reads may heal a
+// definite sign-in redirect, but no hop may escape the captured destination.
+func ValidateSessionRedirect(req *http.Request, via []*http.Request) error {
+	if _, bound := req.Context().Value(sessionRequestKey{}).(sessionRequest); !bound {
+		return nil
+	}
+	if len(via) > 0 && via[0].Method != http.MethodGet && via[0].Method != http.MethodHead {
+		return fmt.Errorf("QBO write redirected; refusing automatic replay: %w", ErrBrowserRequestUncertain)
+	}
+	if _, err := PrepareSessionRequest(req); err != nil {
+		return err
+	}
+	if req.URL.Hostname() == "accounts.intuit.com" {
+		return ErrRemintNeedsLogin
+	}
+	return nil
 }
 
 func sessionHeaders(t *TokenSet, host string) map[string]string {
@@ -82,15 +106,18 @@ func PrepareSessionRequest(req *http.Request) (*http.Request, error) {
 	if !ok {
 		return req, nil
 	}
-	if req.URL.Scheme != "https" {
-		return nil, fmt.Errorf("QBO credentials require HTTPS")
+	if req.URL.Scheme != "https" || req.URL.User != nil || !intuitHost(strings.ToLower(req.URL.Hostname())) || (req.URL.Port() != "" && req.URL.Port() != "443") {
+		return nil, fmt.Errorf("QBO credentials require an HTTPS Intuit destination")
 	}
 	current, err := loadAt(s.home)
 	if err != nil {
 		return nil, ErrSessionChanged
 	}
-	if !SameSession(s.token, current) {
+	if !SameBrowserSession(s.token, current) {
 		return nil, ErrSessionChanged
+	}
+	if err := validateCompanyPath(req.URL, current.RealmID); err != nil {
+		return nil, err
 	}
 	for _, key := range []string{"intuit-company-id", "intuit-realm-id"} {
 		if id := req.Header.Get(key); id != "" && id != current.RealmID {
@@ -227,7 +254,7 @@ func ObserveSessionResponse(req *http.Request, resp *http.Response) error {
 	if err != nil {
 		return ErrSessionChanged
 	}
-	if !SameSession(s.token, current) {
+	if !SameBrowserSession(s.token, current) {
 		return ErrSessionChanged
 	}
 	if s.token.CredentialGeneration != current.CredentialGeneration {
@@ -349,7 +376,7 @@ func SaveRenewedCapture(expected *TokenSet, cap *ATSCapture, source string) erro
 	}
 	defer unlock()
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) || expected.CredentialGeneration != current.CredentialGeneration {
+	if err != nil || !SameBrowserSession(expected, current) || expected.CredentialGeneration != current.CredentialGeneration {
 		return ErrSessionChanged
 	}
 	if current.CapturedAt.After(expected.CapturedAt) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -60,7 +61,7 @@ func RemintATS(ctx context.Context) error {
 	}
 	defer unlock()
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) {
+	if err != nil || !SameBrowserSession(expected, current) {
 		return ErrSessionChanged
 	}
 	if current.CapturedAt.After(expected.CapturedAt) {
@@ -69,6 +70,16 @@ func RemintATS(ctx context.Context) error {
 	// Managed sessions never switch to an unrelated browser during recovery.
 	if current.Source == "managed-profile" {
 		return remintManagedLocked(ctx)
+	}
+	if current.Source == "chrome-existing" || current.Source == "relay-existing" || current.Source == "relay-session" {
+		endpoint := current.RelayURL
+		if endpoint == "" {
+			endpoint = resolveRelayURL()
+		}
+		if override := os.Getenv("QB_RELAY_URL"); override != "" && current.RelayURL != "" && strings.TrimRight(override, "/") != strings.TrimRight(current.RelayURL, "/") {
+			return ErrSessionChanged
+		}
+		return remintFromRelay(ctx, endpoint)
 	}
 	// A captured Ego session must renew from that same existing source. Trying
 	// an unrelated managed profile first exhausts the deadline and never reaches
@@ -149,7 +160,10 @@ func remintFromRelay(ctx context.Context, relayURL string) error {
 	if err != nil {
 		return fmt.Errorf("relay list: %w", err)
 	}
-	tab := findRelayAuthTab(tabs)
+	tab, err := selectRenewalRelayTab(ctx, relayURL, tabs, expected)
+	if err != nil {
+		return err
+	}
 	if tab == nil {
 		return ErrRemintNeedsLogin
 	}
@@ -166,7 +180,36 @@ func remintFromRelay(ctx context.Context, relayURL string) error {
 	if cap.AuditAuthorization == "" {
 		cap.AuditAuthorization = captureAuditBestEffort(relayURL, tab.ID)
 	}
-	return SaveRenewedCapture(expected, cap, "relay-session")
+	source := expected.Source
+	if source == "" {
+		source = "relay-session"
+	}
+	return SaveRenewedCapture(expected, cap, source)
+}
+
+var renewalRelayIdentity = FetchTabIdentity
+
+func selectRenewalRelayTab(ctx context.Context, endpoint string, tabs []relayPage, expected *TokenSet) (*relayPage, error) {
+	var matches []relayPage
+	for _, tab := range tabs {
+		if !AuthenticatedURL(tab.URL) || (tab.Type != "" && tab.Type != "page") || expected.CDPTargetID != "" && tab.ID != expected.CDPTargetID {
+			continue
+		}
+		identity, err := renewalRelayIdentity(ctx, endpoint, tab.ID)
+		if err != nil {
+			continue
+		}
+		if identity.Realm == expected.RealmID && identity.Email != "" && strings.EqualFold(identity.Email, expected.Email) {
+			matches = append(matches, tab)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, ErrRemintNeedsLogin
+	}
+	if len(matches) != 1 {
+		return nil, ErrSessionChanged
+	}
+	return &matches[0], nil
 }
 
 // captureAuditBestEffort navigates the audit log UI and returns its

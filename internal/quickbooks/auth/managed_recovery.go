@@ -51,17 +51,20 @@ const loginSnapshotJS = `(() => {
  const pick = s => [...document.querySelectorAll(s)].filter(visible);
  const text = (document.body?.innerText || '').toLowerCase();
  const label=s=>String(s||'').replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/ig,'[email]').replace(/\s+/g,' ').trim().slice(0,100);
+ const captcha=e=>visible(e)&&/captcha|recaptcha|hcaptcha/.test(e.src)&&e.getBoundingClientRect().height>60;
+ const informational=e=>[...e.classList].some(name=>/^PageMessage-(info|success)-/.test(name))||/^we simplified the way you sign in to quickbooks(?:\s|$)/i.test(e.innerText.trim())||/^your session timed out\.?\s*sign in again to continue$/i.test(e.innerText.trim());
+ const alert=e=>visible(e)&&e.innerText.trim()&&!informational(e);
  const out = {url: location.href, step: 'unknown',
  fields:[...document.querySelectorAll('input')].filter(visible).map(e=>label([e.id,e.type,e.autocomplete].join(':'))),
  buttons:[...document.querySelectorAll('button,input[type="submit"]')].filter(visible).map(e=>label([e.id,e.type,e.tagName==='BUTTON'?e.innerText:'submit'].join(':'))),
  heading:label(document.querySelector('h1,h2,[role="heading"]')?.innerText),
- visible_captcha:[...document.querySelectorAll('iframe')].some(e=>visible(e)&&/captcha|recaptcha|hcaptcha/.test(e.src)),
- visible_alert:[...document.querySelectorAll('[role="alert"]')].some(e=>visible(e)&&e.innerText.trim()),
+ visible_captcha:[...document.querySelectorAll('iframe')].some(captcha),
+ visible_alert:[...document.querySelectorAll('[role="alert"]')].some(alert),
  frames:[...document.querySelectorAll('iframe')].filter(visible).map(e=>{try{const u=new URL(e.src);return u.origin+u.pathname}catch(_){return 'relative-frame'}}),
  };
  const blocked = /verify you are human|complete.{0,20}captcha|unusual activity|account.{0,20}locked|too many attempts|incorrect password|wrong password|approve.{0,30}(phone|device)|check.{0,30}(phone|email)/.test(text) ||
-  [...document.querySelectorAll('iframe')].some(e => visible(e) && /captcha|recaptcha|hcaptcha/.test(e.src)) ||
-  [...document.querySelectorAll('[role="alert"]')].some(e => visible(e) && e.innerText.trim());
+  [...document.querySelectorAll('iframe')].some(captcha) ||
+  [...document.querySelectorAll('[role="alert"]')].some(alert);
  if (blocked) {out.step='challenge'; return out;}
  if (/choose your company/.test(text)) {out.step='company-choice';return out;}
  if (pick('#ius-password, #iux-password-field, input[type="password"]').length === 1) out.step='password';
@@ -70,6 +73,7 @@ const loginSnapshotJS = `(() => {
   out.step = (pick('#iux-mfa-soft-token-verification-code').length===1 || /authenticator|authentication app/.test(text)) && !/(code|text).{0,40}(sent|email|sms)|sent.{0,40}(phone|email)/.test(text) ? 'totp' : 'challenge';
  } else if ([...document.querySelectorAll('button')].some(e=>visible(e)&&/^enter password(?:[\s,]|$)/i.test(e.innerText.trim()))) out.step='password-choice';
  else if ([...document.querySelectorAll('button')].some(e => visible(e) && /^(use )?(an? )?authenticator app(?:[\s,]|$)/i.test(e.innerText.trim()))) out.step='authenticator';
+ else if ([...document.querySelectorAll('button')].some(e=>visible(e)&&/use a different account/i.test(e.innerText))) out.step='account-choice';
  return out;
 })()`
 
@@ -85,6 +89,29 @@ type managedLoginDriver struct {
 	ctx       context.Context
 	authorize func() error
 	company   string
+}
+
+func (d managedLoginDriver) chooseAccount(ctx context.Context, email string) error {
+	if d.authorize != nil {
+		if err := d.authorize(); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	account, _ := json.Marshal(email)
+	var marked bool
+	script := `(()=>{if(location.origin!=='https://accounts.intuit.com')return false;
+ const email=` + string(account) + `;
+ const matches=[...document.querySelectorAll('button')].filter(e=>!e.disabled&&e.getClientRects().length&&(e.innerText.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/ig)||[]).some(value=>value.toLowerCase()===email.toLowerCase()));
+ if(matches.length!==1)return false;
+ document.querySelectorAll('[data-qb-auth-account]').forEach(e=>e.removeAttribute('data-qb-auth-account'));
+ matches[0].setAttribute('data-qb-auth-account','true');return true;})()`
+	if chromedp.Run(d.ctx, chromedp.Evaluate(script, &marked)) != nil || !marked {
+		return ErrSessionChanged
+	}
+	return chromedp.Run(d.ctx, chromedp.Click(`[data-qb-auth-account="true"]`, chromedp.ByQuery))
 }
 
 // Keep optional WebAuthn requests cancellable when the operator has selected
@@ -113,13 +140,68 @@ const managedPasskeyCancellationJS = `(() => {
  };
 })()`
 
+type CompanySelectionRequired struct {
+	Companies []string `json:"companies"`
+}
+
+func (*CompanySelectionRequired) Error() string {
+	return "multiple QuickBooks companies are available; select one with --company or interactive setup"
+}
+
+func selectBootstrapCompany(ctx context.Context, expected string, companies []string) (string, error) {
+	if len(companies) == 0 || len(companies) > 50 {
+		return "", ErrRecoveryAttention
+	}
+	if expected == "" {
+		if len(companies) == 1 {
+			expected = companies[0]
+		} else {
+			selection, _ := ctx.Value(bootstrapCompanyKey{}).(RecoveryOptions)
+			if selection.ChooseCompany == nil {
+				return "", &CompanySelectionRequired{Companies: companies}
+			}
+			var err error
+			expected, err = selection.ChooseCompany(ctx, companies)
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+	count := 0
+	for _, company := range companies {
+		if company == expected {
+			count++
+		}
+	}
+	if expected == "" || count != 1 {
+		return "", ErrSessionChanged
+	}
+	return expected, nil
+}
+
 func (d managedLoginDriver) chooseCompany(ctx context.Context) error {
 	if d.authorize != nil {
 		if err := d.authorize(); err != nil {
 			return err
 		}
 	}
-	company, _ := json.Marshal(d.company)
+	var companies []string
+	inventory := `(()=>{if(location.origin!=='https://accounts.intuit.com')return [];
+ const candidates=[...document.querySelectorAll('li button')].filter(e=>!e.disabled&&e.getClientRects().length&&!e.getAttribute('aria-label')?.startsWith('Actions for')&&e.name!=='buttonToOpen');
+ if(candidates.length>50)return [];return candidates.map(e=>e.innerText.trim());})()`
+	if chromedp.Run(d.ctx, chromedp.Evaluate(inventory, &companies)) != nil {
+		return ErrRecoveryAttention
+	}
+	name, err := selectBootstrapCompany(ctx, d.company, companies)
+	if err != nil {
+		return err
+	}
+	if d.authorize != nil {
+		if err := d.authorize(); err != nil {
+			return err
+		}
+	}
+	company, _ := json.Marshal(name)
 	var marked bool
 	script := `(()=>{if(location.origin!=='https://accounts.intuit.com')return false;
  const name=` + string(company) + `;const candidates=[...document.querySelectorAll('li button')].filter(e=>!e.disabled&&e.getClientRects().length&&!e.getAttribute('aria-label')?.startsWith('Actions for')&&e.name!=='buttonToOpen');
@@ -266,6 +348,7 @@ func (d managedLoginDriver) choosePassword(ctx context.Context) error {
 func waitLoginStep(ctx context.Context, driver loginDriver, previous loginStep) (loginSnapshot, error) {
 	wctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	var challengeSince time.Time
 	for {
 		s, err := driver.snapshot(wctx)
 		if err != nil {
@@ -280,7 +363,20 @@ func waitLoginStep(ctx context.Context, driver loginDriver, previous loginStep) 
 			}
 		}
 		if accountOrigin(s.URL) && s.Step != stepUnknown && s.Step != previous {
-			return s, nil
+			// Intuit can briefly render an alert from the expired route while
+			// hydrating the new sign-in page. Observe it settling before treating
+			// it as a persistent challenge; no credential is submitted here.
+			if s.Step != stepChallenge {
+				return s, nil
+			}
+			if challengeSince.IsZero() {
+				challengeSince = time.Now()
+			}
+			if time.Since(challengeSince) >= 2*time.Second {
+				return s, nil
+			}
+		} else {
+			challengeSince = time.Time{}
 		}
 		timer := time.NewTimer(200 * time.Millisecond)
 		select {
@@ -382,8 +478,12 @@ func authenticateManaged(ctx context.Context, driver loginDriver, secrets *Recov
 		if err != nil {
 			return err
 		}
-		if evidence := loginEvidence(ctx); evidence != nil && s.Step != stepAuthenticator && s.Step != stepPasswordChoice && s.Step != stepCompanyChoice && s.Step != stepAccountChoice {
-			evidence.CredentialPurposes = append(evidence.CredentialPurposes, string(s.Step))
+		if evidence := loginEvidence(ctx); evidence != nil && s.Step != stepAuthenticator && s.Step != stepPasswordChoice && s.Step != stepCompanyChoice {
+			purpose := s.Step
+			if purpose == stepAccountChoice {
+				purpose = stepUsername
+			}
+			evidence.CredentialPurposes = append(evidence.CredentialPurposes, string(purpose))
 		}
 		s, err = waitLoginStep(ctx, driver, s.Step)
 		if err != nil {
@@ -629,7 +729,7 @@ func captureManagedRecovery(ctx context.Context, expected *TokenSet, secrets *Re
 			driver.authorize = func() error {
 				current, err := Load()
 				r, rerr := loadRecovery()
-				if err != nil || rerr != nil || !SameSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || !r.Enabled || r.ID != grantID || !recoveryBound(r, current) {
+				if err != nil || rerr != nil || !SameBrowserSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || !r.Enabled || r.ID != grantID || !recoveryBound(r, current) {
 					return ErrSessionChanged
 				}
 				return nil
@@ -646,7 +746,7 @@ func captureManagedRecovery(ctx context.Context, expected *TokenSet, secrets *Re
 				return err
 			}
 			trace.CookieRestore = true
-			if err = authenticateManaged(page, managedLoginDriver{ctx: page}, nil); err != nil {
+			if err = authenticateManaged(page, driver, nil); err != nil {
 				return err
 			}
 		}
@@ -681,7 +781,7 @@ func captureManagedRecovery(ctx context.Context, expected *TokenSet, secrets *Re
 
 func restoreManagedCookies(ctx context.Context, expected *TokenSet) error {
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) || current.Source != "managed-profile" || current.CredentialGeneration != expected.CredentialGeneration {
+	if err != nil || !SameBrowserSession(expected, current) || current.Source != "managed-profile" || current.CredentialGeneration != expected.CredentialGeneration {
 		return ErrSessionChanged
 	}
 	var cookies []*network.CookieParam

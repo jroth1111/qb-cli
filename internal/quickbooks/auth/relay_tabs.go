@@ -44,16 +44,3 @@ func listRelayPages(ctx context.Context, relayURL string) ([]relayPage, error) {
 	}
 	return tabs, nil
 }
-
-func findRelayAuthTab(tabs []relayPage) *relayPage {
-	for i := range tabs {
-		t := &tabs[i]
-		if t.Type != "" && t.Type != "page" {
-			continue
-		}
-		if AuthenticatedURL(t.URL) {
-			return t
-		}
-	}
-	return nil
-}

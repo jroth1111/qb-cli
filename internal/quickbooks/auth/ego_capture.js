@@ -277,7 +277,16 @@ async function main() {
     }
 
     const fs = require("fs");
-    fs.writeFileSync(outPath, JSON.stringify({ headers: stored, api_headers: storedApi, host_headers: storedHosts, audit_authorization: auditAuthorization, cookies, identity }, null, 2));
+    let egoSpace, egoTarget;
+    if (keepSpaceOnSuccess) {
+      const owned = await taskSpace(task.id);
+      const active = (await owned.tabs()).filter(tab => tab.active && tab.label && isAuthURL(tab.url));
+      if (owned.ownership === 'agent' && active.length === 1) {
+        egoSpace = String(owned.spaceId);
+        egoTarget = active[0].label;
+      }
+    }
+    fs.writeFileSync(outPath, JSON.stringify({ headers: stored, api_headers: storedApi, host_headers: storedHosts, audit_authorization: auditAuthorization, cookies, identity, ego_space: egoSpace, ego_target_id: egoTarget }, null, 2));
     fs.chmodSync(outPath, 0o600);
     cliLog(JSON.stringify({
       ok: true,

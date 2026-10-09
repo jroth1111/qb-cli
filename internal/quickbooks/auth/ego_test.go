@@ -179,3 +179,16 @@ PY
 		t.Fatalf("got %v, want ErrNoATSAuthorization", err)
 	}
 }
+
+func TestCaptureFailureDoesNotExposeProviderOutput(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "ego-browser")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf 'PRIVATE_PROVIDER_OUTPUT' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	_, err := CaptureATSFromEgo(context.Background(), "", "")
+	if err == nil || strings.Contains(err.Error(), "PRIVATE_PROVIDER_OUTPUT") {
+		t.Fatal("raw capture diagnostic escaped", err)
+	}
+}

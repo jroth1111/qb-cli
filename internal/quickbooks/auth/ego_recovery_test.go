@@ -12,7 +12,7 @@ func TestEgoLoginActionUsesOnlyPinnedOwnedTrustedPage(t *testing.T) {
 	if err != nil {
 		t.Skip("node unavailable")
 	}
-	for _, scenario := range []string{"submit", "wrong-email", "user", "dialog", "foreign", "snapshot", "account", "account-card", "account-card-snapshot", "account-card-ambiguous"} {
+	for _, scenario := range []string{"submit", "press-uncertain", "password", "wrong-email", "user", "dialog", "foreign", "snapshot", "account", "account-card", "account-card-snapshot", "account-card-ambiguous"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			file := filepath.Join(dir, "action.js")
@@ -29,9 +29,9 @@ func TestEgoLoginActionUsesOnlyPinnedOwnedTrustedPage(t *testing.T) {
 
 const egoLoginActionMock = `import fs from 'node:fs/promises';
 const [,file,output,scenario]=process.argv;
-let fills=0,clicks=0;
+let fills=0,presses=0;
 const email={value:scenario==='wrong-email'?'other@example.invalid':'agent@example.invalid',getClientRects:()=>[1]};
-const button={innerText:'agent@example.invalid',getClientRects:()=>[1],setAttribute(){},removeAttribute(){}};
+const button={innerText:scenario==='password'?'Enter password':'agent@example.invalid',getClientRects:()=>[1],setAttribute(){},removeAttribute(){}};
 const input={getClientRects:()=>[1],setAttribute(){},form:{querySelectorAll:()=>[button]}};
 globalThis.document={querySelectorAll:selector=>{
  if(selector.includes('input[name="Email"]'))return [email];
@@ -42,19 +42,22 @@ globalThis.document={querySelectorAll:selector=>{
 }};
 const page={info:async()=>({dialog:scenario==='dialog'}),url:async()=>scenario==='foreign'?'https://evil.invalid':'https://accounts.intuit.com/app/sign-in',
  evaluate:async(fn,arg)=>typeof fn==='function'?fn(arg):({url:'https://accounts.intuit.com/app/sign-in',step:scenario==='account-card-snapshot'?'unknown':'password',visible_captcha:false}),
- fill:async(selector,value)=>{if(value!=='fixture-secret')throw Error('wrong input');fills++;},click:async()=>{clicks++;},cdp:async()=>{}};
+ fill:async(selector,value)=>{if(value!=='fixture-secret')throw Error('wrong input');fills++;},
+ press:async(selector,key)=>{if(key!=='Enter'||!['[data-qb-ego-submit="true"]','[data-qb-ego-choice="true"]'].includes(selector))throw Error('wrong activation');presses++;if(scenario==='press-uncertain')throw Error('keyboard outcome unknown');},
+ click:async()=>{throw Error('SVG intercepts pointer events');},cdp:async()=>{}};
 const task={ownership:scenario==='user'?'user':'agent',tabs:async()=>[{label:'p1',targetId:'target'}],page:()=>page};
 globalThis.taskSpace=async()=>task;
 const source=await fs.readFile(file,'utf8');
 if(/claimTaskSpace|takeOverTaskSpace|newPage|\.goto\(/.test(source))throw Error('source switching');
-const arg={action:['snapshot','account-card-snapshot'].includes(scenario)?'snapshot':['account','account-card','account-card-ambiguous'].includes(scenario)?'account':'submit',step:'password',value:'fixture-secret',space:'52',target:'p1',email:'agent@example.invalid'};
+const arg={action:['snapshot','account-card-snapshot'].includes(scenario)?'snapshot':['account','account-card','account-card-ambiguous'].includes(scenario)?'account':scenario==='password'?'password':'submit',step:'password',value:'fixture-secret',space:'52',target:'p1',email:'agent@example.invalid'};
 await new Function('output','arg','snapshotScript','passkeyScript','return(async()=>{'+source+'})()')(output,arg,'snapshot','passkey');
 const raw=await fs.readFile(output,'utf8');const result=JSON.parse(raw);
 if(raw.includes('fixture-secret'))throw Error('secret persisted');
-if(scenario==='submit'&&(!result.ok||fills!==1||clicks!==1))throw Error('submission missing');
-if(['account','account-card'].includes(scenario)&&(!result.ok||fills||clicks!==1))throw Error('account choice missing');
-if(['user','dialog','foreign','wrong-email'].includes(scenario)&&(!result.error||fills||clicks))throw Error('unsafe submit');
+if(scenario==='submit'&&(!result.ok||fills!==1||presses!==1))throw Error('submission missing');
+if(scenario==='press-uncertain'&&(!result.error||fills!==1||presses!==1))throw Error('uncertain activation retried');
+if(['account','account-card','password'].includes(scenario)&&(!result.ok||fills||presses!==1))throw Error('choice activation missing');
+if(['user','dialog','foreign','wrong-email'].includes(scenario)&&(!result.error||fills||presses))throw Error('unsafe submit');
 if(scenario==='snapshot'&&!result.snapshot)throw Error('snapshot absent');
-if(scenario==='account-card-snapshot'&&(result.snapshot?.step!=='account-choice'||fills||clicks))throw Error('non-list account card not detected');
-if(scenario==='account-card-ambiguous'&&(!result.error||fills||clicks))throw Error('ambiguous account card selected');
+if(scenario==='account-card-snapshot'&&(result.snapshot?.step!=='account-choice'||fills||presses))throw Error('non-list account card not detected');
+if(scenario==='account-card-ambiguous'&&(!result.error||fills||presses))throw Error('ambiguous account card selected');
 `

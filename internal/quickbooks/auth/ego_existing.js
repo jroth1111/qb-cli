@@ -4,8 +4,6 @@ const fs = await import('node:fs/promises');
 const h = ego.helpers;
 const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
 const auditURL = 'https://qbo.intuit.com/app/auditlog';
-if (/^\d+$/.test(spaceKey)) await h.switchTaskSpace(Number(spaceKey));
-else await h.useOrCreateTaskSpace(spaceKey);
 function qboURL(value) {
   try {
     const u = new URL(value);
@@ -16,7 +14,9 @@ function qboURL(value) {
 }
 // The typed inventory carries ledger labels; helpers.listTabs omits them.
 // Switch by target below without ever adopting a tracked page.
-const task = await taskSpace(/^\d+$/.test(spaceKey) ? Number(spaceKey) : spaceKey);
+const task = await resolveExistingTask(spaceKey, taskSpace, listTaskSpaces);
+if (task.ownership !== 'agent') throw new Error('user has taken control');
+await h.switchTaskSpace(task.spaceId);
 const allTabs = await task.tabs();
 const candidates = allTabs.filter(t => qboURL(t.url));
 const tabs = candidates.filter(t =>
@@ -25,6 +25,7 @@ if (tabs.length !== 1) throw new Error(
   'Select exactly one existing QBO banking tab using --target-id; available targets: ' +
   candidates.map(t => t.label || t.targetId).join(', '));
 const tab = tabs[0];
+if (!tab.label) throw new Error('Existing capture requires a managed page label');
 await h.switchTab(tab.targetId || tab.id);
 const info = await h.pageInfo();
 if (!qboURL(info.url)) throw new Error('Selected tab is no longer QBO banking');
@@ -139,5 +140,6 @@ if (typeof requireAPIProof !== 'undefined' && requireAPIProof) {
 }
 await fs.writeFile(process.env.QB_CAPTURE_OUT, JSON.stringify({headers: primary,
   api_headers: secondary, host_headers: hosts, audit_authorization: auditAuthorization,
-  cookies, identity: after, api_proof: apiProof}), {mode: 0o600});
+  cookies, identity: after, api_proof: apiProof,
+  ego_space: String(task.spaceId), ego_target_id: tab.label}), {mode: 0o600});
 console.log(JSON.stringify({captured: true, cookie_count: cookies.length, secondary: !!secondary, audit_captured: !!auditAuthorization}));

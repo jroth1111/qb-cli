@@ -209,6 +209,9 @@ func runLoginEgo(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error {
 		LoginURL:   loginURL,
 		FinalURL:   auth.BankingCaptureURL,
 	}
+	if cap.EgoSpace != "" && cap.EgoTargetID != "" {
+		tok.Source, tok.EgoSpace, tok.EgoTargetID = "ego-existing", cap.EgoSpace, cap.EgoTargetID
+	}
 	if err := tok.ApplyATSCapture(cap); err != nil {
 		return &ExitError{Code: ExitAuthError, Err: err, Silent: flags.asJSON}
 	}

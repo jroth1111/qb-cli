@@ -107,7 +107,7 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		"process.env.QB_CAPTURE_AUDIT = " + strconv.Quote(strconv.FormatBool(auditCapture)) + ";\n" +
 		"process.env.QB_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
 	if existingOnly {
-		preamble += "const captureTarget = " + strconv.Quote(existing.target) + ";\n" +
+		preamble += "const resolveExistingTask = " + ExistingEgoTaskJS + ";\nconst captureTarget = " + strconv.Quote(existing.target) + ";\n" +
 			"const identityExpression = " + strconv.Quote(IdentityJS) + ";\n"
 		requireProof, _ := ctx.Value(egoAPIProofKey{}).(bool)
 		preamble += "const requireAPIProof = " + strconv.FormatBool(requireProof) + ";\n"
@@ -126,13 +126,13 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		if bytes.Contains(bytes.ToLower(out), []byte("user has taken control")) {
+		if bytes.Contains(bytes.ToLower(out), []byte("user has taken control")) || bytes.Contains(out, []byte("user-control")) || bytes.Contains(bytes.ToLower(out), []byte("space is inactive")) {
 			return nil, ErrEgoUserControl
 		}
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("ego-browser capture stopped before authentication could be verified: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("ego-browser capture failed: %w%s", err, trimOutput(out))
+		return nil, fmt.Errorf("ego-browser capture failed; raw provider output withheld: %w", err)
 	}
 	raw, err := os.ReadFile(outPath)
 	if err != nil {
@@ -165,11 +165,13 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 		Cookies            []Cookie                     `json:"cookies"`
 		Identity           Identity                     `json:"identity"`
 		APIProof           bool                         `json:"api_proof"`
+		EgoSpace           string                       `json:"ego_space"`
+		EgoTargetID        string                       `json:"ego_target_id"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("parsing ego capture: %w", err)
 	}
-	cap := &ATSCapture{Headers: file.Headers, SecondaryHeaders: file.APIHeaders, HostHeaders: file.HostHeaders, AuditAuthorization: file.AuditAuthorization, Cookies: file.Cookies, Identity: file.Identity}
+	cap := &ATSCapture{Headers: file.Headers, SecondaryHeaders: file.APIHeaders, HostHeaders: file.HostHeaders, AuditAuthorization: file.AuditAuthorization, Cookies: file.Cookies, Identity: file.Identity, EgoSpace: file.EgoSpace, EgoTargetID: file.EgoTargetID}
 	if required, _ := ctx.Value(egoAPIProofKey{}).(bool); required {
 		if !file.APIProof {
 			return nil, ErrSessionIdentityUnverified

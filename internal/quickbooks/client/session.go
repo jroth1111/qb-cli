@@ -20,7 +20,7 @@ func (c *apiClient) reloadedSession() (*apiClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !auth.SameSession(c.tok, next.tok) {
+	if !auth.SameBrowserSession(c.tok, next.tok) {
 		return nil, auth.ErrSessionChanged
 	}
 	return next, nil

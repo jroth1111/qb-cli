@@ -14,6 +14,26 @@ type fixtureLoginDriver struct {
 	authenticatorChosen bool
 }
 
+type transientChallengeDriver struct {
+	fixtureLoginDriver
+	snapshots int
+}
+
+func (driver *transientChallengeDriver) snapshot(ctx context.Context) (loginSnapshot, error) {
+	driver.snapshots++
+	if driver.snapshots == 1 {
+		return loginSnapshot{URL: DefaultLoginURL, Step: stepChallenge, VisibleAlert: true}, nil
+	}
+	return driver.fixtureLoginDriver.snapshot(ctx)
+}
+
+func TestTransientExpiredRouteAlertSettlesBeforeSecretResolution(t *testing.T) {
+	driver := &transientChallengeDriver{fixtureLoginDriver: fixtureLoginDriver{steps: fixtureSteps(stepUsername)}}
+	if err := authenticateManaged(context.Background(), driver, nil); !errors.Is(err, ErrRemintNeedsLogin) || driver.snapshots < 2 || len(driver.submitted) != 0 {
+		t.Fatal("transient alert was treated as a permanent challenge or resolved credentials")
+	}
+}
+
 func TestManagedFetchRefusesMismatchedRealmBeforeBrowserLaunch(t *testing.T) {
 	t.Setenv("QB_HOME", t.TempDir())
 	t.Setenv("PRINTING_PRESS_VERIFY", "1")
@@ -54,8 +74,9 @@ func (d *fixtureLoginDriver) chooseAuthenticator(context.Context) error {
 	return nil
 }
 
-func (d *fixtureLoginDriver) choosePassword(context.Context) error { d.index++; return nil }
-func (d *fixtureLoginDriver) chooseCompany(context.Context) error  { d.index++; return nil }
+func (d *fixtureLoginDriver) choosePassword(context.Context) error        { d.index++; return nil }
+func (d *fixtureLoginDriver) chooseCompany(context.Context) error         { d.index++; return nil }
+func (d *fixtureLoginDriver) chooseAccount(context.Context, string) error { d.index++; return nil }
 
 func fixtureSteps(steps ...loginStep) []loginSnapshot {
 	var result []loginSnapshot
@@ -79,6 +100,7 @@ func TestManagedLoginStateMachine(t *testing.T) {
 		{"warm", []loginStep{stepApp}, 0, true},
 		{"password", []loginStep{stepUsername, stepPassword, stepApp}, 2, true},
 		{"choose-password", []loginStep{stepUsername, stepPasswordChoice, stepPassword, stepApp}, 2, true},
+		{"remembered-account", []loginStep{stepAccountChoice, stepPasswordChoice, stepPassword, stepAuthenticator, stepTOTP, stepApp}, 2, true},
 		{"choose-company", []loginStep{stepUsername, stepPasswordChoice, stepPassword, stepCompanyChoice, stepApp}, 2, true},
 		{"totp", []loginStep{stepUsername, stepPassword, stepTOTP, stepApp}, 3, true},
 		{"choose-authenticator", []loginStep{stepUsername, stepPassword, stepAuthenticator, stepTOTP, stepApp}, 3, true},

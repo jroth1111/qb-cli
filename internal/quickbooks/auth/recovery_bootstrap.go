@@ -12,6 +12,7 @@ import (
 )
 
 type managedHeadedKey struct{}
+type bootstrapCompanyKey struct{}
 
 func withManagedHeaded(ctx context.Context, headed bool) context.Context {
 	return context.WithValue(ctx, managedHeadedKey{}, headed)
@@ -69,6 +70,7 @@ func bootstrapLoginRecovery(ctx context.Context, secrets RecoverySecrets, opts R
 		return errors.New("--bootstrap requires a fresh QB_HOME without enrollment")
 	}
 	ctx = withManagedHeaded(ctx, opts.Headed)
+	ctx = context.WithValue(ctx, bootstrapCompanyKey{}, opts)
 	cap, err := bootstrapCapture(ctx, secrets)
 	if err != nil {
 		unlock()
@@ -118,7 +120,8 @@ func captureManagedBootstrap(ctx context.Context, secrets RecoverySecrets) (*ATS
 	ctx = context.WithValue(ctx, loginEvidenceKey{}, trace)
 	var cap *ATSCapture
 	err := withManagedBrowser(ctx, func(page context.Context) error {
-		if err := authenticateManaged(page, managedLoginDriver{ctx: page}, &secrets); err != nil {
+		selection, _ := page.Value(bootstrapCompanyKey{}).(RecoveryOptions)
+		if err := authenticateManaged(page, managedLoginDriver{ctx: page, company: selection.Company}, &secrets); err != nil {
 			return err
 		}
 		headers, secondary, hosts, err := interceptManagedATS(page, BankingCaptureURL)

@@ -41,6 +41,9 @@ type ATSCapture struct {
 	// hydrated or evaluation was unavailable.
 	Identity Identity
 	Evidence *LoginEvidence
+	// Durable labels identify a retained Ego page without adopting another tab.
+	EgoSpace    string
+	EgoTargetID string
 }
 
 // HasATSAuthorization reports whether t holds the SPA-minted ATS

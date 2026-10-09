@@ -135,6 +135,65 @@ window.navigator.credentials.get({publicKey:{challenge:new Uint8Array(16)}}).cat
 	if err = chromedp.Run(page, chromedp.Evaluate(`document.body.dataset.codeAccepted==='true'`, &codeAccepted)); err != nil || !codeAccepted {
 		t.Fatal("native TOTP input/submission failed")
 	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.body.innerHTML='<div role="alert">We simplified the way you sign in to QuickBooks<br>Access all your products from one sign in page.</div><input id="iux-identifier-first-international-email-user-id-input"><iframe style="height:60px;width:300px;border:0" src="https://accounts.intuit.com/recaptcha"></iframe>'`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = driver.snapshot(page)
+	if err != nil || snapshot.Step != stepUsername || snapshot.VisibleCaptcha || snapshot.VisibleAlert {
+		t.Fatal("informational banner or passive captcha badge blocked login")
+	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`(()=>{const notice=document.querySelector('[role=alert]');notice.className='PageMessage-info-fixture';notice.innerText='General information about your account.'})()`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = driver.snapshot(page)
+	if err != nil || snapshot.Step != stepUsername || snapshot.VisibleAlert {
+		t.Fatal("informational banner was not ignored")
+	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`(()=>{const notice=document.querySelector('[role=alert]');notice.className='PageMessage-error-fixture';notice.innerText='Unexpected verification required'})()`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = driver.snapshot(page)
+	if err != nil || snapshot.Step != stepChallenge || !snapshot.VisibleAlert {
+		t.Fatal("unknown alert was ignored")
+	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.querySelector('[role=alert]').remove()`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.querySelector('iframe').style.height='200px'`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = driver.snapshot(page)
+	if err != nil || snapshot.Step != stepChallenge || !snapshot.VisibleCaptcha {
+		t.Fatal("interactive captcha was not rejected")
+	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.body.innerHTML='<h1>Choose your company</h1><ul><li><button>First Company</button></li><li><button>Second Company</button></li></ul>';document.querySelectorAll('li button').forEach(e=>e.onclick=()=>document.body.dataset.chosenCompany=e.innerText);`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	selectionPage := context.WithValue(page, bootstrapCompanyKey{}, RecoveryOptions{ChooseCompany: func(_ context.Context, choices []string) (string, error) { return choices[1], nil }})
+	if err = (managedLoginDriver{ctx: selectionPage}).chooseCompany(selectionPage); err != nil {
+		t.Fatal(err)
+	}
+	var selectedCompany string
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.body.dataset.chosenCompany`, &selectedCompany)); err != nil || selectedCompany != "Second Company" {
+		t.Fatal("dialog selection was not applied")
+	}
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.body.innerHTML='<h1>Sign in</h1><button>owner@example.invalid , Last accessed on this device</button><button>other@example.invalid</button><button>Use a different account ,</button>';document.querySelectorAll('button').forEach(e=>e.onclick=()=>document.body.dataset.chosenAccount=e.innerText);`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = driver.snapshot(page)
+	if err != nil || snapshot.Step != stepAccountChoice {
+		t.Fatal("remembered account choice was not recognized")
+	}
+	if err = driver.chooseAccount(page, "owner@example.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	var selectedAccount string
+	if err = chromedp.Run(page, chromedp.Evaluate(`document.body.dataset.chosenAccount`, &selectedAccount)); err != nil || selectedAccount != "owner@example.invalid , Last accessed on this device" {
+		t.Fatal("wrong remembered account was selected")
+	}
+	if err = driver.chooseAccount(page, "missing@example.invalid"); err == nil {
+		t.Fatal("missing enrolled account did not fail closed")
+	}
 	if err = chromedp.Run(page, chromedp.Navigate("https://qbo.intuit.com/app/banking")); err != nil {
 		t.Fatal(err)
 	}

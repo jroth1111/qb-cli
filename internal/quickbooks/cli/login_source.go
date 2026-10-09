@@ -34,6 +34,7 @@ func runSourceLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error 
 	var cap *auth.ATSCapture
 	var err error
 	endpoint := ""
+	cdpTarget := ""
 	switch lf.source {
 	case "ego":
 		ctx = auth.WithExistingEgo(ctx, lf.egoSpace, lf.targetID)
@@ -69,6 +70,7 @@ func runSourceLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error 
 		if len(selected) != 1 {
 			return fmt.Errorf("select exactly one existing QBO banking tab using --target-id; found %d", len(selected))
 		}
+		cdpTarget = selected[0].ID
 		before, identityErr := fetchTabIdentity(ctx, endpoint, selected[0].ID)
 		if identityErr != nil || before.Realm == "" || before.Email == "" {
 			return fmt.Errorf("existing tab lacks a verifiable company and principal")
@@ -84,8 +86,12 @@ func runSourceLogin(cmd *cobra.Command, flags *rootFlags, lf *loginFlags) error 
 		return &ExitError{Code: ExitAuthError, Err: err}
 	}
 	tok := &auth.TokenSet{Version: auth.CurrentVersion, CapturedAt: time.Now().UTC(), Source: lf.source + "-existing", RelayURL: endpoint, FinalURL: auth.BankingCaptureURL}
+	tok.CDPTargetID = cdpTarget
 	if lf.source == "ego" {
 		tok.EgoSpace, tok.EgoTargetID = lf.egoSpace, lf.targetID
+		if cap.EgoSpace != "" && cap.EgoTargetID != "" {
+			tok.EgoSpace, tok.EgoTargetID = cap.EgoSpace, cap.EgoTargetID
+		}
 	}
 	if err := tok.ApplyATSCapture(cap); err != nil {
 		return err

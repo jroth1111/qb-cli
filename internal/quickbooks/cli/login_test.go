@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -164,6 +165,29 @@ func TestLoginEgoHookPersistsATS(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 
+}
+
+func TestLoginEgoPersistsReturnedDurableBrowserBinding(t *testing.T) {
+	t.Setenv("QB_HOME", t.TempDir())
+	t.Setenv("QB_NO_KEEPALIVE", "1")
+	stubUnavailableManagedCapture(t)
+	oldRelay, oldEgo := tryRelayRemint, captureATSEgo
+	defer func() { tryRelayRemint, captureATSEgo = oldRelay, oldEgo }()
+	tryRelayRemint = func(context.Context) error { return auth.ErrRemintNeedsLogin }
+	captureATSEgo = func(context.Context, string, string) (*auth.ATSCapture, error) {
+		return &auth.ATSCapture{Headers: map[string]string{"Authorization": "Intuit_APIKey fixture"}, Identity: auth.Identity{Realm: "12", Email: "fixture@example.invalid"}, EgoSpace: "41", EgoTargetID: "p2"}, nil
+	}
+	root := NewRootCommand()
+	root.SetArgs([]string{"login", "--json", "--keep-alive=false"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := auth.Load()
+	if err != nil || tok.Source != "ego-existing" || tok.EgoSpace != "41" || tok.EgoTargetID != "p2" {
+		t.Fatal("retained browser capture was not pinned", err)
+	}
 }
 
 func stubUnavailableManagedCapture(t *testing.T) {

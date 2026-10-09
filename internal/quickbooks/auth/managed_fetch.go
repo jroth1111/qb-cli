@@ -2,72 +2,76 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net/url"
-	"strings"
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 )
 
 type ManagedResponse struct {
-	Status int    `json:"status"`
-	Body   string `json:"body"`
-	Failed bool   `json:"failed"`
+	Status     int     `json:"status"`
+	Body       string  `json:"body"`
+	Failed     bool    `json:"failed"`
+	BodyBase64 *string `json:"bodyBase64,omitempty"`
 }
+
+var ErrBrowserRequestUncertain = errors.New("browser request interrupted; verify state before retrying a write")
 
 // FetchManaged executes in the same owned profile that minted this session.
 // It never signs in or retries a request; callers classify safe read recovery.
 func FetchManaged(ctx context.Context, expected *TokenSet, endpoint, method string, headers map[string]string, body []byte) (*ManagedResponse, error) {
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || (u.Hostname() != "qbo.intuit.com" && !strings.HasSuffix(u.Hostname(), ".api.intuit.com")) {
-		return nil, errors.New("managed fetch requires an HTTPS QBO API endpoint")
+	if err := ValidateBrowserDestination(endpoint, expected, headers); err != nil {
+		return nil, err
 	}
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) || current.Source != "managed-profile" {
+	if err != nil || !SameBrowserSession(expected, current) || current.Source != "managed-profile" {
 		return nil, ErrSessionChanged
-	}
-	for key, value := range headers {
-		if (strings.EqualFold(key, "intuit-company-id") || strings.EqualFold(key, "intuit-realm-id")) && value != "" && value != current.RealmID {
-			return nil, ErrSessionChanged
-		}
-	}
-	if u.Hostname() == "qbo.intuit.com" {
-		for _, prefix := range []string{"/api/v3/company/", "/api/neo/v1/company/", "/ats/v1/company/"} {
-			if rest, ok := strings.CutPrefix(u.Path, prefix); ok {
-				realm, _, _ := strings.Cut(rest, "/")
-				if realm != current.RealmID {
-					return nil, ErrSessionChanged
-				}
-			}
-		}
 	}
 	var result ManagedResponse
 	err = withManagedBrowser(ctx, func(page context.Context) error {
-		if err := authenticateManaged(page, managedLoginDriver{ctx: page}, nil); err != nil {
+		if err := authenticateManaged(page, managedLoginDriver{ctx: page, company: current.CompanyName}, nil); err != nil {
 			return err
 		}
 		if err := waitManagedIdentity(page, current); err != nil {
 			return err
 		}
 		latest, err := Load()
-		if err != nil || !SameSession(current, latest) || latest.CredentialGeneration != current.CredentialGeneration {
+		if err != nil || !SameBrowserSession(current, latest) || latest.CredentialGeneration != current.CredentialGeneration {
 			return ErrSessionChanged
 		}
-		args, _ := json.Marshal(map[string]any{"endpoint": endpoint, "method": method, "headers": headers, "body": string(body)})
+		if headers == nil {
+			headers = map[string]string{}
+		}
+		args, _ := json.Marshal(map[string]any{"endpoint": endpoint, "method": method, "headers": headers, "bodyBase64": base64.StdEncoding.EncodeToString(body), "timeoutMs": 30000})
 		script := `(async()=>{try {if(location.origin!=='https://qbo.intuit.com')return {failed:true};
- const a=` + string(args) + `;const o={method:a.method,headers:a.headers,credentials:'include',redirect:'error',signal:AbortSignal.timeout(30000)};
- if(a.method!=='GET' && a.method!=='HEAD' && a.body)o.body=a.body;
- const r=await fetch(a.endpoint,o);return {status:r.status,body:await r.text()};
+ return await ` + BrowserByteFetchJS + `(` + string(args) + `);
  }catch(_){return {failed:true};}})()`
 		if chromedp.Run(page, chromedp.Evaluate(script, &result, func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) })) != nil || result.Failed {
-			return errors.New("managed browser request outcome unknown; inspect state before retrying a write")
+			return ErrBrowserRequestUncertain
+		}
+		if err := waitManagedIdentity(page, current); err != nil {
+			return err
+		}
+		latest, err = Load()
+		if err != nil || !SameBrowserSession(current, latest) || latest.CredentialGeneration != current.CredentialGeneration {
+			return ErrSessionChanged
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	if result.Status < 100 || result.Status > 599 {
+		return nil, ErrBrowserRequestUncertain
+	}
+	if result.BodyBase64 != nil {
+		decoded, err := base64.StdEncoding.DecodeString(*result.BodyBase64)
+		if err != nil {
+			return nil, ErrBrowserRequestUncertain
+		}
+		result.Body = string(decoded)
 	}
 	return &result, nil
 }

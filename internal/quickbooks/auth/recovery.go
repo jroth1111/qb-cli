@@ -94,7 +94,7 @@ func recoverManagedLocked(ctx context.Context, expected *TokenSet) error {
 	}
 	current, loadErr := Load()
 	fresh, recordErr := loadRecovery()
-	if loadErr != nil || recordErr != nil || !SameSession(expected, current) || !fresh.Enabled || fresh.ID != r.ID || !recoveryBound(fresh, current) {
+	if loadErr != nil || recordErr != nil || !SameBrowserSession(expected, current) || !fresh.Enabled || fresh.ID != r.ID || !recoveryBound(fresh, current) {
 		lock()
 		return ErrSessionChanged
 	}
@@ -159,7 +159,7 @@ func saveRecoveredCapture(expected *TokenSet, record *recoveryRecord, cap *ATSCa
 	defer unlock()
 	current, err := Load()
 	r, rerr := loadRecovery()
-	if err != nil || rerr != nil || !SameSession(expected, current) || !r.Enabled || r.ID != record.ID || !recoveryBound(r, current) {
+	if err != nil || rerr != nil || !SameBrowserSession(expected, current) || !r.Enabled || r.ID != record.ID || !recoveryBound(r, current) {
 		return ErrSessionChanged
 	}
 	if current.CredentialGeneration != expected.CredentialGeneration {

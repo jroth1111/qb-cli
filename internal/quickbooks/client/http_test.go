@@ -121,6 +121,7 @@ func TestNeoGetUsesObservedAcceptHeader(t *testing.T) {
 }
 
 func TestPostJSONDropsCapturedPaginationRange(t *testing.T) {
+	t.Setenv("QB_HOME", t.TempDir())
 	var gotRange, gotContentType string
 	var gotTrace string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,17 +133,18 @@ func TestPostJSONDropsCapturedPaginationRange(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	original := impersonatedTransport
-	impersonatedTransport = http.DefaultTransport
-	t.Cleanup(func() { impersonatedTransport = original })
-	c := &apiClient{tok: &auth.TokenSet{RequestHeaders: map[string]string{
+	interceptHTTP(t, srv.URL)
+	c := &apiClient{tok: &auth.TokenSet{RealmID: "1", RequestHeaders: map[string]string{
 		"Authorization": "Intuit_APIKey intuit_apikey=x,intuit_apikey_version=1.0",
 		"x-range":       "items=0-49",
 		"x-b3-sampled":  "1",
 		"x-b3-spanid":   "stale-span",
 		"x-b3-traceid":  "stale-trace",
 	}}}
-	resp, err := c.postJSON(context.Background(), srv.URL, []byte(`{"ok":true}`))
+	if err := auth.Save(c.tok); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.postJSON(context.Background(), "https://qbo.intuit.com/api/v3/company/1/query", []byte(`{"ok":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +181,7 @@ func TestGetRemintsOnceOn401(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"accounts": []any{}})
 	}))
 	t.Cleanup(srv.Close)
+	interceptHTTP(t, srv.URL)
 
 	calls := 0
 	orig := remint
@@ -192,7 +195,7 @@ func TestGetRemintsOnceOn401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := c.get(context.Background(), srv.URL, "")
+	resp, err := c.get(context.Background(), "https://qbo.intuit.com/api/v3/company/1/query", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +217,7 @@ func TestGetRemintFailureSurfaces(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	t.Cleanup(srv.Close)
+	interceptHTTP(t, srv.URL)
 	orig := remint
 	remint = func(context.Context) error { return errors.New("ego cold") }
 	t.Cleanup(func() { remint = orig })
@@ -221,7 +225,7 @@ func TestGetRemintFailureSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.get(context.Background(), srv.URL, "")
+	_, err = c.get(context.Background(), "https://qbo.intuit.com/api/v3/company/1/query", "")
 	if err == nil {
 		t.Fatal("expected remint failure")
 	}

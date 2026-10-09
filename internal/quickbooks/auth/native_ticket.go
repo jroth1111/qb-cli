@@ -100,7 +100,7 @@ func ExtendNativeTicket(ctx context.Context, expected *TokenSet, force bool) err
 	}
 	defer unlock()
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || !SupportsNativeTicket(current) {
+	if err != nil || !SameBrowserSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration || !SupportsNativeTicket(current) {
 		return ErrSessionChanged
 	}
 	now := time.Now().UTC()
@@ -135,7 +135,7 @@ func ExtendNativeTicket(ctx context.Context, expected *TokenSet, force bool) err
 	}
 	defer lock()
 	latest, lerr := Load()
-	if lerr != nil || !SameSession(current, latest) || current.CredentialGeneration != latest.CredentialGeneration {
+	if lerr != nil || !SameBrowserSession(current, latest) || current.CredentialGeneration != latest.CredentialGeneration {
 		return ErrSessionChanged
 	}
 	latest.NativeTicket = state
@@ -175,7 +175,7 @@ func captureNativeTicket(ctx context.Context, expected *TokenSet) (*nativeTicket
 			return fmt.Errorf("native preflight identity: %w", err)
 		}
 		current, err := Load()
-		if err != nil || !SameSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration {
+		if err != nil || !SameBrowserSession(expected, current) || current.CredentialGeneration != expected.CredentialGeneration {
 			return ErrSessionChanged
 		}
 		if err = chromedp.Run(page, chromedp.Evaluate(nativeTicketJS, &result, func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) })); err != nil || !result.Extended {

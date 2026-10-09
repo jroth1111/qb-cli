@@ -75,6 +75,43 @@ func TestNativeTicketFailuresNeverResolveCredentials(t *testing.T) {
 	}
 }
 
+func TestNativeTicketRefusesChangedBrowserWithinSameLogin(t *testing.T) {
+	for _, field := range []string{"source", "space", "target"} {
+		t.Run(field, func(t *testing.T) {
+			expected, _ := recoveryFixture(t)
+			expected.Source, expected.EgoSpace, expected.EgoTargetID = "ego-existing", "52", "p1"
+			if err := Save(expected); err != nil {
+				t.Fatal(err)
+			}
+			expected, _ = Load()
+			changed := *expected
+			switch field {
+			case "source":
+				changed.Source = "managed-profile"
+			case "space":
+				changed.EgoSpace = "53"
+			case "target":
+				changed.EgoTargetID = "p2"
+			}
+			if err := Save(&changed); err != nil {
+				t.Fatal(err)
+			}
+			if !SameSession(expected, &changed) {
+				t.Fatal("fixture must preserve the login identity")
+			}
+			old := nativeTicketCapture
+			t.Cleanup(func() { nativeTicketCapture = old })
+			nativeTicketCapture = func(context.Context, *TokenSet) (*nativeTicketResult, error) {
+				t.Fatal("different browser was contacted")
+				return nil, nil
+			}
+			if err := ExtendNativeTicket(context.Background(), expected, true); !errors.Is(err, ErrSessionChanged) {
+				t.Fatalf("browser switch accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestPinnedEgoNativeTicketPreservesSourceAndNeverReadsVault(t *testing.T) {
 	tok, _ := recoveryFixture(t)
 	tok.Source, tok.EgoSpace, tok.EgoTargetID = "ego-existing", "52", "p1"

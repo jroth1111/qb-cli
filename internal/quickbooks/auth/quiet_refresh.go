@@ -22,7 +22,7 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 	}
 	defer unlock()
 	current, err := Load()
-	if err != nil || !SameSession(expected, current) {
+	if err != nil || !SameBrowserSession(expected, current) {
 		return ErrSessionChanged
 	}
 	if current.CapturedAt.After(expected.CapturedAt) {
@@ -52,6 +52,16 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 		}
 		return SaveRenewedCapture(current, cap, "ego-existing")
 	}
+	if current.Source == "chrome-existing" || current.Source == "relay-existing" || current.Source == "relay-session" {
+		endpoint := current.RelayURL
+		if endpoint == "" {
+			endpoint = resolveRelayURL()
+		}
+		if override := os.Getenv("QB_RELAY_URL"); override != "" && current.RelayURL != "" && strings.TrimRight(override, "/") != strings.TrimRight(current.RelayURL, "/") {
+			return ErrSessionChanged
+		}
+		return remintFromRelay(ctx, endpoint)
+	}
 	rctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	relay := resolveRelayURL()
 	if current.RelayURL != "" && os.Getenv("QB_RELAY_URL") == "" {
@@ -60,7 +70,7 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 	tabs, terr := listRelayPages(rctx, relay)
 	if terr == nil {
 		for _, tab := range tabs {
-			if !AuthenticatedURL(tab.URL) {
+			if !AuthenticatedURL(tab.URL) || current.CDPTargetID != "" && tab.ID != current.CDPTargetID {
 				continue
 			}
 			identity, e := FetchTabIdentity(rctx, relay, tab.ID)
@@ -75,7 +85,7 @@ func RefreshQuiet(ctx context.Context, expected *TokenSet, allowManaged bool) er
 			if !isIntuitAPIKey(headerGet(headers, "authorization")) {
 				headers = map[string]string{"Authorization": current.Authorization, "intuit-company-id": current.RealmID}
 			}
-			e = SaveRenewedCapture(current, &ATSCapture{Headers: headers, Cookies: cookies, Identity: identity}, "relay-cookie-refresh")
+			e = SaveRenewedCapture(current, &ATSCapture{Headers: headers, Cookies: cookies, Identity: identity}, current.Source)
 			if e == nil {
 				cancel()
 				return nil
