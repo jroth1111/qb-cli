@@ -104,6 +104,12 @@ is restricted to its isolated test profile, never a user's daily Ego profile.
 is `live`, `stale`, or `unknown`; `ok` and `verified` are true only for a
 successful live check. Transport failures are unknown, not proof of expiry.
 
+If an Ego helper exits successfully without producing a capture,
+`QB_EGO_CAPTURE_DIAGNOSTIC_PATH` can preserve its raw diagnostic output in a
+new owner-only file (0600). Existing files are never overwritten. This output
+may contain credentials: keep it outside public repositories and do not share
+it. The normal error never includes the raw diagnostic.
+
 After addressing a recoverable attention stop, `qb auth recovery retry --launch`
 requests one explicit attempt on the enabled, bound source. It does not re-enable
 disabled recovery, override identity mismatches or cooldowns, unlock keys, or

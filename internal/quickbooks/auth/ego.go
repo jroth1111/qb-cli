@@ -141,6 +141,20 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	if len(bytes.TrimSpace(raw)) == 0 {
 		// A successful helper exit is not capture evidence. Do not include its
 		// raw output: capture diagnostics can contain browser credentials.
+		if diagnosticPath := os.Getenv("QB_EGO_CAPTURE_DIAGNOSTIC_PATH"); diagnosticPath != "" {
+			// Opt-in local evidence only; never overwrite an earlier attempt.
+			f, writeErr := os.OpenFile(diagnosticPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			if writeErr == nil {
+				_, writeErr = f.Write(out)
+				closeErr := f.Close()
+				if writeErr == nil {
+					writeErr = closeErr
+				}
+			}
+			if writeErr != nil {
+				return nil, fmt.Errorf("ego-browser returned an empty capture; private diagnostic could not be preserved: %w", writeErr)
+			}
+		}
 		return nil, errors.New("ego-browser returned an empty capture despite a successful exit; saved credentials unchanged; verify control of the existing QBO tab and retry with its numeric --ego-space ID and --target-id")
 	}
 	var file struct {

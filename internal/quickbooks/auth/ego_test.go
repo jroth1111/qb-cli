@@ -38,6 +38,7 @@ func TestCaptureATSFromEgoMissingBinary(t *testing.T) {
 }
 
 func TestCaptureATSFromEgoEmptySuccessfulExitIsNotCaptureEvidence(t *testing.T) {
+	t.Setenv("QB_EGO_CAPTURE_DIAGNOSTIC_PATH", "")
 	for _, whitespace := range []bool{false, true} {
 		t.Run(fmt.Sprint(whitespace), func(t *testing.T) {
 			dir := t.TempDir()
@@ -62,6 +63,34 @@ func TestCaptureATSFromEgoEmptySuccessfulExitIsNotCaptureEvidence(t *testing.T) 
 				t.Fatal("raw capture diagnostic leaked")
 			}
 		})
+	}
+}
+
+func TestEmptyEgoCaptureDiagnosticsArePrivateAndNeverOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "ego-browser")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\nprintf 'private-runtime-detail' >&2\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	path := filepath.Join(dir, "diagnostic.txt")
+	t.Setenv("QB_EGO_CAPTURE_DIAGNOSTIC_PATH", path)
+	_, err := CaptureATSFromEgo(context.Background(), "", "")
+	if err == nil || strings.Contains(err.Error(), "private-runtime-detail") {
+		t.Fatal("diagnostic accepted or leaked")
+	}
+	body, readErr := os.ReadFile(path)
+	info, statErr := os.Stat(path)
+	if readErr != nil || statErr != nil || string(body) != "private-runtime-detail" || info.Mode().Perm() != 0o600 {
+		t.Fatal("diagnostic not privately preserved")
+	}
+	if err := os.WriteFile(path, []byte("preserved-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = CaptureATSFromEgo(context.Background(), "", "")
+	body, readErr = os.ReadFile(path)
+	if err == nil || readErr != nil || string(body) != "preserved-original" {
+		t.Fatal("existing diagnostic was overwritten")
 	}
 }
 
