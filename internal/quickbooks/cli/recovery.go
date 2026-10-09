@@ -89,6 +89,11 @@ func recoveryResult(cmd *cobra.Command, flags *rootFlags, value any, err error) 
 			if errors.As(err, &failure) {
 				value.(map[string]any)["diagnostics"] = failure.Evidence
 			}
+			var selection *auth.CompanySelectionRequired
+			if errors.As(err, &selection) {
+				value.(map[string]any)["companies"] = selection.Companies
+				value.(map[string]any)["requires_company_selection"] = true
+			}
 		}
 		_ = json.NewEncoder(cmd.OutOrStdout()).Encode(value)
 	} else if err == nil {
@@ -157,11 +162,18 @@ func newAuthEnrollCmd(flags *rootFlags) *cobra.Command {
 				}
 				secrets = auth.RecoverySecrets{Username: username, Password: password, TOTP: seed}
 			}
+			opts.ChooseCompany = func(ctx context.Context, companies []string) (string, error) {
+				return chooseRecoveryCompany(ctx, cmd, flags, companies)
+			}
 			err := enrollRecovery(ctx, secrets, opts)
+			secrets.Username, secrets.Password, secrets.TOTP = "", "", ""
 			if err != nil {
 				return recoveryResult(cmd, flags, nil, err)
 			}
 			status, err := auth.LoginRecoveryStatus()
+			if err == nil {
+				status.KeepAlive = autoStartKeeper(cmd, flags)
+			}
 			return recoveryResult(cmd, flags, status, err)
 		},
 	}
@@ -171,6 +183,8 @@ func newAuthEnrollCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Bootstrap, "bootstrap", false, "perform the first login with supplied credentials in a fresh QB_HOME")
 	cmd.Flags().BoolVar(&opts.TestProfile, "test-profile", false, "mark a bootstrapped isolated profile for controlled local-auth-loss verification")
 	cmd.Flags().BoolVar(&opts.Headed, "headed", false, "use visible managed Chromium for enrollment and subsequent recovery")
+	cmd.Flags().StringVar(&opts.Company, "company", "", "exact company name for first login; a single available company is selected automatically")
+	cmd.Flags().Bool("keep-alive", true, "maintain the enrolled session; --keep-alive=false disables startup")
 	cmd.Flags().StringVar(&opts.KeyFile, "key-file", "", "external private file containing a 32-byte encryption key (path only)")
 	cmd.Flags().StringVar(&opts.GPGRecipient, "gpg-recipient", "", "full trusted GPG encryption-key fingerprint (macOS/Linux)")
 	return cmd
