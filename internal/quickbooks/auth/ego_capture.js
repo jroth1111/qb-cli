@@ -2,19 +2,21 @@
 // Isolated Space + Network/Fetch intercept of one ATS Intuit_APIKey request.
 // Writes capture JSON to QB_CAPTURE_OUT. Never prints secret values.
 
+const config = Object.freeze({...(
+  typeof captureConfig === 'undefined' ? process.env : captureConfig)});
 const h = ego.helpers;
-const outPath = process.env.QB_CAPTURE_OUT;
-const loginURL = process.env.QB_LOGIN_URL ||
+const outPath = config.QB_CAPTURE_OUT;
+const loginURL = config.QB_LOGIN_URL ||
   "https://accounts.intuit.com/app/sign-in?app_group=QBO&asset_alias=Intuit.accounting.core.qbowebapp&app_environment=prod";
-const bankingURL = process.env.QB_BANKING_URL || "https://qbo.intuit.com/app/banking";
+const bankingURL = config.QB_BANKING_URL || "https://qbo.intuit.com/app/banking";
 const auditURL = "https://qbo.intuit.com/app/auditlog";
-const timeoutMs = Number(process.env.QB_TIMEOUT_MS || "600000");
-const spaceKey = process.env.QB_EGO_SPACE || "qb-login";
+const timeoutMs = Number(config.QB_TIMEOUT_MS || "600000");
+const spaceKey = config.QB_EGO_SPACE || "qb-login";
 // An operator-designated Space (QB_EGO_SPACE/QB_EGO_SPACE_ID set) is a shared
 // resource — e.g. an authenticated exec Space serving remint. Keep it alive
 // on success; only the self-created default is completed after capture.
-const keepSpaceOnSuccess = process.env.QB_KEEP_CAPTURE_SPACE === "true" ||
-  (process.env.QB_EGO_SPACE !== undefined && process.env.QB_EGO_SPACE !== "");
+const keepSpaceOnSuccess = config.QB_KEEP_CAPTURE_SPACE === "true" ||
+  (config.QB_EGO_SPACE !== undefined && config.QB_EGO_SPACE !== "");
 
 function fail(msg, code) {
   cliLog(JSON.stringify({ ok: false, error: msg }));
@@ -188,7 +190,7 @@ async function main() {
       fail("no ATS Intuit_APIKey request observed in ego Space", 2);
     }
 
-    if (process.env.QB_CAPTURE_AUDIT === "true") {
+    if (config.QB_CAPTURE_AUDIT === "true") {
       try { await h.gotoAndWait(auditURL, { timeout: 30 }); } catch (_) {}
       const auditDeadline = Math.min(deadline, Date.now() + 12000);
       while (!auditAuthorization && Date.now() < auditDeadline) {

@@ -1,8 +1,10 @@
 // Existing-tab capture. Never claims spaces or opens tabs. It observes fresh
 // credentials by navigating only the selected QBO tab.
+const config = Object.freeze({...(
+  typeof captureConfig === 'undefined' ? process.env : captureConfig)});
 const fs = await import('node:fs/promises');
 const h = ego.helpers;
-const spaceKey = process.env.QB_EGO_SPACE || 'qb-gql';
+const spaceKey = config.QB_EGO_SPACE || 'qb-gql';
 const auditURL = 'https://qbo.intuit.com/app/auditlog';
 function qboURL(value) {
   try {
@@ -65,7 +67,7 @@ function observe(url, h) {
 await h.cdp('Network.enable', {});
 await h.drainEvents();
 await h.cdp('Page.reload', {});
-const deadline = Date.now() + Math.min(Number(process.env.QB_TIMEOUT_MS || 90000), 90000);
+const deadline = Date.now() + Math.min(Number(config.QB_TIMEOUT_MS || 90000), 90000);
 const requests = new Map();
 const extras = new Map();
 let capturedAt = 0;
@@ -91,7 +93,7 @@ while (Date.now() < deadline) {
 if (!primary) throw new Error('No fresh primary authorization observed; saved credentials unchanged');
 // Audit Log uses a distinct Intuit_APIKey. Capture it on the same authenticated
 // tab so the CLI never replays the shorter-lived banking key to audit.api.
-if (process.env.QB_CAPTURE_AUDIT === 'true') {
+if (config.QB_CAPTURE_AUDIT === 'true') {
   try {
     await h.gotoAndWait(auditURL, {timeout: 30});
     const auditDeadline = Math.min(deadline, Date.now() + 12000);
@@ -104,13 +106,21 @@ if (process.env.QB_CAPTURE_AUDIT === 'true') {
   }
   try { await h.gotoAndWait('https://qbo.intuit.com/app/banking', {timeout: 30}); } catch (_) {}
 }
-const after = await h.js(identityExpression);
-const finalURL = (await h.pageInfo()).url;
-if (!qboURL(finalURL) || new URL(finalURL).pathname !== '/app/banking' ||
-    before.realm !== after.realm ||
-    before.email.trim().toLowerCase() !== (after.email || '').trim().toLowerCase()) {
-  throw new Error('Company or principal changed during capture; saved credentials unchanged');
+const identityFailure = () => new Error('Company or principal changed during capture; saved credentials unchanged');
+const settleDeadline = Date.now() + 30000;
+let after;
+while (true) {
+  const current = await h.pageInfo();
+  if (!qboURL(current.url) || new URL(current.url).pathname !== '/app/banking' || current.dialog) throw identityFailure();
+  after = await h.js(identityExpression);
+  if (after.realm && before.realm !== after.realm || after.email &&
+      before.email.trim().toLowerCase() !== after.email.trim().toLowerCase()) throw identityFailure();
+  if (after.realm && after.email) break;
+  if (Date.now() >= settleDeadline) throw identityFailure();
+  await new Promise(resolve => setTimeout(resolve, 250));
 }
+const finalInfo = await h.pageInfo();
+if (!qboURL(finalInfo.url) || new URL(finalInfo.url).pathname !== '/app/banking' || finalInfo.dialog) throw identityFailure();
 const jar = await h.cdp('Network.getCookies', {urls: ['https://qbo.intuit.com/']});
 const cookies = (jar.cookies || []).filter(c => ['intuit.com', 'qbo.intuit.com'].includes(c.domain.toLowerCase().replace(/^\./, ''))).map(c => ({
   name: c.name, value: c.value, domain: c.domain, path: c.path || '/', secure: c.secure,
@@ -138,7 +148,7 @@ if (typeof requireAPIProof !== 'undefined' && requireAPIProof) {
   } catch (_) { apiProof = false; }
   if (!apiProof) throw new Error('Independent CompanyInfo proof failed; credentials unchanged');
 }
-await fs.writeFile(process.env.QB_CAPTURE_OUT, JSON.stringify({headers: primary,
+await fs.writeFile(config.QB_CAPTURE_OUT, JSON.stringify({headers: primary,
   api_headers: secondary, host_headers: hosts, audit_authorization: auditAuthorization,
   cookies, identity: after, api_proof: apiProof,
   ego_space: String(task.spaceId), ego_target_id: tab.label}), {mode: 0o600});

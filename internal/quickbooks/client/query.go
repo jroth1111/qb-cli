@@ -376,10 +376,10 @@ func ReplayQuery(ctx context.Context, entity, id, query string, limit int, activ
 		if len(page) == 0 {
 			break
 		}
-		// Payment allocations and invoice lines cannot be reconstructed from
+		// Payment allocations, invoice and deposit lines cannot be reconstructed from
 		// the compact list projection. Preserve the real single-record query
 		// object, while refusing an unexpected or ambiguous identity.
-		if id != "" && (entity == "Payment" || entity == "Invoice") {
+		if id != "" && (entity == "Payment" || entity == "Invoice" || entity == "Deposit") {
 			var envelope struct {
 				Query map[string]json.RawMessage `json:"QueryResponse"`
 			}

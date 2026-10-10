@@ -87,8 +87,8 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	}
 	auditCapture := timeoutMs > 30_000
 
-	// ego-browser nodejs does not reliably forward parent env into the
-	// script VM. Stamp paths into the source so capture cannot miss them.
+	// Provider environment values can change while a script awaits browser
+	// work. Keep each capture's settings in its own lexical scope.
 	// QB_EGO_SPACE_ID/QB_EGO_SPACE select the capture Space (default
 	// "qb-login"); reuse the gql exec convention so an authenticated exec
 	// Space can also serve remint.
@@ -99,13 +99,14 @@ func CaptureATSFromEgo(ctx context.Context, loginURL, bankingURL string) (*ATSCa
 	if existingOnly {
 		space = existing.space
 	}
-	preamble := "process.env.QB_CAPTURE_OUT = " + strconv.Quote(outPath) + ";\n" +
-		"process.env.QB_KEEP_CAPTURE_SPACE = " + strconv.Quote(strconv.FormatBool(retainBrowser(ctx))) + ";\n" +
-		"process.env.QB_LOGIN_URL = " + strconv.Quote(loginURL) + ";\n" +
-		"process.env.QB_BANKING_URL = " + strconv.Quote(bankingURL) + ";\n" +
-		"process.env.QB_EGO_SPACE = " + strconv.Quote(space) + ";\n" +
-		"process.env.QB_CAPTURE_AUDIT = " + strconv.Quote(strconv.FormatBool(auditCapture)) + ";\n" +
-		"process.env.QB_TIMEOUT_MS = " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + ";\n"
+	preamble := "const captureConfig = Object.freeze({\n" +
+		"QB_CAPTURE_OUT: " + strconv.Quote(outPath) + ",\n" +
+		"QB_KEEP_CAPTURE_SPACE: " + strconv.Quote(strconv.FormatBool(retainBrowser(ctx))) + ",\n" +
+		"QB_LOGIN_URL: " + strconv.Quote(loginURL) + ",\n" +
+		"QB_BANKING_URL: " + strconv.Quote(bankingURL) + ",\n" +
+		"QB_EGO_SPACE: " + strconv.Quote(space) + ",\n" +
+		"QB_CAPTURE_AUDIT: " + strconv.Quote(strconv.FormatBool(auditCapture)) + ",\n" +
+		"QB_TIMEOUT_MS: " + strconv.Quote(strconv.FormatInt(timeoutMs, 10)) + "\n});\n"
 	if existingOnly {
 		preamble += "const resolveExistingTask = " + ExistingEgoTaskJS + ";\nconst captureTarget = " + strconv.Quote(existing.target) + ";\n" +
 			"const identityExpression = " + strconv.Quote(IdentityJS) + ";\n"

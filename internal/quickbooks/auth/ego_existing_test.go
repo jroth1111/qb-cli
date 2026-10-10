@@ -12,7 +12,7 @@ func TestExistingEgoCaptureContract(t *testing.T) {
 	if err != nil {
 		t.Skip("node unavailable")
 	}
-	for _, scenario := range []string{"success", "api-proof", "bad-api-proof", "audit-capture", "tracked-no-label", "untracked", "numeric-space", "homepage", "hydrating-homepage", "missing-identity", "redirect-other-origin", "dialog", "ambiguous", "identity-drift", "user-control"} {
+	for _, scenario := range []string{"success", "api-proof", "bad-api-proof", "audit-capture", "ambient-env-drift", "lexical-config", "post-capture-hydration", "post-capture-no-identity", "identity-navigation-drift", "tracked-no-label", "untracked", "numeric-space", "homepage", "hydrating-homepage", "missing-identity", "redirect-other-origin", "dialog", "ambiguous", "identity-drift", "user-control"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "capture.mjs")
@@ -33,6 +33,7 @@ import assert from 'node:assert/strict';
 const [script, out, scenario, spaceResolver] = process.argv.slice(1);
 const identity = {realm:'123', email:'person@example.com'};
 let reads = 0, ticks = 0, reloaded = false, navigations = 0;
+const capturesAudit = ['audit-capture','ambient-env-drift','lexical-config','post-capture-hydration','post-capture-no-identity'].includes(scenario);
 let currentURL = ['homepage','hydrating-homepage'].includes(scenario) ? 'https://qbo.intuit.com/app/homepage' : 'https://qbo.intuit.com/app/banking';
 const bankEvents = [{method:'Network.requestWillBeSent',params:{requestId:'1',request:{url:'https://qbo.intuit.com/api/test',headers:{Authorization:'Intuit_APIKey test'}}}},
  {method:'Network.requestWillBeSent',params:{requestId:'2',request:{url:'https://qbo.intuit.com/api/v4/graphql',headers:{apikey:'secondary'}}}}];
@@ -51,35 +52,42 @@ const ego={helpers:{
  switchTab:async(target)=>{ assert.equal(target,'target'); return tab; },
  pageInfo:async()=>({url:currentURL,dialog:scenario==='dialog'}),
  gotoAndWait:async url=>{ assert.ok(url==='https://qbo.intuit.com/app/banking'||url==='https://qbo.intuit.com/app/auditlog');currentURL=url;navigations++; },
- js:async()=>{reads++;if(scenario==='missing-identity'||scenario==='hydrating-homepage'&&reads===1)return {};return reads>1&&scenario==='identity-drift'?{...identity,email:'other@example.com'}:identity;},
+ js:async()=>{reads++;if(scenario==='identity-navigation-drift'&&reads>1)currentURL='https://evil.example/app/banking';if(scenario==='missing-identity'||scenario==='hydrating-homepage'&&reads===1||scenario==='post-capture-no-identity'&&reads>1||scenario==='post-capture-hydration'&&reads>1&&reads<4)return {};return reads>1&&scenario==='identity-drift'?{...identity,email:'other@example.com'}:identity;},
  drainEvents:async()=> reloaded ? (currentURL.endsWith('/app/auditlog')?auditEvents:bankEvents) : [],
  cdp:async(method,params)=> {
-   if (method==='Page.reload') { reloaded=true;if(scenario==='redirect-other-origin')currentURL='https://evil.example/app/banking'; return {}; }
+   if (method==='Page.reload') {
+     reloaded=true;
+     if(scenario==='redirect-other-origin')currentURL='https://evil.example/app/banking';
+     if(scenario==='ambient-env-drift')Object.assign(fakeProcess.env,{QB_CAPTURE_OUT:out+'.other',QB_CAPTURE_AUDIT:'false',QB_TIMEOUT_MS:'1',QB_EGO_SPACE:'other'});
+     return {};
+   }
    if (method==='Network.enable') return {};
    assert.equal(method,'Network.getCookies');
    assert.deepEqual(params.urls,['https://qbo.intuit.com/']);
    return {cookies:[{name:'ticket',value:'secret',domain:'.qbo.intuit.com',path:'/',expires:-1}]};
  },
 }};
-const fakeProcess={env:{QB_CAPTURE_OUT:out,QB_TIMEOUT_MS:'90000',QB_EGO_SPACE:scenario==='numeric-space'?'3':'qb-login',QB_CAPTURE_AUDIT:scenario==='audit-capture'?'true':'false'}};
+const options={QB_CAPTURE_OUT:out,QB_TIMEOUT_MS:'90000',QB_EGO_SPACE:scenario==='numeric-space'?'3':'qb-login',QB_CAPTURE_AUDIT:capturesAudit?'true':'false'};
+const fakeProcess={env:scenario==='lexical-config'?{QB_CAPTURE_OUT:out+'.other',QB_TIMEOUT_MS:'1',QB_EGO_SPACE:'other',QB_CAPTURE_AUDIT:'false'}:{...options}};
 const logs=[];
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const run=new AsyncFunction('ego','taskSpace','process','captureTarget','identityExpression','Date','setTimeout','console','requireAPIProof','listTaskSpaces','resolveExistingTask',await fs.readFile(script,'utf8'));
+const run=new AsyncFunction('ego','taskSpace','process','captureTarget','identityExpression','Date','setTimeout','console','requireAPIProof','listTaskSpaces','resolveExistingTask','captureConfig',await fs.readFile(script,'utf8'));
 const taskSpace=async key=>{assert.equal(key,3);return {spaceId:3,ownership:scenario==='user-control'?'user':'agent',tabs:async()=>scenario==='ambiguous'?[tab,tab]:[tab],page:label=>{assert.equal(label,'p5');return {fetch:async(url,opts)=>{
  assert.ok(url.includes('/api/v3/company/123/query'));assert.equal(opts.method,'GET');assert.equal(opts.headers.Authorization,'Intuit_APIKey test');
  return {status:200,body:JSON.stringify({QueryResponse:scenario==='bad-api-proof'?{}:{CompanyInfo:[{CompanyName:'Fixture company'}]}})};
 }};}};};
 let failure;
-try { await run(ego,taskSpace,fakeProcess,scenario==='success'?'p5':'target','identity',{now:()=>ticks+=5000},f=>f(),{log:x=>logs.push(x)},scenario.includes('api-proof'),async()=>[{id:3,name:'qb-login',ownership:'agent'}],(0,eval)(spaceResolver)); } catch(e) { failure=e; }
-if(['success','api-proof','audit-capture','numeric-space','homepage','hydrating-homepage'].includes(scenario)) {
+try { await run(ego,taskSpace,fakeProcess,scenario==='success'?'p5':'target','identity',{now:()=>ticks+=5000},f=>f(),{log:x=>logs.push(x)},scenario.includes('api-proof'),async()=>[{id:3,name:'qb-login',ownership:'agent'}],(0,eval)(spaceResolver),scenario==='lexical-config'?Object.freeze(options):undefined); } catch(e) { failure=e; }
+if(['success','api-proof','audit-capture','ambient-env-drift','lexical-config','post-capture-hydration','numeric-space','homepage','hydrating-homepage'].includes(scenario)) {
  assert.equal(failure,undefined);
  const result=JSON.parse(await fs.readFile(out,'utf8'));
  assert.equal(result.cookies.length,1); assert.equal(result.identity.realm,'123');
  assert.equal(result.ego_space,'3');assert.equal(result.ego_target_id,'p5');
  assert.equal(JSON.stringify(logs).includes('secret'),false);
- assert.equal(result.audit_authorization,scenario==='audit-capture'?'Intuit_APIKey audit-token':'');
+ assert.equal(result.audit_authorization,capturesAudit?'Intuit_APIKey audit-token':'');
  assert.equal(result.api_proof,scenario==='api-proof');
- assert.equal(navigations,['homepage','hydrating-homepage'].includes(scenario)?1:(scenario==='audit-capture'?2:0));
+ assert.equal(navigations,['homepage','hydrating-homepage'].includes(scenario)?1:(capturesAudit?2:0));
+ await assert.rejects(fs.access(out+'.other'));
 } else {
  assert.ok(failure); await assert.rejects(fs.access(out));
  if(scenario==='user-control'||scenario==='ambiguous'||scenario==='dialog') assert.equal(reloaded,false);
